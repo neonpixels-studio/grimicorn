@@ -74,3 +74,129 @@ describe("netlify security headers", () => {
     expect(directives).toContain("includesubdomains");
   });
 });
+
+const CSP_HEADER_NAME = "Content-Security-Policy";
+const GLOBAL_HEADERS_PATH = "/*";
+
+// Origins the built site actually pulls resources from (see .vitepress/config.ts head).
+const GOOGLE_FONTS_STYLESHEET_ORIGIN = "https://fonts.googleapis.com";
+const GOOGLE_FONTS_FILE_ORIGIN = "https://fonts.gstatic.com";
+
+function readGlobalHeadersBlock() {
+  const config = readFileSync(NETLIFY_CONFIG_PATH, "utf8");
+  const blocks = config
+    .split(/^\[\[headers\]\]/m)
+    .map((block) => block.split(/^\[(?!headers\.)/m)[0])
+    .filter((block) => /^\s*for\s*=\s*"([^"]*)"/m.test(block));
+  const globalBlocks = blocks.filter(
+    (block) => block.match(/for\s*=\s*"([^"]*)"/)?.[1] === GLOBAL_HEADERS_PATH,
+  );
+  // Netlify applies every matching block, so a stray second one would silently
+  // change what ships; require exactly one to keep this assertion meaningful.
+  if (globalBlocks.length !== 1) {
+    throw new Error(
+      `netlify.toml must have exactly one [[headers]] block for "${GLOBAL_HEADERS_PATH}", found ${globalBlocks.length}`,
+    );
+  }
+  return globalBlocks[0];
+}
+
+function readCspDirectives() {
+  const match = readGlobalHeadersBlock().match(
+    new RegExp(`^\\s*${CSP_HEADER_NAME}\\s*=\\s*"([^"]*)"`, "m"),
+  );
+  if (!match) {
+    throw new Error(`netlify.toml is missing a ${CSP_HEADER_NAME} header`);
+  }
+  const directives = new Map<string, string[]>();
+  for (const directive of match[1].split(";")) {
+    const [name, ...sources] = directive.trim().split(/\s+/);
+    // CSP names are case-insensitive; browsers honor the first occurrence only.
+    const key = name.toLowerCase();
+    if (!key || directives.has(key)) {
+      continue;
+    }
+    directives.set(key, sources);
+  }
+  return directives;
+}
+
+// CSP source order and keyword casing are not semantically significant, so compare
+// on a normalized (lowercased, sorted) basis rather than asserting exact formatting.
+function normalizeSources(sources: string[] | undefined) {
+  return [...(sources ?? [])].map((source) => source.toLowerCase()).sort();
+}
+
+function expectSources(
+  directives: Map<string, string[]>,
+  name: string,
+  expected: string[],
+) {
+  expect(normalizeSources(directives.get(name))).toEqual(
+    normalizeSources(expected),
+  );
+}
+
+// Every directive the policy is allowed to carry; a new/removed one must be reviewed
+// (a widening directive like script-src-elem would otherwise slip past named checks).
+const EXPECTED_DIRECTIVES = [
+  "default-src",
+  "script-src",
+  "style-src",
+  "font-src",
+  "img-src",
+  "connect-src",
+  "object-src",
+  "base-uri",
+  "frame-ancestors",
+  "form-action",
+];
+
+describe("Content-Security-Policy header", () => {
+  it("declares no directives beyond the reviewed set", () => {
+    const directives = readCspDirectives();
+    expect([...directives.keys()].sort()).toEqual(
+      [...EXPECTED_DIRECTIVES].sort(),
+    );
+  });
+
+  it("defines a self-scoped default fallback", () => {
+    expectSources(readCspDirectives(), "default-src", ["'self'"]);
+  });
+
+  it("allows the inline VitePress bootstrap and JSON-LD scripts", () => {
+    expectSources(readCspDirectives(), "script-src", [
+      "'self'",
+      "'unsafe-inline'",
+    ]);
+  });
+
+  it("allows inline style attributes and the Google Fonts stylesheet", () => {
+    expectSources(readCspDirectives(), "style-src", [
+      "'self'",
+      "'unsafe-inline'",
+      GOOGLE_FONTS_STYLESHEET_ORIGIN,
+    ]);
+  });
+
+  it("allows Google Fonts font files", () => {
+    expectSources(readCspDirectives(), "font-src", [
+      "'self'",
+      GOOGLE_FONTS_FILE_ORIGIN,
+    ]);
+  });
+
+  it("keeps images and network requests same-origin", () => {
+    const directives = readCspDirectives();
+    expectSources(directives, "img-src", ["'self'", "data:"]);
+    expectSources(directives, "connect-src", ["'self'"]);
+  });
+
+  it("locks down framing, plugins, base URI, and form submissions", () => {
+    const directives = readCspDirectives();
+    expectSources(directives, "frame-ancestors", ["'none'"]);
+    expectSources(directives, "object-src", ["'none'"]);
+    expectSources(directives, "base-uri", ["'self'"]);
+    expectSources(directives, "form-action", ["'self'"]);
+  });
+});

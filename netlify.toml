@@ -13,3 +13,9 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains"
+    # script-src keeps 'unsafe-inline' because VitePress emits inline bootstrap scripts
+    # (dark-mode/mac-os detection, __VP_SITE_DATA__) plus the inline JSON-LD. A static
+    # netlify.toml cannot carry the per-build 'sha256-...' hashes those would need;
+    # @todo drop 'unsafe-inline' by generating a _headers file with computed hashes at
+    # build time. Until then, XSS hardening rests on object-src/base-uri/frame-ancestors.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
