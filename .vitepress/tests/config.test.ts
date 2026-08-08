@@ -45,6 +45,9 @@ const MIN_IMAGE_ALT_LENGTH = 20;
 // X (Twitter) truncates image alt text beyond this many characters.
 const MAX_IMAGE_ALT_LENGTH = 420;
 
+// Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
+const SITE_BACKGROUND_COLOR = "#0a0a0b";
+
 function readPngDimensions(filePath: string) {
   const buffer = readFileSync(filePath);
   if (buffer.length < PNG_HEADER_MIN_BYTES) {
@@ -106,6 +109,27 @@ function resolveMetaImagePath(identifier: string) {
   return publicPathForUrl(findMetaContent(identifier));
 }
 
+function findLinkHref(rel: string) {
+  const head = config.head ?? [];
+  const entry = head.find(
+    ([tag, attributes]) => tag === "link" && attributes?.rel === rel,
+  );
+  if (!entry) {
+    throw new Error(`Missing link tag for rel="${rel}"`);
+  }
+  const href = entry[1].href;
+  if (href === undefined) {
+    throw new Error(`Link tag "${rel}" has no href attribute`);
+  }
+  return href;
+}
+
+function readWebManifest() {
+  return JSON.parse(
+    readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8"),
+  );
+}
+
 // Confirms the path is a real file AND that its case matches disk, since macOS (APFS)
 // is case-insensitive but the deployed Linux host is not — a case mismatch 404s in prod.
 function isRealFileWithExactCase(filePath: string) {
@@ -142,6 +166,15 @@ function collectLocalAssetHrefs() {
     .filter(isLocalHref);
   return [...new Set(hrefs)];
 }
+
+describe("Web app manifest colors", () => {
+  it("pins manifest and theme-color to the site background so the PWA splash does not flash white", () => {
+    const manifest = readWebManifest();
+    expect(findMetaContent("theme-color")).toBe(SITE_BACKGROUND_COLOR);
+    expect(manifest.theme_color).toBe(SITE_BACKGROUND_COLOR);
+    expect(manifest.background_color).toBe(SITE_BACKGROUND_COLOR);
+  });
+});
 
 describe("Open Graph image metadata", () => {
   it("declares dimensions that match the real og:image file", () => {
