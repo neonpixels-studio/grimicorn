@@ -16,17 +16,20 @@
     "lint:fix": "prettier --write . && eslint . --fix",
     "prepare": "husky"
   },
+  "overrides": {
+    "nanoid@^3.3.0": "^3.3.17"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@typescript-eslint/parser": "^8.65.0",
+    "@typescript-eslint/parser": "^8.66.0",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.4.10",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.10.0",
     "eslint-plugin-vuejs-accessibility": "^2.5.0",
-    "globals": "^17.8.0",
+    "globals": "^17.9.0",
     "happy-dom": "^20.11.1",
     "husky": "^9.1.7",
     "prettier": "^3.9.6",
