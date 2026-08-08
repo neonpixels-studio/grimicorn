@@ -366,11 +366,6 @@ onUnmounted(() => {
               class="text-fg-subtle hover:text-fg no-underline transition-colors"
               >status</a
             >
-            <a
-              href="/#links"
-              class="text-fg-subtle hover:text-fg no-underline transition-colors"
-              >links</a
-            >
           </div>
           <span class="text-lime">● agent online</span>
         </div>
@@ -671,7 +666,6 @@ onUnmounted(() => {
 
             <!-- right: portrait + links -->
             <div
-              id="links"
               class="flex flex-col gap-6 border-t border-white/[0.07] p-5 sm:p-[34px_30px] lg:border-t-0 lg:border-l"
             >
               <div class="relative">

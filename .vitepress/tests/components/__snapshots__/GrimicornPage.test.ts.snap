@@ -9,7 +9,7 @@ exports[`GrimicornPage > renders correctly 1`] = `
     <nav class="flex items-center justify-between border-b border-white/[0.07] py-[26px]">
       <div class="flex items-center gap-3"><span class="bg-lime animate-dot h-[9px] w-[9px] rounded-full"></span><span class="text-sm font-bold tracking-[0.02em]">grimicorn.dev</span></div>
       <div class="flex items-center gap-4 text-[12.5px]">
-        <div class="text-fg-subtle hidden items-center gap-[26px] sm:flex"><a href="/#about" class="text-fg-subtle hover:text-fg no-underline transition-colors">about</a><a href="/#status" class="text-fg-subtle hover:text-fg no-underline transition-colors">status</a><a href="/#links" class="text-fg-subtle hover:text-fg no-underline transition-colors">links</a></div><span class="text-lime">● agent online</span>
+        <div class="text-fg-subtle hidden items-center gap-[26px] sm:flex"><a href="/#about" class="text-fg-subtle hover:text-fg no-underline transition-colors">about</a><a href="/#status" class="text-fg-subtle hover:text-fg no-underline transition-colors">status</a></div><span class="text-lime">● agent online</span>
       </div>
     </nav><!-- hero -->
     <section id="about" class="grid grid-cols-1 gap-8 pt-10 pb-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-[52px] lg:pt-16 lg:pb-14">
@@ -88,7 +88,7 @@ exports[`GrimicornPage > renders correctly 1`] = `
               <div class="text-[12.5px] leading-[1.95] text-[#9a9aa3]"><span class="text-purple">[00:00:00]</span><span class="text-[#cdcac4]">deleted 2,000 lines of dead code</span></div>
             </div>
           </div><!-- right: portrait + links -->
-          <div id="links" class="flex flex-col gap-6 border-t border-white/[0.07] p-5 sm:p-[34px_30px] lg:border-t-0 lg:border-l">
+          <div class="flex flex-col gap-6 border-t border-white/[0.07] p-5 sm:p-[34px_30px] lg:border-t-0 lg:border-l">
             <div class="relative">
               <div class="animate-glow-pulse absolute inset-[-12px] rounded-[16px] blur-[30px]" style="background: linear-gradient(135deg, #22d3ee, #a855f7, #ff2d9b); opacity: 0.34;"></div>
               <div class="relative overflow-hidden rounded-[10px] border border-white/[0.12]">

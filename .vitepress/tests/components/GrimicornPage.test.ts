@@ -550,6 +550,72 @@ describe("GrimicornPage", () => {
     });
   });
 
+  describe("in-page navigation targets", () => {
+    // Every in-page fragment the page advertises; each must resolve to a
+    // top-level <section>. The named set (rather than a bare length check) is
+    // the "pin, don't count" convention this file uses elsewhere, and the
+    // obvious place to add "links" back if that panel is ever promoted to a
+    // real section.
+    const ADVERTISED_FRAGMENT_TARGETS = ["about", "status"];
+
+    // Pulls the fragment id out of an in-page anchor href ("/#status" or
+    // "#status" -> "status"), returning null for anything that isn't a
+    // same-page fragment: external URLs (matched only if they start with the
+    // in-page prefixes, so "https://…#readme" is excluded) and a bare "#" with
+    // no id. Deliberately not reused from isExternalHref: the prefix allowlist
+    // must also exclude cross-page hrefs like "/about#status", which a scheme
+    // check would wrongly admit as same-page.
+    function fragmentId(href: string) {
+      if (!href.startsWith("#") && !href.startsWith("/#")) {
+        return null;
+      }
+      const id = href.slice(href.indexOf("#") + 1);
+      return id.length > 0 ? id : null;
+    }
+
+    it("points every in-page nav anchor at a real top-level <section> peer", async () => {
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const fragmentIds = wrapper
+        .findAll("a[href]")
+        .map((link) => fragmentId(link.attributes("href") ?? ""))
+        .filter((id): id is string => id !== null);
+
+      // Pin the exact set of advertised in-page targets (deduped — the hero
+      // CTA repeats "#status"), matching this file's "pin, don't count"
+      // convention so dropping #about, or re-adding #links, fails here instead
+      // of silently changing coverage.
+      const advertisedTargets = [...new Set(fragmentIds)].sort();
+      expect(advertisedTargets).toEqual(ADVERTISED_FRAGMENT_TARGETS);
+
+      // The reconciliation invariant: each advertised fragment must resolve to
+      // a <section> carrying that id AND sitting at the top level (no ancestor
+      // <section>) — a genuine peer, not an h3 panel wrapped in a nested
+      // <section id="links"> inside section#status. Matching by id attribute
+      // (rather than a `section#${id}` selector) keeps ids that are legal HTML
+      // but illegal CSS from throwing.
+      const sections = wrapper.findAll("section[id]");
+      advertisedTargets.forEach((id) => {
+        const target = sections.find(
+          (section) => section.attributes("id") === id,
+        );
+        expect(
+          target,
+          `no <section id="${id}"> for nav anchor #${id}`,
+        ).toBeDefined();
+        const ancestorSection =
+          target?.element.parentElement?.closest("section") ?? null;
+        expect(
+          ancestorSection,
+          `<section id="${id}"> for nav anchor #${id} is nested inside another <section>`,
+        ).toBeNull();
+      });
+
+      wrapper.unmount();
+    });
+  });
+
   describe("cursor-linked parallax and prefers-reduced-motion", () => {
     afterEach(() => {
       vi.restoreAllMocks();
