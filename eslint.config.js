@@ -20,6 +20,14 @@ export default [
     },
   },
   {
+    files: ["**/*.mjs"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
     files: ["**/*.vue"],
     languageOptions: {
       parserOptions: {

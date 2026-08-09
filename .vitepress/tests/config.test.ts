@@ -64,6 +64,11 @@ const MIN_IMAGE_ALT_LENGTH = 20;
 // X (Twitter) truncates image alt text beyond this many characters.
 const MAX_IMAGE_ALT_LENGTH = 420;
 
+// Landscape banner spec: platforms render summary_large_image at ~1.91:1.
+const OG_IMAGE_FILE = "grimicorn-og.png";
+const OG_EXPECTED_WIDTH = 1200;
+const OG_EXPECTED_HEIGHT = 630;
+
 // Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
 const SITE_BACKGROUND_COLOR = "#0a0a0b";
 
@@ -193,21 +198,6 @@ function resolveMetaImagePath(identifier: string) {
   return publicPathForUrl(findMetaContent(identifier));
 }
 
-function findLinkHref(rel: string) {
-  const head = config.head ?? [];
-  const entry = head.find(
-    ([tag, attributes]) => tag === "link" && attributes?.rel === rel,
-  );
-  if (!entry) {
-    throw new Error(`Missing link tag for rel="${rel}"`);
-  }
-  const href = entry[1].href;
-  if (href === undefined) {
-    throw new Error(`Link tag "${rel}" has no href attribute`);
-  }
-  return href;
-}
-
 function readWebManifest() {
   return JSON.parse(
     readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8"),
@@ -261,16 +251,27 @@ describe("Web app manifest colors", () => {
 });
 
 describe("Open Graph image metadata", () => {
-  it("declares dimensions that match the real og:image file", () => {
+  it("points twitter:image at the same asset as og:image", () => {
+    expect(findMetaContent("twitter:image")).toBe(findMetaContent("og:image"));
+  });
+
+  it("serves a dedicated landscape banner asset", () => {
+    expect(resolveMetaImagePath("og:image")).toBe(
+      resolve(PUBLIC_DIR, "assets", OG_IMAGE_FILE),
+    );
+  });
+
+  it("declares the 1200x630 landscape dimensions", () => {
+    expect(findMetaContent("og:image:width")).toBe(String(OG_EXPECTED_WIDTH));
+    expect(findMetaContent("og:image:height")).toBe(String(OG_EXPECTED_HEIGHT));
+  });
+
+  it("ships a landscape banner file matching the declared dimensions", () => {
     const { width, height } = readPngDimensions(
       resolveMetaImagePath("og:image"),
     );
-    expect(findMetaContent("og:image:width")).toBe(String(width));
-    expect(findMetaContent("og:image:height")).toBe(String(height));
-  });
-
-  it("points twitter:image at the same asset as og:image", () => {
-    expect(findMetaContent("twitter:image")).toBe(findMetaContent("og:image"));
+    expect(width).toBe(OG_EXPECTED_WIDTH);
+    expect(height).toBe(OG_EXPECTED_HEIGHT);
   });
 
   it("declares usable alt text for og:image and twitter:image", () => {

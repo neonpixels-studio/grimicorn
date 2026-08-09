@@ -4,7 +4,9 @@ import tailwindcss from "@tailwindcss/vite";
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
-const OG_IMAGE = `${SITE_URL}/assets/grimicorn-hero.png`;
+const OG_IMAGE = `${SITE_URL}/assets/grimicorn-og.png`;
+const OG_IMAGE_WIDTH = "1200";
+const OG_IMAGE_HEIGHT = "630";
 const OG_IMAGE_ALT =
   "Grimicorn: a psychedelic, skeletal unicorn with a spiraled horn and flowing rainbow-colored mane, prancing before a rainbow over a surreal landscape.";
 
@@ -57,8 +59,8 @@ export default defineConfig({
     ],
     ["meta", { property: "og:description", content: DESCRIPTION }],
     ["meta", { property: "og:image", content: OG_IMAGE }],
-    ["meta", { property: "og:image:width", content: "1824" }],
-    ["meta", { property: "og:image:height", content: "1824" }],
+    ["meta", { property: "og:image:width", content: OG_IMAGE_WIDTH }],
+    ["meta", { property: "og:image:height", content: OG_IMAGE_HEIGHT }],
     ["meta", { property: "og:image:alt", content: OG_IMAGE_ALT }],
     // Twitter Card
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
