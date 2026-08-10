@@ -69,9 +69,6 @@ const OG_IMAGE_FILE = "grimicorn-og.png";
 const OG_EXPECTED_WIDTH = 1200;
 const OG_EXPECTED_HEIGHT = 630;
 
-// Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
-const SITE_BACKGROUND_COLOR = "#0a0a0b";
-
 function readPngDimensions(filePath: string) {
   const buffer = readFileSync(filePath);
   if (buffer.length < PNG_HEADER_MIN_BYTES) {
@@ -243,10 +240,15 @@ function collectLocalAssetHrefs() {
 
 describe("Web app manifest colors", () => {
   it("pins manifest and theme-color to the site background so the PWA splash does not flash white", () => {
+    // Derive the expected color from --color-bg in theme/style.css at test time,
+    // so editing the CSS without updating the manifest/splash fails this suite.
+    const siteBackground = normalizeHexColor(readBrandBackgroundColor());
     const manifest = readWebManifest();
-    expect(findMetaContent("theme-color")).toBe(SITE_BACKGROUND_COLOR);
-    expect(manifest.theme_color).toBe(SITE_BACKGROUND_COLOR);
-    expect(manifest.background_color).toBe(SITE_BACKGROUND_COLOR);
+    expect(normalizeHexColor(findMetaContent("theme-color"))).toBe(
+      siteBackground,
+    );
+    expect(normalizeHexColor(manifest.theme_color)).toBe(siteBackground);
+    expect(normalizeHexColor(manifest.background_color)).toBe(siteBackground);
   });
 });
 
