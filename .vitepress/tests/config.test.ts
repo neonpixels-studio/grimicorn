@@ -3,6 +3,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
 import config from "../config";
+import {
+  OG_WIDTH,
+  OG_HEIGHT,
+  OG_IMAGE_FILENAME,
+} from "../../og-banner-spec.mjs";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -64,10 +69,31 @@ const MIN_IMAGE_ALT_LENGTH = 20;
 // X (Twitter) truncates image alt text beyond this many characters.
 const MAX_IMAGE_ALT_LENGTH = 420;
 
-// Landscape banner spec: platforms render summary_large_image at ~1.91:1.
+// Landscape banner: platforms render summary_large_image at ~1.91:1. These are
+// the canonical contract, pinned here (like EXPECTED_SITE_URL above) rather than
+// imported, so the shared spec and the shipped asset are checked against a fixed
+// external requirement; config is verified separately via its rendered meta tags.
+// A drift in the spec, config, or the asset fails loud.
 const OG_IMAGE_FILE = "grimicorn-og.png";
 const OG_EXPECTED_WIDTH = 1200;
 const OG_EXPECTED_HEIGHT = 630;
+
+// The generator must import the shared spec, not re-inline the dimensions, or the
+// producer can drift from config even though config tracks the spec.
+const OG_GENERATOR_SCRIPT = resolve(
+  process.cwd(),
+  "scripts/generate-og-banner.mjs",
+);
+// Captures the binding list so we assert the real symbols are imported (robust)
+// rather than banning bare numerals (which miss `1200x630` and hit stray values).
+const SHARED_SPEC_IMPORT_PATTERN =
+  /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/og-banner-spec\.mjs["']/;
+const REQUIRED_SPEC_BINDINGS = ["OG_WIDTH", "OG_HEIGHT", "OG_IMAGE_FILENAME"];
+
+// A commented-out import must not satisfy the drift assertion, so scan code only.
+function stripComments(source: string) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
 
 // Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
 const SITE_BACKGROUND_COLOR = "#0a0a0b";
@@ -272,6 +298,21 @@ describe("Open Graph image metadata", () => {
     );
     expect(width).toBe(OG_EXPECTED_WIDTH);
     expect(height).toBe(OG_EXPECTED_HEIGHT);
+  });
+
+  it("pins the shared spec to the canonical landscape contract", () => {
+    expect(OG_WIDTH).toBe(OG_EXPECTED_WIDTH);
+    expect(OG_HEIGHT).toBe(OG_EXPECTED_HEIGHT);
+    expect(OG_IMAGE_FILENAME).toBe(OG_IMAGE_FILE);
+  });
+
+  it("has the generator import the shared spec instead of re-inlining it", () => {
+    const code = stripComments(readFileSync(OG_GENERATOR_SCRIPT, "utf8"));
+    const [, bindingList = ""] = code.match(SHARED_SPEC_IMPORT_PATTERN) ?? [];
+    const imported = bindingList.split(",").map((binding) => binding.trim());
+    for (const binding of REQUIRED_SPEC_BINDINGS) {
+      expect(imported, binding).toContain(binding);
+    }
   });
 
   it("declares usable alt text for og:image and twitter:image", () => {

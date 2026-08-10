@@ -1,13 +1,12 @@
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 
-// Landscape Open Graph banner spec. Twitter's summary_large_image and most
-// platforms render ~1.91:1, so a square source gets center-cropped. We derive a
-// 1200x630 banner from the existing square hero art, padded to the site theme
-// background so nothing is cropped.
-const OG_WIDTH = 1200;
-const OG_HEIGHT = 630;
+// Landscape Open Graph banner. Twitter's summary_large_image and most platforms
+// render ~1.91:1, so a square source gets center-cropped. We derive the banner
+// from the existing square hero art, padded to the site theme background so
+// nothing is cropped. Dimensions and filename come from the shared spec.
 // Mirrors --color-bg in .vitepress/theme/style.css so the padding stays on-brand.
 const THEME_BACKGROUND = "#0a0a0b";
 const PNG_COMPRESSION_LEVEL = 9;
@@ -15,7 +14,7 @@ const PNG_COMPRESSION_LEVEL = 9;
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
 const SOURCE_IMAGE = resolve(projectRoot, "public/assets/grimicorn-hero.png");
-const OUTPUT_IMAGE = resolve(projectRoot, "public/assets/grimicorn-og.png");
+const OUTPUT_IMAGE = resolve(projectRoot, "public/assets", OG_IMAGE_FILENAME);
 
 async function generateBanner() {
   const hero = await sharp(SOURCE_IMAGE)
