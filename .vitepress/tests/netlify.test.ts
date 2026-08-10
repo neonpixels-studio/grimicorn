@@ -121,10 +121,32 @@ function readCspDirectives() {
   return directives;
 }
 
-// CSP source order and keyword casing are not semantically significant, so compare
-// on a normalized (lowercased, sorted) basis rather than asserting exact formatting.
+// A host-source splits into an optional scheme, a host (with optional port), and
+// an optional path. Per the CSP spec the scheme and host are case-insensitive but
+// the path is compared verbatim, so this captures scheme+host separately from it.
+const HOST_SOURCE_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/)?([^/]*)(\/.*)?$/i;
+
+// Fold a single CSP source to a canonical casing for comparison. Quoted keyword
+// sources ('self', 'none', 'unsafe-inline', nonces, hashes) fold whole because
+// only their keyword casing is insignificant; a host-source folds just its
+// scheme+host and preserves the case-sensitive path.
+function normalizeSource(source: string) {
+  if (source.startsWith("'")) {
+    return source.toLowerCase();
+  }
+  const match = source.match(HOST_SOURCE_PATTERN);
+  if (!match) {
+    return source.toLowerCase();
+  }
+  const [, scheme = "", host = "", path = ""] = match;
+  return `${scheme}${host}`.toLowerCase() + path;
+}
+
+// CSP source order and scheme/host casing are not semantically significant, so
+// compare on a normalized (case-folded scheme+host, sorted) basis rather than
+// asserting exact formatting. Paths stay case-sensitive per the CSP spec.
 function normalizeSources(sources: string[] | undefined) {
-  return [...(sources ?? [])].map((source) => source.toLowerCase()).sort();
+  return [...(sources ?? [])].map(normalizeSource).sort();
 }
 
 function expectSources(
@@ -151,6 +173,34 @@ const EXPECTED_DIRECTIVES = [
   "frame-ancestors",
   "form-action",
 ];
+
+describe("normalizeSources", () => {
+  it("lowercases a mixed-case scheme and host", () => {
+    expect(normalizeSources(["HTTPS://Fonts.GoogleAPIs.com"])).toEqual([
+      "https://fonts.googleapis.com",
+    ]);
+  });
+
+  it("folds the host but preserves a case-sensitive path", () => {
+    expect(normalizeSources(["https://Example.com/SomePath"])).toEqual([
+      "https://example.com/SomePath",
+    ]);
+  });
+
+  it("preserves path casing across the port", () => {
+    expect(normalizeSources(["https://Example.com:8080/Mixed/Case"])).toEqual([
+      "https://example.com:8080/Mixed/Case",
+    ]);
+  });
+
+  it("lowercases keyword and scheme sources", () => {
+    expect(normalizeSources(["'SELF'", "'Unsafe-Inline'", "DATA:"])).toEqual([
+      "'self'",
+      "'unsafe-inline'",
+      "data:",
+    ]);
+  });
+});
 
 describe("Content-Security-Policy header", () => {
   it("declares no directives beyond the reviewed set", () => {
