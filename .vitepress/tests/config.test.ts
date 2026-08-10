@@ -250,6 +250,23 @@ describe("Web app manifest colors", () => {
   });
 });
 
+describe("Web app manifest icons", () => {
+  const manifestIconSources: string[] = (readWebManifest().icons ?? []).map(
+    (icon: { src: string }) => icon.src,
+  );
+
+  it("declares at least one manifest icon to verify", () => {
+    expect(manifestIconSources.length).toBeGreaterThan(0);
+  });
+
+  it.each(manifestIconSources)(
+    "resolves icon src %s to a real file under public",
+    (src) => {
+      expect(isRealFileWithExactCase(publicPathForUrl(src)), src).toBe(true);
+    },
+  );
+});
+
 describe("Open Graph image metadata", () => {
   it("points twitter:image at the same asset as og:image", () => {
     expect(findMetaContent("twitter:image")).toBe(findMetaContent("og:image"));
