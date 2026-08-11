@@ -11,6 +11,10 @@
     // `Token` type and @vueuse/core references Web Bluetooth globals, neither of
     // which we can fix and neither of which lives in our code.
     "skipLibCheck": true,
+    // Let config.ts and the tests infer types from the plain-JS shared OG banner
+    // spec's one source file (no parallel .d.ts to drift). allowJs enables reading
+    // it for inference; it is not type-checked itself.
+    "allowJs": true,
     // Mirror the resolve.alias entries in vitest.config.ts so vue-tsc resolves
     // the @components/@theme imports used by the test files.
     "paths": {
@@ -22,7 +26,8 @@
     "**/*.ts",
     "**/*.vue",
     ".vitepress/**/*.ts",
-    ".vitepress/**/*.vue"
+    ".vitepress/**/*.vue",
+    "og-banner-spec.mjs"
   ],
   "exclude": ["node_modules", ".vitepress/cache", ".vitepress/dist"]
 }
