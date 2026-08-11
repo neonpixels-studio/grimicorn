@@ -3,6 +3,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
 import config from "../config";
+import {
+  OG_WIDTH,
+  OG_HEIGHT,
+  OG_IMAGE_FILENAME,
+} from "../../og-banner-spec.mjs";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -64,10 +69,41 @@ const MIN_IMAGE_ALT_LENGTH = 20;
 // X (Twitter) truncates image alt text beyond this many characters.
 const MAX_IMAGE_ALT_LENGTH = 420;
 
-// Landscape banner spec: platforms render summary_large_image at ~1.91:1.
+// Landscape banner: platforms render summary_large_image at ~1.91:1. These are
+// the canonical contract, pinned here (like EXPECTED_SITE_URL above) rather than
+// imported, so the shared spec and the shipped asset are checked against a fixed
+// external requirement; config is verified separately via its rendered meta tags.
+// A drift in the spec, config, or the asset fails loud.
 const OG_IMAGE_FILE = "grimicorn-og.png";
 const OG_EXPECTED_WIDTH = 1200;
 const OG_EXPECTED_HEIGHT = 630;
+
+// The generator must import the shared spec, not re-inline the dimensions, or the
+// producer can drift from config even though config tracks the spec.
+const OG_GENERATOR_SCRIPT = resolve(
+  process.cwd(),
+  "scripts/generate-og-banner.mjs",
+);
+// Captures the binding list so we assert the real symbols are imported (robust)
+// rather than banning bare numerals (which miss `1200x630` and hit stray values).
+const SHARED_SPEC_IMPORT_PATTERN =
+  /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/og-banner-spec\.mjs["']/;
+const REQUIRED_SPEC_BINDINGS = ["OG_WIDTH", "OG_HEIGHT", "OG_IMAGE_FILENAME"];
+
+// A commented-out import must not satisfy the drift assertion, so scan code only.
+function stripComments(source: string) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+// robots.txt and llms.txt carry literal site URLs and marketing copy with no
+// framework binding, so a domain move or copy change strands them silently. These
+// guards recouple them to the config source of truth (the canonical URL and
+// config.description).
+const ROBOTS_TXT = resolve(PUBLIC_DIR, "robots.txt");
+const LLMS_TXT = resolve(PUBLIC_DIR, "llms.txt");
+const SITEMAP_PATHNAME = "/sitemap.xml";
+const ROBOTS_SITEMAP_PATTERN = /^Sitemap:[ \t]*(\S+)[ \t]*$/gm;
+const LLMS_DESCRIPTION_PATTERN = /^>[ \t]*(.+)$/gm;
 
 function readPngDimensions(filePath: string) {
   const buffer = readFileSync(filePath);
@@ -176,6 +212,27 @@ function readBrandBackgroundColor() {
   return value;
 }
 
+// Duplicate directives (two Sitemap lines, two Home links) are exactly the drift
+// this guards against, so every extraction insists on exactly one match.
+function extractSingleCapture(
+  source: string,
+  pattern: RegExp,
+  description: string,
+) {
+  const matches = [...source.matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected exactly one ${description}, found ${matches.length}`,
+    );
+  }
+  return matches[0][1].trim();
+}
+
+function extractMarkdownLinkUrl(source: string, label: string) {
+  const pattern = new RegExp(`\\[${label}\\]\\(([^)\\s]+)\\)`, "g");
+  return extractSingleCapture(source, pattern, `"${label}" link`);
+}
+
 function decodePathname(pathname: string) {
   try {
     return decodeURIComponent(pathname);
@@ -252,6 +309,23 @@ describe("Web app manifest colors", () => {
   });
 });
 
+describe("Web app manifest icons", () => {
+  const manifestIconSources: string[] = (readWebManifest().icons ?? []).map(
+    (icon: { src: string }) => icon.src,
+  );
+
+  it("declares at least one manifest icon to verify", () => {
+    expect(manifestIconSources.length).toBeGreaterThan(0);
+  });
+
+  it.each(manifestIconSources)(
+    "resolves icon src %s to a real file under public",
+    (src) => {
+      expect(isRealFileWithExactCase(publicPathForUrl(src)), src).toBe(true);
+    },
+  );
+});
+
 describe("Open Graph image metadata", () => {
   it("points twitter:image at the same asset as og:image", () => {
     expect(findMetaContent("twitter:image")).toBe(findMetaContent("og:image"));
@@ -274,6 +348,21 @@ describe("Open Graph image metadata", () => {
     );
     expect(width).toBe(OG_EXPECTED_WIDTH);
     expect(height).toBe(OG_EXPECTED_HEIGHT);
+  });
+
+  it("pins the shared spec to the canonical landscape contract", () => {
+    expect(OG_WIDTH).toBe(OG_EXPECTED_WIDTH);
+    expect(OG_HEIGHT).toBe(OG_EXPECTED_HEIGHT);
+    expect(OG_IMAGE_FILENAME).toBe(OG_IMAGE_FILE);
+  });
+
+  it("has the generator import the shared spec instead of re-inlining it", () => {
+    const code = stripComments(readFileSync(OG_GENERATOR_SCRIPT, "utf8"));
+    const [, bindingList = ""] = code.match(SHARED_SPEC_IMPORT_PATTERN) ?? [];
+    const imported = bindingList.split(",").map((binding) => binding.trim());
+    for (const binding of REQUIRED_SPEC_BINDINGS) {
+      expect(imported, binding).toContain(binding);
+    }
   });
 
   it("declares usable alt text for og:image and twitter:image", () => {
@@ -327,5 +416,39 @@ describe("Site URL consistency", () => {
     expect(structuredData.url).toBe(canonical);
     expect(structuredData.image).toBe(ogImage);
     expect(ogImage.slice(0, canonical.length + 1)).toBe(`${canonical}/`);
+  });
+});
+
+describe("robots.txt", () => {
+  it("points its Sitemap directive at the config site URL", () => {
+    const siteUrl = findLinkHref("canonical");
+    const robots = readFileSync(ROBOTS_TXT, "utf8");
+    const sitemapUrl = extractSingleCapture(
+      robots,
+      ROBOTS_SITEMAP_PATTERN,
+      "Sitemap directive",
+    );
+    expect(sitemapUrl).toBe(`${siteUrl}${SITEMAP_PATHNAME}`);
+  });
+});
+
+describe("llms.txt", () => {
+  it("keeps its marketing description in sync with the config description", () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    const description = extractSingleCapture(
+      llms,
+      LLMS_DESCRIPTION_PATTERN,
+      "description blockquote",
+    );
+    expect(description).toBe(config.description);
+  });
+
+  it("points its on-site links at the config site URL", () => {
+    const siteUrl = findLinkHref("canonical");
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    expect(extractMarkdownLinkUrl(llms, "Home")).toBe(`${siteUrl}/`);
+    expect(extractMarkdownLinkUrl(llms, "Sitemap")).toBe(
+      `${siteUrl}${SITEMAP_PATHNAME}`,
+    );
   });
 });

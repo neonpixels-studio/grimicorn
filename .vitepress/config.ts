@@ -1,12 +1,13 @@
 import { defineConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
+import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
-const OG_IMAGE = `${SITE_URL}/assets/grimicorn-og.png`;
-const OG_IMAGE_WIDTH = "1200";
-const OG_IMAGE_HEIGHT = "630";
+const OG_IMAGE = `${SITE_URL}/assets/${OG_IMAGE_FILENAME}`;
+const OG_IMAGE_WIDTH = String(OG_WIDTH);
+const OG_IMAGE_HEIGHT = String(OG_HEIGHT);
 const OG_IMAGE_ALT =
   "Grimicorn: a psychedelic, skeletal unicorn with a spiraled horn and flowing rainbow-colored mane, prancing before a rainbow over a surreal landscape.";
 
