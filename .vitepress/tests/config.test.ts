@@ -72,6 +72,16 @@ const OG_EXPECTED_HEIGHT = 630;
 // Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
 const SITE_BACKGROUND_COLOR = "#0a0a0b";
 
+// robots.txt and llms.txt carry literal site URLs and marketing copy with no
+// framework binding, so a domain move or copy change strands them silently. These
+// guards recouple them to the config source of truth (the canonical URL and
+// config.description).
+const ROBOTS_TXT = resolve(PUBLIC_DIR, "robots.txt");
+const LLMS_TXT = resolve(PUBLIC_DIR, "llms.txt");
+const SITEMAP_PATHNAME = "/sitemap.xml";
+const ROBOTS_SITEMAP_PATTERN = /^Sitemap:[ \t]*(\S+)[ \t]*$/gm;
+const LLMS_DESCRIPTION_PATTERN = /^>[ \t]*(.+)$/gm;
+
 function readPngDimensions(filePath: string) {
   const buffer = readFileSync(filePath);
   if (buffer.length < PNG_HEADER_MIN_BYTES) {
@@ -177,6 +187,27 @@ function readBrandBackgroundColor() {
     );
   }
   return value;
+}
+
+// Duplicate directives (two Sitemap lines, two Home links) are exactly the drift
+// this guards against, so every extraction insists on exactly one match.
+function extractSingleCapture(
+  source: string,
+  pattern: RegExp,
+  description: string,
+) {
+  const matches = [...source.matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error(
+      `Expected exactly one ${description}, found ${matches.length}`,
+    );
+  }
+  return matches[0][1].trim();
+}
+
+function extractMarkdownLinkUrl(source: string, label: string) {
+  const pattern = new RegExp(`\\[${label}\\]\\(([^)\\s]+)\\)`, "g");
+  return extractSingleCapture(source, pattern, `"${label}" link`);
 }
 
 function decodePathname(pathname: string) {
@@ -325,5 +356,39 @@ describe("Site URL consistency", () => {
     expect(structuredData.url).toBe(canonical);
     expect(structuredData.image).toBe(ogImage);
     expect(ogImage.slice(0, canonical.length + 1)).toBe(`${canonical}/`);
+  });
+});
+
+describe("robots.txt", () => {
+  it("points its Sitemap directive at the config site URL", () => {
+    const siteUrl = findLinkHref("canonical");
+    const robots = readFileSync(ROBOTS_TXT, "utf8");
+    const sitemapUrl = extractSingleCapture(
+      robots,
+      ROBOTS_SITEMAP_PATTERN,
+      "Sitemap directive",
+    );
+    expect(sitemapUrl).toBe(`${siteUrl}${SITEMAP_PATHNAME}`);
+  });
+});
+
+describe("llms.txt", () => {
+  it("keeps its marketing description in sync with the config description", () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    const description = extractSingleCapture(
+      llms,
+      LLMS_DESCRIPTION_PATTERN,
+      "description blockquote",
+    );
+    expect(description).toBe(config.description);
+  });
+
+  it("points its on-site links at the config site URL", () => {
+    const siteUrl = findLinkHref("canonical");
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    expect(extractMarkdownLinkUrl(llms, "Home")).toBe(`${siteUrl}/`);
+    expect(extractMarkdownLinkUrl(llms, "Sitemap")).toBe(
+      `${siteUrl}${SITEMAP_PATHNAME}`,
+    );
   });
 });
