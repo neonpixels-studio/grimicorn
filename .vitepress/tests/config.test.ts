@@ -95,9 +95,6 @@ function stripComments(source: string) {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
-// Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
-const SITE_BACKGROUND_COLOR = "#0a0a0b";
-
 // robots.txt and llms.txt carry literal site URLs and marketing copy with no
 // framework binding, so a domain move or copy change strands them silently. These
 // guards recouple them to the config source of truth (the canonical URL and
@@ -194,8 +191,20 @@ function readStructuredData() {
   return parsed as { url: string; image: string };
 }
 
-function normalizeHexColor(value: string) {
-  return value.trim().toLowerCase();
+// One hex contract for both sides of the comparison: the CSS source and the
+// manifest/meta colors are all held to a 6-digit literal, so `#fff` vs `#ffffff`
+// (identical to a browser) fails loud with a clear message instead of a confusing diff.
+function normalizeHexColor(value: unknown, description: string) {
+  if (typeof value !== "string") {
+    throw new Error(`${description} is not a string color: ${String(value)}`);
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!HEX_COLOR_PATTERN.test(normalized)) {
+    throw new Error(
+      `${description} is not a 6-digit hex literal: ${normalized}`,
+    );
+  }
+  return normalized;
 }
 
 function readBrandBackgroundColor() {
@@ -206,13 +215,7 @@ function readBrandBackgroundColor() {
       `Expected exactly one ${BRAND_BG_CUSTOM_PROPERTY} declaration in ${THEME_STYLESHEET}, found ${matches.length}`,
     );
   }
-  const value = matches[0][1].trim();
-  if (!HEX_COLOR_PATTERN.test(value)) {
-    throw new Error(
-      `${BRAND_BG_CUSTOM_PROPERTY} is not a hex literal: ${value}`,
-    );
-  }
-  return value;
+  return matches[0][1].trim();
 }
 
 // Duplicate directives (two Sitemap lines, two Home links) are exactly the drift
@@ -299,11 +302,21 @@ function collectLocalAssetHrefs() {
 }
 
 describe("Web app manifest colors", () => {
-  it("pins manifest and theme-color to the site background so the PWA splash does not flash white", () => {
+  it("pins manifest colors to the brand background so the PWA splash does not flash white", () => {
     const manifest = readWebManifest();
-    expect(findMetaContent("theme-color")).toBe(SITE_BACKGROUND_COLOR);
-    expect(manifest.theme_color).toBe(SITE_BACKGROUND_COLOR);
-    expect(manifest.background_color).toBe(SITE_BACKGROUND_COLOR);
+    // Source of truth is `--color-bg` in the theme stylesheet, read at test time,
+    // so a CSS change that desyncs the PWA splash color fails this suite loudly.
+    // The `theme-color` meta tag is asserted separately in describe("theme-color").
+    const brandBackground = normalizeHexColor(
+      readBrandBackgroundColor(),
+      BRAND_BG_CUSTOM_PROPERTY,
+    );
+    expect(
+      normalizeHexColor(manifest.theme_color, "manifest theme_color"),
+    ).toBe(brandBackground);
+    expect(
+      normalizeHexColor(manifest.background_color, "manifest background_color"),
+    ).toBe(brandBackground);
   });
 });
 
@@ -393,8 +406,10 @@ describe("Canonical URL", () => {
 
 describe("theme-color", () => {
   it("matches the brand dark background from the theme stylesheet", () => {
-    expect(normalizeHexColor(findMetaContent("theme-color"))).toBe(
-      normalizeHexColor(readBrandBackgroundColor()),
+    expect(
+      normalizeHexColor(findMetaContent("theme-color"), "theme-color meta"),
+    ).toBe(
+      normalizeHexColor(readBrandBackgroundColor(), BRAND_BG_CUSTOM_PROPERTY),
     );
   });
 });
