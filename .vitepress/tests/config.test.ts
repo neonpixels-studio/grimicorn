@@ -95,9 +95,6 @@ function stripComments(source: string) {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
-// Site background (`--color-bg` in theme/style.css); the PWA splash must match it.
-const SITE_BACKGROUND_COLOR = "#0a0a0b";
-
 // robots.txt and llms.txt carry literal site URLs and marketing copy with no
 // framework binding, so a domain move or copy change strands them silently. These
 // guards recouple them to the config source of truth (the canonical URL and
@@ -196,6 +193,17 @@ function readStructuredData() {
 
 function normalizeHexColor(value: string) {
   return value.trim().toLowerCase();
+}
+
+// Missing/typo'd manifest color keys are exactly the desync this suite guards
+// against, so a missing field must fail loud with a readable message rather than
+// crashing normalizeHexColor on undefined — matching findMetaContent/findLinkHref.
+function readManifestColor(manifest: Record<string, unknown>, key: string) {
+  const value = manifest[key];
+  if (typeof value !== "string") {
+    throw new Error(`Web manifest is missing a string "${key}"`);
+  }
+  return normalizeHexColor(value);
 }
 
 function readBrandBackgroundColor() {
@@ -299,11 +307,16 @@ function collectLocalAssetHrefs() {
 }
 
 describe("Web app manifest colors", () => {
-  it("pins manifest and theme-color to the site background so the PWA splash does not flash white", () => {
+  it("pins the manifest colors to the site background so the PWA splash does not flash white", () => {
+    // Derive the expected color from --color-bg in theme/style.css at test time,
+    // so editing the CSS without updating the manifest fails this suite. The
+    // theme-color meta is asserted separately in its own describe block below.
+    const siteBackground = normalizeHexColor(readBrandBackgroundColor());
     const manifest = readWebManifest();
-    expect(findMetaContent("theme-color")).toBe(SITE_BACKGROUND_COLOR);
-    expect(manifest.theme_color).toBe(SITE_BACKGROUND_COLOR);
-    expect(manifest.background_color).toBe(SITE_BACKGROUND_COLOR);
+    expect(readManifestColor(manifest, "theme_color")).toBe(siteBackground);
+    expect(readManifestColor(manifest, "background_color")).toBe(
+      siteBackground,
+    );
   });
 });
 
