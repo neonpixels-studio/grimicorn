@@ -207,6 +207,17 @@ function normalizeHexColor(value: unknown, description: string) {
   return normalized;
 }
 
+// Missing/typo'd manifest color keys are exactly the desync this suite guards
+// against, so a missing field must fail loud with a readable message rather than
+// crashing normalizeHexColor on undefined — matching findMetaContent/findLinkHref.
+function readManifestColor(manifest: Record<string, unknown>, key: string) {
+  const value = manifest[key];
+  if (typeof value !== "string") {
+    throw new Error(`Web manifest is missing a string "${key}"`);
+  }
+  return normalizeHexColor(value, `manifest ${key}`);
+}
+
 function readBrandBackgroundColor() {
   const stylesheet = readFileSync(THEME_STYLESHEET, "utf8");
   const matches = [...stylesheet.matchAll(BRAND_BG_PATTERN)];
@@ -302,8 +313,7 @@ function collectLocalAssetHrefs() {
 }
 
 describe("Web app manifest colors", () => {
-  it("pins manifest colors to the brand background so the PWA splash does not flash white", () => {
-    const manifest = readWebManifest();
+  it("pins the manifest colors to the site background so the PWA splash does not flash white", () => {
     // Source of truth is `--color-bg` in the theme stylesheet, read at test time,
     // so a CSS change that desyncs the PWA splash color fails this suite loudly.
     // The `theme-color` meta tag is asserted separately in describe("theme-color").
@@ -311,12 +321,11 @@ describe("Web app manifest colors", () => {
       readBrandBackgroundColor(),
       BRAND_BG_CUSTOM_PROPERTY,
     );
-    expect(
-      normalizeHexColor(manifest.theme_color, "manifest theme_color"),
-    ).toBe(brandBackground);
-    expect(
-      normalizeHexColor(manifest.background_color, "manifest background_color"),
-    ).toBe(brandBackground);
+    const manifest = readWebManifest();
+    expect(readManifestColor(manifest, "theme_color")).toBe(brandBackground);
+    expect(readManifestColor(manifest, "background_color")).toBe(
+      brandBackground,
+    );
   });
 });
 
