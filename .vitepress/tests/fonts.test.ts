@@ -34,7 +34,8 @@ const GOOGLE_FONTS_ORIGINS = [
 
 const FAMILY_PATTERN = /font-family:\s*["']([^"']+)["']/;
 const DISPLAY_PATTERN = /font-display:\s*([a-z-]+)/;
-const FONT_URL_PATTERN = /url\(["']([^"')]+)["']\)/;
+// Quotes are optional in CSS url(), so accept url(x), url('x') and url("x").
+const FONT_URL_PATTERN = /url\(\s*["']?([^"')]+)["']?\s*\)/;
 
 function readFontFaces() {
   // The /g regex is created per call so its lastIndex never leaks between calls.
@@ -111,9 +112,9 @@ describe("self-hosted @font-face declarations", () => {
   );
 
   it.each(faces)("resolves $label to a real woff2 under public", (face) => {
-    const path = publicPathForFontUrl(face.url);
-    expect(isRealFileWithExactCase(path), face.url).toBe(true);
-    expect(readWoff2Signature(path), face.url).toBe(WOFF2_SIGNATURE);
+    const fontFilePath = publicPathForFontUrl(face.url);
+    expect(isRealFileWithExactCase(fontFilePath), face.url).toBe(true);
+    expect(readWoff2Signature(fontFilePath), face.url).toBe(WOFF2_SIGNATURE);
   });
 
   it("loads no remote font origin from any @font-face src", () => {
@@ -152,6 +153,7 @@ describe("head no longer loads Google Fonts", () => {
 // cache-bust), so a stale version or a deleted preload would silently double-fetch
 // or drop the early hint. These assertions keep the two files in lockstep.
 const LATIN_SUBSET_MARKER = "-latin.woff2";
+const FONT_MIME_TYPE = "font/woff2";
 
 function preloadedFontAttributes(): Record<string, string>[] {
   const head = config.head ?? [];
@@ -164,7 +166,9 @@ function preloadedFontAttributes(): Record<string, string>[] {
 }
 
 describe("self-hosted font preloads", () => {
-  const declaredUrls = new Set(readFontFaces().map((face) => face.url));
+  const faces = readFontFaces();
+  const declaredUrls = new Set(faces.map((face) => face.url));
+  const familyByUrl = new Map(faces.map((face) => [face.url, face.family]));
   const preloads = preloadedFontAttributes();
   const preloadRows = preloads.map((attributes) => [
     attributes.href,
@@ -172,20 +176,26 @@ describe("self-hosted font preloads", () => {
   ]);
 
   it("preloads exactly one latin subset per family", () => {
-    expect(preloads).toHaveLength(EXPECTED_FAMILIES.length);
+    // Check per-family coverage, not just the count: two preloads of the same
+    // family (with the other dropped) must not pass.
+    const preloadedFamilies = preloads.map((attributes) =>
+      familyByUrl.get(attributes.href),
+    );
+    expect([...new Set(preloadedFamilies)].sort()).toEqual(
+      [...EXPECTED_FAMILIES].sort(),
+    );
   });
 
   it.each(preloadRows)(
     "preloads %s against a declared @font-face url",
     (href, attributes) => {
+      const preloadAttributes = attributes as Record<string, string>;
       // A stale ?v= drops the href out of the declared set and fails here.
       expect(declaredUrls, href as string).toContain(href);
       expect(href as string).toContain(LATIN_SUBSET_MARKER);
+      expect(preloadAttributes.type, "type").toBe(FONT_MIME_TYPE);
       // Font fetches are always CORS-mode; a missing crossorigin double-fetches.
-      expect(
-        (attributes as Record<string, string>).crossorigin,
-        "crossorigin",
-      ).toBeDefined();
+      expect(preloadAttributes.crossorigin, "crossorigin").toBeDefined();
     },
   );
 });

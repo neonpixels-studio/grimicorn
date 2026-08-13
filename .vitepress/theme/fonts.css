@@ -9,9 +9,13 @@
  * (400-700, the weights the theme uses) pointing at one file. `font-display: swap`
  * keeps text visible with the fallback while the font loads.
  *
- * Files and their unicode-range subsets mirror the Google Fonts css2 payload
- * (Space Grotesk v22, JetBrains Mono v24) so only the glyphs a visitor needs are
- * fetched. To refresh: re-download the woff2 files referenced by
+ * Scope: only the latin and latin-ext subsets are hosted (Space Grotesk v22,
+ * JetBrains Mono v24). This is a Western/English marketing page, so the greek,
+ * cyrillic(-ext) and vietnamese subsets Google also offers are deliberately
+ * omitted — a stray glyph outside these ranges falls back to the system font
+ * rather than bloating the repo. `unicode-range` means the subsets that ARE hosted
+ * are only fetched when a matching glyph appears. To add a subset, download its
+ * woff2 and add a matching @font-face block. To refresh, re-download from
  * https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap
  * The `wght@400..700` *range* syntax is required: it returns one variable woff2 per
  * subset that the `font-weight: 400 700` declarations below describe. The enumerated
