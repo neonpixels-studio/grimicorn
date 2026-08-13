@@ -320,6 +320,10 @@ describe("Hex color normalization", () => {
       /manifest theme_color is not a string color/,
     );
   });
+
+  it("lowercases and trims so casing and whitespace cannot cause a false mismatch", () => {
+    expect(normalizeHexColor("  #1A1A1A ", "test color")).toBe("#1a1a1a");
+  });
 });
 
 describe("Web app manifest colors", () => {
