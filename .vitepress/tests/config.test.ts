@@ -33,7 +33,7 @@ const JSON_LD_MIME = "application/ld+json";
 // The hero <picture> in GrimicornPage.vue is the LCP element; config must preload
 // its first (avif) source so the fetch starts during HTML parse. These pin the
 // contract: the preload must point at the same avif the picture prefers, gated by
-// type, hinted high-priority, and scoped to the home page only.
+// type, hinted high-priority, and scoped to every page except the 404.
 const HERO_COMPONENT = resolve(
   process.cwd(),
   ".vitepress/theme/components/GrimicornPage.vue",
@@ -46,13 +46,14 @@ const HERO_PRELOAD_PRIORITY = "high";
 // group is tempered — `(?!</picture>)` stops it crossing a closing tag — so a
 // picture placed before the hero can't be swallowed into the match.
 const HERO_PICTURE_PATTERN =
-  /<picture>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
+  /<picture\b[^>]*>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
 const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
 const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset="([^"]+)"/;
 // A `media` attribute makes a <source> conditional; the preloaded href is
 // unconditional, so the hero's first source must carry none or an avif client on the
-// excluded viewport fetches a different file than the preload pulled.
-const MEDIA_ATTRIBUTE_PATTERN = /\bmedia=/;
+// excluded viewport fetches a different file than the preload pulled. The leading
+// whitespace requirement avoids matching hyphenated attributes like `data-media`.
+const MEDIA_ATTRIBUTE_PATTERN = /\smedia\s*=/;
 // srcset separates its candidate images with commas; a single-candidate srcset
 // (no comma) is the precondition for preloading via a plain `href`.
 const SRCSET_CANDIDATE_SEPARATOR = ",";
