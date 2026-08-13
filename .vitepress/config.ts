@@ -11,21 +11,14 @@ const OG_IMAGE_HEIGHT = String(OG_HEIGHT);
 const OG_IMAGE_ALT =
   "Grimicorn: a psychedelic, skeletal unicorn with a spiraled horn and flowing rainbow-colored mane, prancing before a rainbow over a surreal landscape.";
 
-// The hero <picture> in GrimicornPage.vue is the landing page's LCP element. It
-// offers avif → webp → png; avif is its first (preferred) source, so preloading
-// only the avif — gated by type so non-avif browsers skip it and fall back to the
-// normal picture resolution — matches what an avif-capable client actually fetches
-// with no wasted bytes. A second type-differentiated preload (webp) would double-
-// download in browsers that support both formats, so we intentionally omit it.
+// The hero <picture> in GrimicornPage.vue is the LCP element on every content page.
+// avif is its first (preferred) source, so preloading only the avif — gated by type
+// so non-avif browsers skip it and fall back to the normal picture resolution —
+// matches what an avif-capable client actually fetches with no wasted bytes. A second
+// type-differentiated preload (webp) would double-download in browsers that support
+// both formats, so we intentionally omit it.
 const HERO_IMAGE_HREF = "/assets/grimicorn-hero.avif";
 const HERO_IMAGE_TYPE = "image/avif";
-// The hero lives only on the home page, so the preload is scoped to it via
-// transformHead — a site-wide head entry would fetch this image on the 404 page
-// (which renders no hero), burning a high-priority request and tripping Chrome's
-// "preloaded but not used" warning. transformHead is a build-time hook, so the
-// preload appears under `vitepress build`/`preview`, not `vitepress dev` — verify
-// the LCP win against a production build, not the dev server.
-const HOME_PAGE_RELATIVE_PATH = "index.md";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   "link",
   {
@@ -133,8 +126,14 @@ export default defineConfig({
     ],
     ["link", { rel: "manifest", href: "/images/site.webmanifest?v=20260618" }],
   ],
+  // Scope the preload to where the hero renders: every page except the 404. AppLayout
+  // shows NotFound (no hero) when page.isNotFound and GrimicornPage otherwise, so this
+  // mirrors that exact condition — preloading on the 404 would burn a high-priority
+  // request and trip Chrome's "preloaded but not used" warning. transformHead is a
+  // build-time hook, so the preload appears under `vitepress build`/`preview`, not
+  // `vitepress dev` — verify the LCP win against a production build.
   transformHead: ({ pageData }) => {
-    if (pageData.relativePath !== HOME_PAGE_RELATIVE_PATH) {
+    if (pageData.isNotFound) {
       return [];
     }
     return [HERO_PRELOAD_HEAD_ENTRY];

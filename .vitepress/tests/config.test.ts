@@ -40,9 +40,6 @@ const HERO_COMPONENT = resolve(
 );
 const HERO_AVIF_TYPE = "image/avif";
 const HERO_PRELOAD_PRIORITY = "high";
-// The page the hero preload is scoped to, and a page that must NOT get it.
-const HOME_PAGE_RELATIVE_PATH = "index.md";
-const NON_HOME_RELATIVE_PATH = "404.md";
 // Isolates the hero <picture> by its unique ref before reading the avif source, so
 // the test can't silently start asserting against the portrait picture (which has a
 // structurally identical avif <source>) if the template is reordered. The inner
@@ -208,12 +205,14 @@ type TransformHeadContext = Parameters<
   NonNullable<typeof config.transformHead>
 >[0];
 
-async function headForPage(relativePath: string) {
+// Mirrors AppLayout's own gate: the hero (and its preload) belongs on every page
+// except the 404, which VitePress flags with pageData.isNotFound.
+async function headForPage(pageData: { isNotFound?: boolean }) {
   const transformHead = config.transformHead;
   if (typeof transformHead !== "function") {
     throw new Error("config.transformHead is not defined");
   }
-  const context = { pageData: { relativePath } } as TransformHeadContext;
+  const context = { pageData } as TransformHeadContext;
   const transformed = (await transformHead(context)) ?? [];
   // The page's real head is the site-wide config.head plus the per-page additions,
   // so the negative test catches a site-wide hero preload if one is ever reintroduced.
@@ -253,13 +252,13 @@ function findPreloadImageHref(head: HeadEntry[]) {
 
 function readHeroPictureMarkup() {
   const markup = readFileSync(HERO_COMPONENT, "utf8");
-  const picture = markup.match(HERO_PICTURE_PATTERN);
-  if (!picture) {
+  const pictureMatch = markup.match(HERO_PICTURE_PATTERN);
+  if (!pictureMatch) {
     throw new Error(
       `Could not find the hero <picture> (ref="imageHeroRef") in ${HERO_COMPONENT}`,
     );
   }
-  return picture[1];
+  return pictureMatch[1];
 }
 
 function readHeroFirstSourceTag() {
@@ -275,13 +274,13 @@ function readHeroFirstSourceTag() {
 }
 
 function readHeroAvifSrcset() {
-  const source = readHeroFirstSourceTag().match(SRCSET_ATTRIBUTE_PATTERN);
-  if (!source) {
+  const srcsetMatch = readHeroFirstSourceTag().match(SRCSET_ATTRIBUTE_PATTERN);
+  if (!srcsetMatch) {
     throw new Error(
       `The hero's first <source> has no srcset in ${HERO_COMPONENT}`,
     );
   }
-  return source[1];
+  return srcsetMatch[1];
 }
 
 // The first candidate URL of the avif srcset — the target a plain `href` preload
@@ -515,8 +514,8 @@ describe("Local head asset hrefs", () => {
 });
 
 describe("Hero image preload", () => {
-  it("preloads the hero picture's avif source on the home page to improve LCP", async () => {
-    const head = await headForPage(HOME_PAGE_RELATIVE_PATH);
+  it("preloads the hero picture's avif source on content pages to improve LCP", async () => {
+    const head = await headForPage({ isNotFound: false });
     const attributes = findPreloadImageAttributes(head);
     expect(attributes.href).toBe(readHeroAvifUrl());
     expect(attributes.type).toBe(HERO_AVIF_TYPE);
@@ -540,19 +539,13 @@ describe("Hero image preload", () => {
   });
 
   it("resolves the preloaded avif to a real file under public", async () => {
-    const head = await headForPage(HOME_PAGE_RELATIVE_PATH);
+    const head = await headForPage({ isNotFound: false });
     const href = findPreloadImageHref(head);
     expect(isRealFileWithExactCase(publicPathForUrl(href)), href).toBe(true);
   });
 
-  it("scopes the preload to a home page that exists on disk", () => {
-    expect(
-      isRealFileWithExactCase(resolve(process.cwd(), HOME_PAGE_RELATIVE_PATH)),
-    ).toBe(true);
-  });
-
-  it("does not preload the hero on non-home pages", async () => {
-    const head = await headForPage(NON_HOME_RELATIVE_PATH);
+  it("does not preload the hero on the 404 page, which renders no hero", async () => {
+    const head = await headForPage({ isNotFound: true });
     expect(filterPreloadImageEntries(head)).toHaveLength(0);
   });
 });
