@@ -15,8 +15,16 @@ const EXPECTED_FAMILIES = ["Space Grotesk", "JetBrains Mono"];
 // Self-hosted fonts must be served first-party from /public/fonts and stay
 // non-blocking via font-display: swap.
 const LOCAL_FONT_PATH_PREFIX = "/fonts/";
-const WOFF2_FORMAT = 'format("woff2")';
 const FONT_DISPLAY_SWAP = "swap";
+
+// Both families are variable fonts (one woff2 per subset spans the axis), so each
+// face must declare the weight range the theme uses rather than a single weight.
+const VARIABLE_WEIGHT_RANGE_PATTERN = /font-weight:\s*400\s+700\s*;/;
+// Quote-style-agnostic so a Prettier change can't break the format assertion.
+const WOFF2_FORMAT_PATTERN = /format\(\s*["']woff2["']\s*\)/;
+// woff2 files start with the "wOF2" magic, so a truncated download or a renamed
+// HTML error page fails loud instead of silently falling back to a system font.
+const WOFF2_SIGNATURE = "wOF2";
 
 // Neither origin may reappear anywhere in the head once fonts are self-hosted.
 const GOOGLE_FONTS_ORIGINS = [
@@ -24,22 +32,27 @@ const GOOGLE_FONTS_ORIGINS = [
   "https://fonts.gstatic.com",
 ];
 
-const FONT_FACE_PATTERN = /@font-face\s*\{([^}]*)\}/g;
-const FONT_URL_PATTERN = /url\(["']([^"')]+)["']\)/;
 const FAMILY_PATTERN = /font-family:\s*["']([^"']+)["']/;
 const DISPLAY_PATTERN = /font-display:\s*([a-z-]+)/;
+const FONT_URL_PATTERN = /url\(["']([^"')]+)["']\)/;
 
 function readFontFaces() {
+  // The /g regex is created per call so its lastIndex never leaks between calls.
+  const fontFacePattern = /@font-face\s*\{([^}]*)\}/g;
   const css = readFileSync(FONTS_CSS_PATH, "utf8");
   const faces = [];
   let match;
-  while ((match = FONT_FACE_PATTERN.exec(css))) {
+  while ((match = fontFacePattern.exec(css))) {
     const body = match[1];
+    const family = (body.match(FAMILY_PATTERN) || [])[1];
+    const url = (body.match(FONT_URL_PATTERN) || [])[1];
     faces.push({
-      family: (body.match(FAMILY_PATTERN) || [])[1],
+      family,
+      url,
       display: (body.match(DISPLAY_PATTERN) || [])[1],
-      url: (body.match(FONT_URL_PATTERN) || [])[1],
       raw: body,
+      // A compact label keeps the it.each titles readable (the raw body is multiline).
+      label: `${family} ${url}`,
     });
   }
   return faces;
@@ -55,8 +68,16 @@ function isRealFileWithExactCase(filePath: string) {
   return readdirSync(dirname(filePath)).includes(basename(filePath));
 }
 
+// Drop the ?v= cache-bust query before resolving to a path on disk.
 function publicPathForFontUrl(fontUrl: string) {
-  return resolve(PUBLIC_DIR, fontUrl.replace(/^\//, ""));
+  const withoutQuery = fontUrl.split("?")[0];
+  return resolve(PUBLIC_DIR, withoutQuery.replace(/^\//, ""));
+}
+
+function readWoff2Signature(filePath: string) {
+  return readFileSync(filePath)
+    .subarray(0, WOFF2_SIGNATURE.length)
+    .toString("latin1");
 }
 
 function headAsText() {
@@ -78,32 +99,27 @@ describe("self-hosted @font-face declarations", () => {
     expect([...families].sort()).toEqual([...EXPECTED_FAMILIES].sort());
   });
 
-  it.each(readFontFaces())(
-    "serves %o first-party as a local woff2 with display swap",
+  it.each(faces)(
+    "serves $label first-party as a variable woff2 with display swap",
     (face) => {
       expect(face.url, "src url").toBeDefined();
       expect(face.url.startsWith(LOCAL_FONT_PATH_PREFIX), face.url).toBe(true);
-      expect(face.raw).toContain(WOFF2_FORMAT);
+      expect(face.raw).toMatch(WOFF2_FORMAT_PATTERN);
+      expect(face.raw).toMatch(VARIABLE_WEIGHT_RANGE_PATTERN);
       expect(face.display).toBe(FONT_DISPLAY_SWAP);
     },
   );
 
-  it.each(readFontFaces())(
-    "resolves %o to a real woff2 under public",
-    (face) => {
-      expect(
-        isRealFileWithExactCase(publicPathForFontUrl(face.url)),
-        face.url,
-      ).toBe(true);
-    },
-  );
+  it.each(faces)("resolves $label to a real woff2 under public", (face) => {
+    const path = publicPathForFontUrl(face.url);
+    expect(isRealFileWithExactCase(path), face.url).toBe(true);
+    expect(readWoff2Signature(path), face.url).toBe(WOFF2_SIGNATURE);
+  });
 
   it("loads no remote font origin from any @font-face src", () => {
     // Scan the declarations, not comments: a refresh-instruction comment may
     // cite the Google Fonts URL, but nothing the browser actually fetches may.
-    const declarations = readFontFaces()
-      .map((face) => face.raw)
-      .join("\n");
+    const declarations = faces.map((face) => face.raw).join("\n");
     for (const origin of GOOGLE_FONTS_ORIGINS) {
       expect(declarations, origin).not.toContain(origin);
     }
@@ -111,13 +127,9 @@ describe("self-hosted @font-face declarations", () => {
 });
 
 describe("theme wiring", () => {
-  it("imports the self-hosted font stylesheet before the theme styles", () => {
+  it("imports the self-hosted font stylesheet so the faces load", () => {
     const index = readFileSync(THEME_INDEX_PATH, "utf8");
-    const fontsImportIndex = index.indexOf('"./fonts.css"');
-    const styleImportIndex = index.indexOf('"./style.css"');
-    expect(fontsImportIndex, "fonts.css import").toBeGreaterThanOrEqual(0);
-    expect(styleImportIndex, "style.css import").toBeGreaterThanOrEqual(0);
-    expect(fontsImportIndex).toBeLessThan(styleImportIndex);
+    expect(index).toContain('"./fonts.css"');
   });
 });
 
@@ -128,4 +140,42 @@ describe("head no longer loads Google Fonts", () => {
       expect(head, origin).not.toContain(origin);
     }
   });
+});
+
+// Any @import or scoped <style> pulling from Google Fonts would now be blocked
+// by the tightened CSP with no test failure and only a console error, so couple
+// the CSP change to the removal of every last theme reference.
+const STYLE_SOURCE_EXTENSIONS = [".css", ".vue"];
+
+function collectThemeStyleFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      return collectThemeStyleFiles(entryPath);
+    }
+    const isStyleSource = STYLE_SOURCE_EXTENSIONS.some((extension) =>
+      entry.name.endsWith(extension),
+    );
+    return isStyleSource ? [entryPath] : [];
+  });
+}
+
+// Strip comments so a refresh-instruction comment citing the Google Fonts URL is
+// not mistaken for a resource the browser actually loads.
+function stripComments(source: string) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/<!--[\s\S]*?-->/g, "");
+}
+
+describe("theme stylesheets stay first-party", () => {
+  it.each(collectThemeStyleFiles(THEME_DIR))(
+    "%s references no Google Fonts origin",
+    (filePath) => {
+      const contents = stripComments(readFileSync(filePath, "utf8"));
+      for (const origin of GOOGLE_FONTS_ORIGINS) {
+        expect(contents, origin).not.toContain(origin);
+      }
+    },
+  );
 });

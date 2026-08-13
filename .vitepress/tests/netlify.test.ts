@@ -50,6 +50,16 @@ function parseHstsMaxAge(headerValue: string) {
   return Number(match[1]);
 }
 
+// Cache-Control delimits directives with commas (HSTS uses semicolons), so this
+// matches a max-age token after any whitespace/comma/semicolon boundary.
+function parseCacheMaxAge(headerValue: string) {
+  const match = headerValue.match(/(?:^|[\s;,])max-age\s*=\s*(\d+)/i);
+  if (!match) {
+    throw new Error(`Cache-Control has no max-age directive: "${headerValue}"`);
+  }
+  return Number(match[1]);
+}
+
 const headers = parseHeaders();
 
 describe("netlify security headers", () => {
@@ -77,32 +87,47 @@ describe("netlify security headers", () => {
 
 const CSP_HEADER_NAME = "Content-Security-Policy";
 const GLOBAL_HEADERS_PATH = "/*";
+const FONTS_HEADERS_PATH = "/fonts/*";
 
-// Google Fonts origins the policy must NOT allow: fonts are self-hosted from
-// /public/fonts (see .vitepress/theme/fonts.css), so both style-src and font-src
-// stay first-party-only. A regression that re-adds either origin fails loud.
-const GOOGLE_FONTS_ORIGINS = [
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-];
+// Google Fonts hostnames the policy must NOT allow anywhere: fonts are self-hosted
+// from /public/fonts (see .vitepress/theme/fonts.css), so every directive stays
+// first-party-only. Matched as substrings so a subdomain/path/wildcard variant
+// (e.g. *.gstatic.com, fonts.googleapis.com/css2) can't re-open the hole unseen.
+const GOOGLE_FONTS_HOSTS = ["googleapis.com", "gstatic.com"];
 
-function readGlobalHeadersBlock() {
+// One year is the recommended immutable-asset cache floor; the fonts carry a ?v=
+// cache-bust so an immutable one-year cache is safe.
+const FONT_CACHE_MIN_MAX_AGE_SECONDS = 31536000;
+
+function readHeadersBlockFor(forPath: string) {
   const config = readFileSync(NETLIFY_CONFIG_PATH, "utf8");
   const blocks = config
     .split(/^\[\[headers\]\]/m)
     .map((block) => block.split(/^\[(?!headers\.)/m)[0])
     .filter((block) => /^\s*for\s*=\s*"([^"]*)"/m.test(block));
-  const globalBlocks = blocks.filter(
-    (block) => block.match(/for\s*=\s*"([^"]*)"/)?.[1] === GLOBAL_HEADERS_PATH,
+  const matching = blocks.filter(
+    (block) => block.match(/for\s*=\s*"([^"]*)"/)?.[1] === forPath,
   );
   // Netlify applies every matching block, so a stray second one would silently
   // change what ships; require exactly one to keep this assertion meaningful.
-  if (globalBlocks.length !== 1) {
+  if (matching.length !== 1) {
     throw new Error(
-      `netlify.toml must have exactly one [[headers]] block for "${GLOBAL_HEADERS_PATH}", found ${globalBlocks.length}`,
+      `netlify.toml must have exactly one [[headers]] block for "${forPath}", found ${matching.length}`,
     );
   }
-  return globalBlocks[0];
+  return matching[0];
+}
+
+function readGlobalHeadersBlock() {
+  return readHeadersBlockFor(GLOBAL_HEADERS_PATH);
+}
+
+function readBlockHeader(block: string, name: string) {
+  const match = block.match(new RegExp(`^\\s*${name}\\s*=\\s*"([^"]*)"`, "m"));
+  if (!match) {
+    throw new Error(`netlify.toml block is missing a "${name}" header`);
+  }
+  return match[1];
 }
 
 function readCspDirectives() {
@@ -236,16 +261,15 @@ describe("Content-Security-Policy header", () => {
     expectSources(readCspDirectives(), "font-src", ["'self'"]);
   });
 
-  it("allows no Google Fonts origin in any directive", () => {
-    const directives = readCspDirectives();
-    for (const [name, sources] of directives) {
-      const normalized = normalizeSources(sources);
-      for (const origin of GOOGLE_FONTS_ORIGINS) {
-        expect(normalized, `${name} must not allow ${origin}`).not.toContain(
-          origin,
-        );
-      }
-    }
+  it("allows no Google Fonts host in any directive", () => {
+    const offenders = [...readCspDirectives()].flatMap(([name, sources]) =>
+      normalizeSources(sources)
+        .filter((source) =>
+          GOOGLE_FONTS_HOSTS.some((host) => source.includes(host)),
+        )
+        .map((source) => `${name}: ${source}`),
+    );
+    expect(offenders).toEqual([]);
   });
 
   it("keeps images and network requests same-origin", () => {
@@ -260,5 +284,19 @@ describe("Content-Security-Policy header", () => {
     expectSources(directives, "object-src", ["'none'"]);
     expectSources(directives, "base-uri", ["'self'"]);
     expectSources(directives, "form-action", ["'self'"]);
+  });
+});
+
+describe("self-hosted font caching", () => {
+  const fontsBlock = readHeadersBlockFor(FONTS_HEADERS_PATH);
+  const cacheControl = readBlockHeader(fontsBlock, "Cache-Control");
+
+  it("caches fonts for at least one year", () => {
+    const maxAge = parseCacheMaxAge(cacheControl);
+    expect(maxAge).toBeGreaterThanOrEqual(FONT_CACHE_MIN_MAX_AGE_SECONDS);
+  });
+
+  it("marks the font cache immutable so repeat visits skip revalidation", () => {
+    expect(cacheControl.toLowerCase()).toContain("immutable");
   });
 });
