@@ -1,6 +1,14 @@
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { defineConfig } from "vitepress";
+import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
+import {
+  buildContentSecurityPolicy,
+  buildHeadersFile,
+  collectScriptHashes,
+} from "./headers";
 
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
@@ -21,6 +29,29 @@ const JSON_LD = JSON.stringify({
   operatingSystem: "All",
   image: OG_IMAGE,
 });
+
+const HTML_EXTENSION = ".html";
+const HEADERS_FILENAME = "_headers";
+
+// Read every rendered page, hash its inline scripts, and write the Netlify
+// `_headers` file that carries the CSP with those per-build hashes. Netlify gives
+// netlify.toml precedence over `_headers` for a shared header name, so the CSP
+// lives here alone (the other security headers stay static in netlify.toml).
+function writeCspHeaders(outDir: string) {
+  const htmlDocuments = readdirSync(outDir, { recursive: true })
+    .filter(
+      (entry): entry is string =>
+        typeof entry === "string" && entry.endsWith(HTML_EXTENSION),
+    )
+    .map((entry) => readFileSync(join(outDir, entry), "utf8"));
+  const contentSecurityPolicy = buildContentSecurityPolicy(
+    collectScriptHashes(htmlDocuments),
+  );
+  writeFileSync(
+    join(outDir, HEADERS_FILENAME),
+    buildHeadersFile(contentSecurityPolicy),
+  );
+}
 
 export default defineConfig({
   title: "Grimicorn",
@@ -109,5 +140,8 @@ export default defineConfig({
   ],
   vite: {
     plugins: [tailwindcss()],
+  },
+  buildEnd(siteConfig: SiteConfig) {
+    writeCspHeaders(siteConfig.outDir);
   },
 });
