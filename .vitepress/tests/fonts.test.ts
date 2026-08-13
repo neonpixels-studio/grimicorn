@@ -140,6 +140,54 @@ describe("head no longer loads Google Fonts", () => {
       expect(head, origin).not.toContain(origin);
     }
   });
+
+  it("keeps base at root so the root-absolute font urls resolve", () => {
+    expect(config.base ?? "/", "root-absolute font urls assume base '/'").toBe(
+      "/",
+    );
+  });
+});
+
+// The preload hrefs in config.ts duplicate the fonts.css urls (including the ?v=
+// cache-bust), so a stale version or a deleted preload would silently double-fetch
+// or drop the early hint. These assertions keep the two files in lockstep.
+const LATIN_SUBSET_MARKER = "-latin.woff2";
+
+function preloadedFontAttributes(): Record<string, string>[] {
+  const head = config.head ?? [];
+  return head
+    .filter(([tag]) => tag === "link")
+    .map(([, attributes]) => (attributes ?? {}) as Record<string, string>)
+    .filter(
+      (attributes) => attributes.rel === "preload" && attributes.as === "font",
+    );
+}
+
+describe("self-hosted font preloads", () => {
+  const declaredUrls = new Set(readFontFaces().map((face) => face.url));
+  const preloads = preloadedFontAttributes();
+  const preloadRows = preloads.map((attributes) => [
+    attributes.href,
+    attributes,
+  ]);
+
+  it("preloads exactly one latin subset per family", () => {
+    expect(preloads).toHaveLength(EXPECTED_FAMILIES.length);
+  });
+
+  it.each(preloadRows)(
+    "preloads %s against a declared @font-face url",
+    (href, attributes) => {
+      // A stale ?v= drops the href out of the declared set and fails here.
+      expect(declaredUrls, href as string).toContain(href);
+      expect(href as string).toContain(LATIN_SUBSET_MARKER);
+      // Font fetches are always CORS-mode; a missing crossorigin double-fetches.
+      expect(
+        (attributes as Record<string, string>).crossorigin,
+        "crossorigin",
+      ).toBeDefined();
+    },
+  );
 });
 
 // Any @import or scoped <style> pulling from Google Fonts would now be blocked
@@ -168,8 +216,21 @@ function stripComments(source: string) {
     .replace(/<!--[\s\S]*?-->/g, "");
 }
 
+// index.md is the only content file outside the theme dir that can carry inline
+// styles or an @import, so it is scanned alongside the theme stylesheets.
+const CONTENT_INDEX = resolve(process.cwd(), "index.md");
+
+function collectFirstPartyScanTargets() {
+  return [...collectThemeStyleFiles(THEME_DIR), CONTENT_INDEX];
+}
+
 describe("theme stylesheets stay first-party", () => {
-  it.each(collectThemeStyleFiles(THEME_DIR))(
+  it("finds theme stylesheets to scan", () => {
+    // A zero-length it.each below would report as passing and cover nothing.
+    expect(collectThemeStyleFiles(THEME_DIR).length).toBeGreaterThan(0);
+  });
+
+  it.each(collectFirstPartyScanTargets())(
     "%s references no Google Fonts origin",
     (filePath) => {
       const contents = stripComments(readFileSync(filePath, "utf8"));

@@ -12,13 +12,20 @@
  * Files and their unicode-range subsets mirror the Google Fonts css2 payload
  * (Space Grotesk v22, JetBrains Mono v24) so only the glyphs a visitor needs are
  * fetched. To refresh: re-download the woff2 files referenced by
- * https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap
- * and bump the ?v= query on every url() below (the same cache-bust convention the
- * favicons use in config.ts), since files under /public are not content-hashed and
- * netlify.toml serves /fonts/* with an immutable one-year cache.
+ * https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap
+ * The `wght@400..700` *range* syntax is required: it returns one variable woff2 per
+ * subset that the `font-weight: 400 700` declarations below describe. The enumerated
+ * form (`wght@400;500;...`) can return one static file per weight instead, which
+ * would render 500/600/700 as synthetic bold. Bump the ?v= query on every url()
+ * below (the same cache-bust convention the favicons use in config.ts) and in the
+ * matching config.ts preload hrefs, since files under /public are not content-hashed
+ * and netlify.toml serves /fonts/* with an immutable one-year cache.
  *
  * The urls are root-absolute (/fonts/...); Vite does not rewrite absolute CSS urls
  * for a non-root VitePress `base`, so re-point these if the site ever moves off /.
+ *
+ * Both families are SIL OFL 1.1; the license and copyright notices travel with the
+ * binaries in /public/fonts/space-grotesk-OFL.txt and jetbrains-mono-OFL.txt.
  */
 
 @font-face {
