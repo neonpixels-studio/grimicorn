@@ -1,4 +1,4 @@
-import { defineConfig } from "vitepress";
+import { defineConfig, type HeadConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 
@@ -19,6 +19,21 @@ const OG_IMAGE_ALT =
 // download in browsers that support both formats, so we intentionally omit it.
 const HERO_IMAGE_HREF = "/assets/grimicorn-hero.avif";
 const HERO_IMAGE_TYPE = "image/avif";
+// The hero lives only on the home page, so the preload is scoped to it via
+// transformHead — a site-wide head entry would fetch this image on the 404 page
+// (which renders no hero), burning a high-priority request and tripping Chrome's
+// "preloaded but not used" warning.
+const HOME_PAGE_RELATIVE_PATH = "index.md";
+const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
+  "link",
+  {
+    rel: "preload",
+    as: "image",
+    href: HERO_IMAGE_HREF,
+    type: HERO_IMAGE_TYPE,
+    fetchpriority: "high",
+  },
+];
 
 const JSON_LD = JSON.stringify({
   "@context": "https://schema.org",
@@ -54,17 +69,6 @@ export default defineConfig({
       {
         href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
         rel: "stylesheet",
-      },
-    ],
-    // Preload the above-the-fold hero image to improve LCP
-    [
-      "link",
-      {
-        rel: "preload",
-        as: "image",
-        href: HERO_IMAGE_HREF,
-        type: HERO_IMAGE_TYPE,
-        fetchpriority: "high",
       },
     ],
     // Canonical + theme color
@@ -127,6 +131,12 @@ export default defineConfig({
     ],
     ["link", { rel: "manifest", href: "/images/site.webmanifest?v=20260618" }],
   ],
+  transformHead: ({ pageData }) => {
+    if (pageData.relativePath !== HOME_PAGE_RELATIVE_PATH) {
+      return [];
+    }
+    return [HERO_PRELOAD_HEAD_ENTRY];
+  },
   vite: {
     plugins: [tailwindcss()],
   },

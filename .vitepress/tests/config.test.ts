@@ -33,16 +33,22 @@ const JSON_LD_MIME = "application/ld+json";
 // The hero <picture> in GrimicornPage.vue is the LCP element; config must preload
 // its first (avif) source so the fetch starts during HTML parse. These pin the
 // contract: the preload must point at the same avif the picture prefers, gated by
-// type, and hinted high-priority.
+// type, hinted high-priority, and scoped to the home page only.
 const HERO_COMPONENT = resolve(
   process.cwd(),
   ".vitepress/theme/components/GrimicornPage.vue",
 );
 const HERO_AVIF_TYPE = "image/avif";
 const HERO_PRELOAD_PRIORITY = "high";
-// Captures the srcset of the avif <source> inside the hero <picture> so the test
-// derives the expected preload target from the component instead of a second copy.
-const HERO_AVIF_SOURCE_PATTERN =
+// The page the hero preload is scoped to, and a page that must NOT get it.
+const HOME_PAGE_RELATIVE_PATH = "index.md";
+const NON_HOME_RELATIVE_PATH = "404.md";
+// Isolates the hero <picture> by its unique ref before reading the avif source, so
+// the test can't silently start asserting against the portrait picture (which has a
+// structurally identical avif <source>) if the template is reordered.
+const HERO_PICTURE_PATTERN =
+  /<picture>([\s\S]*?ref="imageHeroRef"[\s\S]*?)<\/picture>/;
+const AVIF_SOURCE_PATTERN =
   /<source\s+srcset="([^"]+)"\s+type="image\/avif"\s*\/>/;
 
 const PNG_SIGNATURE = Buffer.from([
@@ -189,26 +195,50 @@ function findLinkHref(rel: string) {
   return href;
 }
 
-function findPreloadImageAttributes() {
-  const entry = findHeadEntry(
+type TransformHeadContext = Parameters<
+  NonNullable<typeof config.transformHead>
+>[0];
+
+async function headForPage(relativePath: string) {
+  const transformHead = config.transformHead;
+  if (typeof transformHead !== "function") {
+    throw new Error("config.transformHead is not defined");
+  }
+  const context = { pageData: { relativePath } } as TransformHeadContext;
+  const head = await transformHead(context);
+  return head ?? [];
+}
+
+function findPreloadImageAttributes(head: HeadEntry[]) {
+  const entries = head.filter(
     ([tag, attributes]) =>
       tag === "link" &&
       attributes?.rel === "preload" &&
       attributes?.as === "image",
-    `preload link for the hero image`,
   );
-  return entry[1];
+  if (entries.length !== 1) {
+    throw new Error(
+      `Expected exactly one preload link for the hero image, found ${entries.length}`,
+    );
+  }
+  return entries[0][1];
 }
 
 function readHeroAvifSource() {
   const markup = readFileSync(HERO_COMPONENT, "utf8");
-  const match = markup.match(HERO_AVIF_SOURCE_PATTERN);
-  if (!match) {
+  const picture = markup.match(HERO_PICTURE_PATTERN);
+  if (!picture) {
     throw new Error(
-      `Could not find an avif <source> in ${HERO_COMPONENT}; the hero picture may have changed`,
+      `Could not find the hero <picture> (ref="imageHeroRef") in ${HERO_COMPONENT}`,
     );
   }
-  return match[1];
+  const source = picture[1].match(AVIF_SOURCE_PATTERN);
+  if (!source) {
+    throw new Error(
+      `Could not find an avif <source> in the hero <picture> in ${HERO_COMPONENT}`,
+    );
+  }
+  return source[1];
 }
 
 function readStructuredData() {
@@ -436,11 +466,29 @@ describe("Local head asset hrefs", () => {
 });
 
 describe("Hero image preload", () => {
-  it("preloads the hero picture's avif source to improve LCP", () => {
-    const attributes = findPreloadImageAttributes();
+  it("preloads the hero picture's avif source on the home page to improve LCP", async () => {
+    const head = await headForPage(HOME_PAGE_RELATIVE_PATH);
+    const attributes = findPreloadImageAttributes(head);
     expect(attributes.href).toBe(readHeroAvifSource());
     expect(attributes.type).toBe(HERO_AVIF_TYPE);
     expect(attributes.fetchpriority).toBe(HERO_PRELOAD_PRIORITY);
+  });
+
+  it("resolves the preloaded avif to a real file under public", async () => {
+    const head = await headForPage(HOME_PAGE_RELATIVE_PATH);
+    const { href } = findPreloadImageAttributes(head);
+    expect(isRealFileWithExactCase(publicPathForUrl(href!)), href).toBe(true);
+  });
+
+  it("does not preload the hero on non-home pages", async () => {
+    const head = await headForPage(NON_HOME_RELATIVE_PATH);
+    const preloads = head.filter(
+      ([tag, attributes]) =>
+        tag === "link" &&
+        attributes?.rel === "preload" &&
+        attributes?.as === "image",
+    );
+    expect(preloads).toHaveLength(0);
   });
 });
 
