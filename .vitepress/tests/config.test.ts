@@ -208,14 +208,10 @@ function normalizeHexColor(value: unknown, description: string) {
 }
 
 // Missing/typo'd manifest color keys are exactly the desync this suite guards
-// against, so a missing field must fail loud with a readable message rather than
-// crashing normalizeHexColor on undefined — matching findMetaContent/findLinkHref.
+// against; normalizeHexColor fails loud on the missing value with a keyed
+// message, so a dropped color surfaces as a readable failure, not a crash.
 function readManifestColor(manifest: Record<string, unknown>, key: string) {
-  const value = manifest[key];
-  if (typeof value !== "string") {
-    throw new Error(`Web manifest is missing a string "${key}"`);
-  }
-  return normalizeHexColor(value, `manifest ${key}`);
+  return normalizeHexColor(manifest[key], `manifest ${key}`);
 }
 
 function readBrandBackgroundColor() {
