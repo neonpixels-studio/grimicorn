@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defineConfig } from "vitepress";
 import type { SiteConfig } from "vitepress";
@@ -33,7 +33,9 @@ const JSON_LD = JSON.stringify({
 const HTML_EXTENSION = ".html";
 const HEADERS_FILENAME = "_headers";
 
-function readRenderedPages(outDir: string) {
+// `parentPath` names the directory of a recursive Dirent (Node 20.12+); the repo
+// pins Node 24 via .nvmrc/NODE_VERSION, so it is always present.
+export function readRenderedPages(outDir: string) {
   return readdirSync(outDir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(HTML_EXTENSION))
     .map((entry) => readFileSync(join(entry.parentPath, entry.name), "utf8"));
@@ -43,7 +45,8 @@ function readRenderedPages(outDir: string) {
 // `_headers` file that carries the CSP with those per-build hashes. Netlify gives
 // netlify.toml precedence over `_headers` for a shared header name, so the CSP
 // lives here alone (the other security headers stay static in netlify.toml).
-function writeCspHeaders(outDir: string) {
+// Exported for the build-seam test; called from the buildEnd hook below.
+export function writeCspHeaders(outDir: string) {
   const scriptHashes = collectScriptHashes(readRenderedPages(outDir));
   // VitePress always emits inline bootstrap scripts, so zero hashes means the
   // extraction broke (e.g. VitePress changed its output). Fail the build rather
@@ -53,8 +56,16 @@ function writeCspHeaders(outDir: string) {
       "No inline script hashes collected; the generated CSP would block VitePress's bootstrap scripts",
     );
   }
+  const headersPath = join(outDir, HEADERS_FILENAME);
+  // VitePress copies public/ into outDir before buildEnd, so a public/_headers
+  // would already be here. Fail loud rather than silently drop its rules.
+  if (existsSync(headersPath)) {
+    throw new Error(
+      `${HEADERS_FILENAME} already exists in ${outDir}; refusing to overwrite it with the generated CSP`,
+    );
+  }
   writeFileSync(
-    join(outDir, HEADERS_FILENAME),
+    headersPath,
     buildHeadersFile(buildContentSecurityPolicy(scriptHashes)),
   );
 }

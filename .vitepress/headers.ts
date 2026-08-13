@@ -25,7 +25,7 @@ const SCRIPT_SRC_DIRECTIVE = "script-src";
 // The attribute capture stops at the first '>', which assumes no unencoded '>'
 // inside a quoted attribute value. VitePress only emits simple attributes here
 // (id, type), so this holds; a raw '>' in an attribute would misalign the capture.
-const SCRIPT_TAG_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const SCRIPT_TAG_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
 const SRC_ATTRIBUTE_PATTERN = /\bsrc\s*=/i;
 const TYPE_ATTRIBUTE_PATTERN =
   /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
