@@ -155,3 +155,28 @@ body {
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }
+
+/* The pause control is a genuine accessibility affordance, not the footer's
+   decorative easter egg, so its resting color must clear WCAG 1.4.3 (4.5:1) on
+   the dark terminal chrome — the base .colorful-btn #6f6c66 does not. It keeps
+   the shared rainbow hover for visual consistency (only ever shown when the
+   stream is running; it's hidden under reduced motion). */
+.pause-toggle {
+  color: var(--color-fg-muted);
+}
+
+/* Give sighted visitors a resting-state confirmation the stream is paused,
+   since aria-pressed alone is invisible. Kept as color/underline (not
+   generated text) so it doesn't double-announce the state assistive tech
+   already gets from aria-pressed. */
+.pause-toggle[aria-pressed="true"] {
+  color: var(--color-fg);
+  text-decoration: underline;
+}
+
+/* The reset properties strip the button's default affordances, so restore an
+   explicit keyboard focus indicator rather than leaning on the UA default. */
+.pause-toggle:focus-visible {
+  outline: 2px solid var(--color-fg-muted);
+  outline-offset: 2px;
+}
