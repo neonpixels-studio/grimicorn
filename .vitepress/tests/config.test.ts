@@ -45,11 +45,17 @@ const HOME_PAGE_RELATIVE_PATH = "index.md";
 const NON_HOME_RELATIVE_PATH = "404.md";
 // Isolates the hero <picture> by its unique ref before reading the avif source, so
 // the test can't silently start asserting against the portrait picture (which has a
-// structurally identical avif <source>) if the template is reordered.
+// structurally identical avif <source>) if the template is reordered. The inner
+// group is tempered — `(?!</picture>)` stops it crossing a closing tag — so a
+// picture placed before the hero can't be swallowed into the match.
 const HERO_PICTURE_PATTERN =
-  /<picture>([\s\S]*?ref="imageHeroRef"[\s\S]*?)<\/picture>/;
+  /<picture>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
 const AVIF_SOURCE_PATTERN =
   /<source\s+srcset="([^"]+)"\s+type="image\/avif"\s*\/>/;
+const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
+// srcset separates its candidate images with commas; a single-candidate srcset
+// (no comma) is the precondition for preloading via a plain `href`.
+const SRCSET_CANDIDATE_SEPARATOR = ",";
 
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -209,13 +215,17 @@ async function headForPage(relativePath: string) {
   return head ?? [];
 }
 
-function findPreloadImageAttributes(head: HeadEntry[]) {
-  const entries = head.filter(
+function filterPreloadImageEntries(head: HeadEntry[]) {
+  return head.filter(
     ([tag, attributes]) =>
       tag === "link" &&
       attributes?.rel === "preload" &&
       attributes?.as === "image",
   );
+}
+
+function findPreloadImageAttributes(head: HeadEntry[]) {
+  const entries = filterPreloadImageEntries(head);
   if (entries.length !== 1) {
     throw new Error(
       `Expected exactly one preload link for the hero image, found ${entries.length}`,
@@ -224,7 +234,15 @@ function findPreloadImageAttributes(head: HeadEntry[]) {
   return entries[0][1];
 }
 
-function readHeroAvifSource() {
+function findPreloadImageHref(head: HeadEntry[]) {
+  const href = findPreloadImageAttributes(head).href;
+  if (href === undefined) {
+    throw new Error("Preload link has no href attribute");
+  }
+  return href;
+}
+
+function readHeroPictureMarkup() {
   const markup = readFileSync(HERO_COMPONENT, "utf8");
   const picture = markup.match(HERO_PICTURE_PATTERN);
   if (!picture) {
@@ -232,13 +250,35 @@ function readHeroAvifSource() {
       `Could not find the hero <picture> (ref="imageHeroRef") in ${HERO_COMPONENT}`,
     );
   }
-  const source = picture[1].match(AVIF_SOURCE_PATTERN);
+  return picture[1];
+}
+
+function readHeroFirstSourceTag() {
+  const sources = [...readHeroPictureMarkup().matchAll(SOURCE_TAG_PATTERN)].map(
+    ([tag]) => tag,
+  );
+  if (sources.length === 0) {
+    throw new Error(
+      `The hero <picture> in ${HERO_COMPONENT} has no <source> tags`,
+    );
+  }
+  return sources[0];
+}
+
+function readHeroAvifSrcset() {
+  const source = readHeroPictureMarkup().match(AVIF_SOURCE_PATTERN);
   if (!source) {
     throw new Error(
       `Could not find an avif <source> in the hero <picture> in ${HERO_COMPONENT}`,
     );
   }
   return source[1];
+}
+
+// The first candidate URL of the avif srcset — the target a plain `href` preload
+// must equal while the srcset stays single-candidate.
+function readHeroAvifUrl() {
+  return readHeroAvifSrcset().trim().split(/\s+/)[0];
 }
 
 function readStructuredData() {
@@ -469,26 +509,39 @@ describe("Hero image preload", () => {
   it("preloads the hero picture's avif source on the home page to improve LCP", async () => {
     const head = await headForPage(HOME_PAGE_RELATIVE_PATH);
     const attributes = findPreloadImageAttributes(head);
-    expect(attributes.href).toBe(readHeroAvifSource());
+    expect(attributes.href).toBe(readHeroAvifUrl());
     expect(attributes.type).toBe(HERO_AVIF_TYPE);
     expect(attributes.fetchpriority).toBe(HERO_PRELOAD_PRIORITY);
   });
 
+  it("keeps avif as the hero picture's first source so the preload matches what avif clients fetch", () => {
+    expect(readHeroFirstSourceTag()).toContain(`type="${HERO_AVIF_TYPE}"`);
+  });
+
+  it("preloads via href only while the hero avif source stays a single candidate", () => {
+    // A responsive srcset (multiple candidates/descriptors) needs imagesrcset/
+    // imagesizes on the preload, not href, or an avif client double-downloads. This
+    // fails loud the moment a second candidate is added, forcing that change.
+    expect(readHeroAvifSrcset().split(SRCSET_CANDIDATE_SEPARATOR)).toHaveLength(
+      1,
+    );
+  });
+
   it("resolves the preloaded avif to a real file under public", async () => {
     const head = await headForPage(HOME_PAGE_RELATIVE_PATH);
-    const { href } = findPreloadImageAttributes(head);
-    expect(isRealFileWithExactCase(publicPathForUrl(href!)), href).toBe(true);
+    const href = findPreloadImageHref(head);
+    expect(isRealFileWithExactCase(publicPathForUrl(href)), href).toBe(true);
+  });
+
+  it("scopes the preload to a home page that exists on disk", () => {
+    expect(
+      isRealFileWithExactCase(resolve(process.cwd(), HOME_PAGE_RELATIVE_PATH)),
+    ).toBe(true);
   });
 
   it("does not preload the hero on non-home pages", async () => {
     const head = await headForPage(NON_HOME_RELATIVE_PATH);
-    const preloads = head.filter(
-      ([tag, attributes]) =>
-        tag === "link" &&
-        attributes?.rel === "preload" &&
-        attributes?.as === "image",
-    );
-    expect(preloads).toHaveLength(0);
+    expect(filterPreloadImageEntries(head)).toHaveLength(0);
   });
 });
 
