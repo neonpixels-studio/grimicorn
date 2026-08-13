@@ -211,8 +211,10 @@ async function headForPage(relativePath: string) {
     throw new Error("config.transformHead is not defined");
   }
   const context = { pageData: { relativePath } } as TransformHeadContext;
-  const head = await transformHead(context);
-  return head ?? [];
+  const transformed = (await transformHead(context)) ?? [];
+  // The page's real head is the site-wide config.head plus the per-page additions,
+  // so the negative test catches a site-wide hero preload if one is ever reintroduced.
+  return [...((config.head ?? []) as HeadEntry[]), ...transformed];
 }
 
 function filterPreloadImageEntries(head: HeadEntry[]) {
@@ -231,7 +233,11 @@ function findPreloadImageAttributes(head: HeadEntry[]) {
       `Expected exactly one preload link for the hero image, found ${entries.length}`,
     );
   }
-  return entries[0][1];
+  const attributes = entries[0][1];
+  if (!attributes) {
+    throw new Error("Hero preload link entry has no attributes");
+  }
+  return attributes;
 }
 
 function findPreloadImageHref(head: HeadEntry[]) {
@@ -518,13 +524,14 @@ describe("Hero image preload", () => {
     expect(readHeroFirstSourceTag()).toContain(`type="${HERO_AVIF_TYPE}"`);
   });
 
-  it("preloads via href only while the hero avif source stays a single candidate", () => {
-    // A responsive srcset (multiple candidates/descriptors) needs imagesrcset/
-    // imagesizes on the preload, not href, or an avif client double-downloads. This
-    // fails loud the moment a second candidate is added, forcing that change.
-    expect(readHeroAvifSrcset().split(SRCSET_CANDIDATE_SEPARATOR)).toHaveLength(
-      1,
-    );
+  it("preloads via href only while the hero avif source stays a single bare candidate", () => {
+    // A responsive srcset (multiple candidates OR a width/density descriptor) needs
+    // imagesrcset/imagesizes on the preload, not href, or an avif client can
+    // double-download. Reject a comma (extra candidate) and any whitespace (a
+    // descriptor), so either addition fails loud and forces the imagesrcset change.
+    const srcset = readHeroAvifSrcset().trim();
+    expect(srcset).not.toContain(SRCSET_CANDIDATE_SEPARATOR);
+    expect(srcset.split(/\s+/)).toHaveLength(1);
   });
 
   it("resolves the preloaded avif to a real file under public", async () => {
