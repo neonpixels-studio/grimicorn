@@ -308,6 +308,20 @@ function collectLocalAssetHrefs() {
   return [...new Set(hrefs)];
 }
 
+describe("Hex color normalization", () => {
+  it("rejects shorthand hex so #fff cannot masquerade as #ffffff", () => {
+    expect(() => normalizeHexColor("#fff", "test color")).toThrow(
+      /test color is not a 6-digit hex literal/,
+    );
+  });
+
+  it("reports a missing manifest color key with the key in the message", () => {
+    expect(() => readManifestColor({}, "theme_color")).toThrow(
+      /manifest theme_color is not a string color/,
+    );
+  });
+});
+
 describe("Web app manifest colors", () => {
   it("pins the manifest colors to the site background so the PWA splash does not flash white", () => {
     // Source of truth is `--color-bg` in the theme stylesheet, read at test time,
