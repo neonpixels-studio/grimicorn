@@ -90,7 +90,10 @@ const SHARED_SPEC_IMPORT_PATTERN =
   /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/og-banner-spec\.mjs["']/;
 const REQUIRED_SPEC_BINDINGS = ["OG_WIDTH", "OG_HEIGHT", "OG_IMAGE_FILENAME"];
 
-// A commented-out import must not satisfy the drift assertion, so scan code only.
+// Shared by the generator-import scan (a commented-out import must not satisfy the
+// drift assertion) and the stylesheet scan (a commented-out `--color-bg` must not
+// be counted), so both scan code only. The `//` line rule is a no-op for CSS input,
+// which has block comments only.
 function stripComments(source: string) {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
@@ -206,21 +209,30 @@ function readManifestColor(manifest: Record<string, unknown>, key: string) {
   return normalizeHexColor(value);
 }
 
-function readBrandBackgroundColor() {
-  const stylesheet = readFileSync(THEME_STYLESHEET, "utf8");
-  const matches = [...stylesheet.matchAll(BRAND_BG_PATTERN)];
-  if (matches.length !== 1) {
-    throw new Error(
-      `Expected exactly one ${BRAND_BG_CUSTOM_PROPERTY} declaration in ${THEME_STYLESHEET}, found ${matches.length}`,
-    );
-  }
-  const value = matches[0][1].trim();
+// Parse the single brand background literal out of a stylesheet source. Comments
+// must be stripped first; otherwise a commented-out `/* --color-bg: ... */`
+// declaration counts as a real match and trips the "exactly one" guard. Pure over
+// its input (source and label) so the comment-stripping can be exercised in
+// isolation, and so failures name the source the caller actually passed.
+function extractBrandBackgroundColor(stylesheet: string, sourceLabel: string) {
+  const value = extractSingleCapture(
+    stripComments(stylesheet),
+    BRAND_BG_PATTERN,
+    `${BRAND_BG_CUSTOM_PROPERTY} declaration in ${sourceLabel}`,
+  );
   if (!HEX_COLOR_PATTERN.test(value)) {
     throw new Error(
       `${BRAND_BG_CUSTOM_PROPERTY} is not a hex literal: ${value}`,
     );
   }
   return value;
+}
+
+function readBrandBackgroundColor() {
+  return extractBrandBackgroundColor(
+    readFileSync(THEME_STYLESHEET, "utf8"),
+    THEME_STYLESHEET,
+  );
 }
 
 // Duplicate directives (two Sitemap lines, two Home links) are exactly the drift
@@ -409,6 +421,38 @@ describe("theme-color", () => {
     expect(normalizeHexColor(findMetaContent("theme-color"))).toBe(
       normalizeHexColor(readBrandBackgroundColor()),
     );
+  });
+});
+
+describe("brand background color parsing", () => {
+  const FIXTURE_LABEL = "<fixture>";
+
+  it("ignores a commented-out --color-bg declaration when counting the literal", () => {
+    const stylesheetWithCommentedDuplicate = [
+      "/* legacy: --color-bg: #123456; */",
+      ":root {",
+      "  --color-bg: #0a0a0b;",
+      "  /* --color-bg: #ffffff; */",
+      "}",
+    ].join("\n");
+    expect(
+      extractBrandBackgroundColor(
+        stylesheetWithCommentedDuplicate,
+        FIXTURE_LABEL,
+      ),
+    ).toBe("#0a0a0b");
+  });
+
+  it("fails loud, naming the source, on two real --color-bg declarations", () => {
+    const stylesheetWithRealDuplicate = [
+      ":root {",
+      "  --color-bg: #0a0a0b;",
+      "  --color-bg: #ffffff;",
+      "}",
+    ].join("\n");
+    expect(() =>
+      extractBrandBackgroundColor(stylesheetWithRealDuplicate, FIXTURE_LABEL),
+    ).toThrow(/<fixture>[\s\S]*found 2/);
   });
 });
 
