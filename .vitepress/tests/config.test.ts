@@ -50,9 +50,12 @@ const NON_HOME_RELATIVE_PATH = "404.md";
 // picture placed before the hero can't be swallowed into the match.
 const HERO_PICTURE_PATTERN =
   /<picture>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
-const AVIF_SOURCE_PATTERN =
-  /<source\s+srcset="([^"]+)"\s+type="image\/avif"\s*\/>/;
 const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
+const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset="([^"]+)"/;
+// A `media` attribute makes a <source> conditional; the preloaded href is
+// unconditional, so the hero's first source must carry none or an avif client on the
+// excluded viewport fetches a different file than the preload pulled.
+const MEDIA_ATTRIBUTE_PATTERN = /\bmedia=/;
 // srcset separates its candidate images with commas; a single-candidate srcset
 // (no comma) is the precondition for preloading via a plain `href`.
 const SRCSET_CANDIDATE_SEPARATOR = ",";
@@ -272,10 +275,10 @@ function readHeroFirstSourceTag() {
 }
 
 function readHeroAvifSrcset() {
-  const source = readHeroPictureMarkup().match(AVIF_SOURCE_PATTERN);
+  const source = readHeroFirstSourceTag().match(SRCSET_ATTRIBUTE_PATTERN);
   if (!source) {
     throw new Error(
-      `Could not find an avif <source> in the hero <picture> in ${HERO_COMPONENT}`,
+      `The hero's first <source> has no srcset in ${HERO_COMPONENT}`,
     );
   }
   return source[1];
@@ -520,8 +523,10 @@ describe("Hero image preload", () => {
     expect(attributes.fetchpriority).toBe(HERO_PRELOAD_PRIORITY);
   });
 
-  it("keeps avif as the hero picture's first source so the preload matches what avif clients fetch", () => {
-    expect(readHeroFirstSourceTag()).toContain(`type="${HERO_AVIF_TYPE}"`);
+  it("keeps avif as the hero picture's first, unconditional source so the preload matches what avif clients fetch", () => {
+    const firstSource = readHeroFirstSourceTag();
+    expect(firstSource).toContain(`type="${HERO_AVIF_TYPE}"`);
+    expect(firstSource).not.toMatch(MEDIA_ATTRIBUTE_PATTERN);
   });
 
   it("preloads via href only while the hero avif source stays a single bare candidate", () => {

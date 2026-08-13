@@ -22,7 +22,9 @@ const HERO_IMAGE_TYPE = "image/avif";
 // The hero lives only on the home page, so the preload is scoped to it via
 // transformHead — a site-wide head entry would fetch this image on the 404 page
 // (which renders no hero), burning a high-priority request and tripping Chrome's
-// "preloaded but not used" warning.
+// "preloaded but not used" warning. transformHead is a build-time hook, so the
+// preload appears under `vitepress build`/`preview`, not `vitepress dev` — verify
+// the LCP win against a production build, not the dev server.
 const HOME_PAGE_RELATIVE_PATH = "index.md";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   "link",
