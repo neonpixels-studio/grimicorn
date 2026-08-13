@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readRenderedPages, writeCspHeaders } from "../config";
+import { readRenderedPages, writeCspHeaders } from "../write-headers";
 import {
   buildContentSecurityPolicy,
   buildHeadersFile,
