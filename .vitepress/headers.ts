@@ -22,19 +22,29 @@ const GOOGLE_FONTS_STYLESHEET_ORIGIN = "https://fonts.googleapis.com";
 const GOOGLE_FONTS_FILE_ORIGIN = "https://fonts.gstatic.com";
 const SCRIPT_SRC_DIRECTIVE = "script-src";
 
+// The attribute capture stops at the first '>', which assumes no unencoded '>'
+// inside a quoted attribute value. VitePress only emits simple attributes here
+// (id, type), so this holds; a raw '>' in an attribute would misalign the capture.
 const SCRIPT_TAG_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
 const SRC_ATTRIBUTE_PATTERN = /\bsrc\s*=/i;
 const TYPE_ATTRIBUTE_PATTERN =
   /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
+const MIME_PARAMETER_SEPARATOR = ";";
 
-// script-src only governs script elements the browser would execute as JavaScript.
-// A bare/empty type and the JS MIME types are enforced; a data block such as
-// type="application/ld+json" is exempt, so it needs no hash.
+// script-src governs every script element the browser would run: executable JS (a
+// bare/empty type or a JS MIME essence, including legacy aliases) plus import maps.
+// A non-JS data block such as type="application/ld+json" is exempt and needs no
+// hash. The MIME essence is matched with parameters (e.g. "; charset=utf-8")
+// stripped, per the HTML spec's type-matching rules.
 const EXECUTABLE_SCRIPT_TYPES = new Set([
   "",
   "module",
+  "importmap",
   "text/javascript",
   "application/javascript",
+  "text/ecmascript",
+  "application/ecmascript",
+  "application/x-javascript",
 ]);
 
 function readScriptType(attributes: string) {
@@ -43,7 +53,8 @@ function readScriptType(attributes: string) {
     return "";
   }
   const value = match[1] ?? match[2] ?? match[3] ?? "";
-  return value.trim().toLowerCase();
+  const [essence] = value.split(MIME_PARAMETER_SEPARATOR);
+  return essence.trim().toLowerCase();
 }
 
 function isExecutableInlineScript(attributes: string) {

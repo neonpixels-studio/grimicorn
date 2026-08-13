@@ -78,6 +78,16 @@ describe("extractInlineScriptHashes", () => {
     const html = `<script src="/a.js"></script><script type="application/ld+json">{}</script>`;
     expect(extractInlineScriptHashes(html)).toEqual([]);
   });
+
+  it("treats a JS MIME type with parameters and an import map as executable", () => {
+    const parameterized = "globalThis.a = 1;";
+    const importMap = '{"imports":{}}';
+    const html = `<script type="text/javascript; charset=utf-8">${parameterized}</script><script type="importmap">${importMap}</script>`;
+    expect(extractInlineScriptHashes(html)).toEqual([
+      hashInlineScript(parameterized),
+      hashInlineScript(importMap),
+    ]);
+  });
 });
 
 describe("collectScriptHashes", () => {

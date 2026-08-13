@@ -33,23 +33,29 @@ const JSON_LD = JSON.stringify({
 const HTML_EXTENSION = ".html";
 const HEADERS_FILENAME = "_headers";
 
+function readRenderedPages(outDir: string) {
+  return readdirSync(outDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(HTML_EXTENSION))
+    .map((entry) => readFileSync(join(entry.parentPath, entry.name), "utf8"));
+}
+
 // Read every rendered page, hash its inline scripts, and write the Netlify
 // `_headers` file that carries the CSP with those per-build hashes. Netlify gives
 // netlify.toml precedence over `_headers` for a shared header name, so the CSP
 // lives here alone (the other security headers stay static in netlify.toml).
 function writeCspHeaders(outDir: string) {
-  const htmlDocuments = readdirSync(outDir, { recursive: true })
-    .filter(
-      (entry): entry is string =>
-        typeof entry === "string" && entry.endsWith(HTML_EXTENSION),
-    )
-    .map((entry) => readFileSync(join(outDir, entry), "utf8"));
-  const contentSecurityPolicy = buildContentSecurityPolicy(
-    collectScriptHashes(htmlDocuments),
-  );
+  const scriptHashes = collectScriptHashes(readRenderedPages(outDir));
+  // VitePress always emits inline bootstrap scripts, so zero hashes means the
+  // extraction broke (e.g. VitePress changed its output). Fail the build rather
+  // than ship a CSP that blocks those scripts and breaks the site in the browser.
+  if (scriptHashes.length === 0) {
+    throw new Error(
+      "No inline script hashes collected; the generated CSP would block VitePress's bootstrap scripts",
+    );
+  }
   writeFileSync(
     join(outDir, HEADERS_FILENAME),
-    buildHeadersFile(contentSecurityPolicy),
+    buildHeadersFile(buildContentSecurityPolicy(scriptHashes)),
   );
 }
 
