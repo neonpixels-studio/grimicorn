@@ -11,6 +11,15 @@ const OG_IMAGE_HEIGHT = String(OG_HEIGHT);
 const OG_IMAGE_ALT =
   "Grimicorn: a psychedelic, skeletal unicorn with a spiraled horn and flowing rainbow-colored mane, prancing before a rainbow over a surreal landscape.";
 
+// The hero <picture> in GrimicornPage.vue is the landing page's LCP element. It
+// offers avif → webp → png; avif is its first (preferred) source, so preloading
+// only the avif — gated by type so non-avif browsers skip it and fall back to the
+// normal picture resolution — matches what an avif-capable client actually fetches
+// with no wasted bytes. A second type-differentiated preload (webp) would double-
+// download in browsers that support both formats, so we intentionally omit it.
+const HERO_IMAGE_HREF = "/assets/grimicorn-hero.avif";
+const HERO_IMAGE_TYPE = "image/avif";
+
 const JSON_LD = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -45,6 +54,17 @@ export default defineConfig({
       {
         href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
         rel: "stylesheet",
+      },
+    ],
+    // Preload the above-the-fold hero image to improve LCP
+    [
+      "link",
+      {
+        rel: "preload",
+        as: "image",
+        href: HERO_IMAGE_HREF,
+        type: HERO_IMAGE_TYPE,
+        fetchpriority: "high",
       },
     ],
     // Canonical + theme color

@@ -30,6 +30,21 @@ const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 const JSON_LD_MIME = "application/ld+json";
 
+// The hero <picture> in GrimicornPage.vue is the LCP element; config must preload
+// its first (avif) source so the fetch starts during HTML parse. These pin the
+// contract: the preload must point at the same avif the picture prefers, gated by
+// type, and hinted high-priority.
+const HERO_COMPONENT = resolve(
+  process.cwd(),
+  ".vitepress/theme/components/GrimicornPage.vue",
+);
+const HERO_AVIF_TYPE = "image/avif";
+const HERO_PRELOAD_PRIORITY = "high";
+// Captures the srcset of the avif <source> inside the hero <picture> so the test
+// derives the expected preload target from the component instead of a second copy.
+const HERO_AVIF_SOURCE_PATTERN =
+  /<source\s+srcset="([^"]+)"\s+type="image\/avif"\s*\/>/;
+
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
@@ -172,6 +187,28 @@ function findLinkHref(rel: string) {
     throw new Error(`Link tag rel="${rel}" has no href attribute`);
   }
   return href;
+}
+
+function findPreloadImageAttributes() {
+  const entry = findHeadEntry(
+    ([tag, attributes]) =>
+      tag === "link" &&
+      attributes?.rel === "preload" &&
+      attributes?.as === "image",
+    `preload link for the hero image`,
+  );
+  return entry[1];
+}
+
+function readHeroAvifSource() {
+  const markup = readFileSync(HERO_COMPONENT, "utf8");
+  const match = markup.match(HERO_AVIF_SOURCE_PATTERN);
+  if (!match) {
+    throw new Error(
+      `Could not find an avif <source> in ${HERO_COMPONENT}; the hero picture may have changed`,
+    );
+  }
+  return match[1];
 }
 
 function readStructuredData() {
@@ -395,6 +432,15 @@ describe("Local head asset hrefs", () => {
 
   it.each(localHrefs)("resolves %s to a real file under public", (href) => {
     expect(isRealFileWithExactCase(publicPathForUrl(href)), href).toBe(true);
+  });
+});
+
+describe("Hero image preload", () => {
+  it("preloads the hero picture's avif source to improve LCP", () => {
+    const attributes = findPreloadImageAttributes();
+    expect(attributes.href).toBe(readHeroAvifSource());
+    expect(attributes.type).toBe(HERO_AVIF_TYPE);
+    expect(attributes.fetchpriority).toBe(HERO_PRELOAD_PRIORITY);
   });
 });
 
