@@ -30,23 +30,9 @@ export default defineConfig({
     hostname: SITE_URL,
   },
   head: [
-    // Fonts
-    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
-    [
-      "link",
-      {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
-        crossorigin: "",
-      },
-    ],
-    [
-      "link",
-      {
-        href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
-        rel: "stylesheet",
-      },
-    ],
+    // Fonts are self-hosted via @font-face in .vitepress/theme/fonts.css
+    // (served from /public/fonts), so no Google Fonts preconnect or stylesheet
+    // is needed here and the CSP stays first-party-only for fonts.
     // Canonical + theme color
     ["link", { rel: "canonical", href: SITE_URL }],
     ["meta", { name: "theme-color", content: "#0a0a0b" }],

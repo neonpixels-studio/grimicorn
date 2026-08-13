@@ -78,9 +78,13 @@ describe("netlify security headers", () => {
 const CSP_HEADER_NAME = "Content-Security-Policy";
 const GLOBAL_HEADERS_PATH = "/*";
 
-// Origins the built site actually pulls resources from (see .vitepress/config.ts head).
-const GOOGLE_FONTS_STYLESHEET_ORIGIN = "https://fonts.googleapis.com";
-const GOOGLE_FONTS_FILE_ORIGIN = "https://fonts.gstatic.com";
+// Google Fonts origins the policy must NOT allow: fonts are self-hosted from
+// /public/fonts (see .vitepress/theme/fonts.css), so both style-src and font-src
+// stay first-party-only. A regression that re-adds either origin fails loud.
+const GOOGLE_FONTS_ORIGINS = [
+  "https://fonts.googleapis.com",
+  "https://fonts.gstatic.com",
+];
 
 function readGlobalHeadersBlock() {
   const config = readFileSync(NETLIFY_CONFIG_PATH, "utf8");
@@ -221,19 +225,27 @@ describe("Content-Security-Policy header", () => {
     ]);
   });
 
-  it("allows inline style attributes and the Google Fonts stylesheet", () => {
+  it("allows inline style attributes but no third-party stylesheet origin", () => {
     expectSources(readCspDirectives(), "style-src", [
       "'self'",
       "'unsafe-inline'",
-      GOOGLE_FONTS_STYLESHEET_ORIGIN,
     ]);
   });
 
-  it("allows Google Fonts font files", () => {
-    expectSources(readCspDirectives(), "font-src", [
-      "'self'",
-      GOOGLE_FONTS_FILE_ORIGIN,
-    ]);
+  it("keeps fonts first-party only", () => {
+    expectSources(readCspDirectives(), "font-src", ["'self'"]);
+  });
+
+  it("allows no Google Fonts origin in any directive", () => {
+    const directives = readCspDirectives();
+    for (const [name, sources] of directives) {
+      const normalized = normalizeSources(sources);
+      for (const origin of GOOGLE_FONTS_ORIGINS) {
+        expect(normalized, `${name} must not allow ${origin}`).not.toContain(
+          origin,
+        );
+      }
+    }
   });
 
   it("keeps images and network requests same-origin", () => {
