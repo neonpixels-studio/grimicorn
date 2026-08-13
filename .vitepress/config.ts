@@ -1,6 +1,8 @@
 import { defineConfig } from "vitepress";
+import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
+import { writeCspHeaders } from "./write-headers";
 
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
@@ -109,5 +111,8 @@ export default defineConfig({
   ],
   vite: {
     plugins: [tailwindcss()],
+  },
+  buildEnd(siteConfig: SiteConfig) {
+    writeCspHeaders(siteConfig.outDir);
   },
 });
