@@ -17,6 +17,11 @@ const STATIC_HEADERS = {
 const GLOBAL_HEADERS_PATH = "/*";
 const FONTS_HEADERS_PATH = "/fonts/*";
 
+// One anchored pattern for both detecting a block's `for` line and reading its
+// value, so a stray unanchored match (e.g. a commented `# for = "…"`) can't
+// classify a block differently than it was detected.
+const FOR_LINE_PATTERN = /^\s*for\s*=\s*"([^"]*)"/m;
+
 // netlify.toml now carries more than one [[headers]] block (a global one and the
 // /fonts/* cache block), so header lookups must be scoped to a single block —
 // flattening every `Name = "value"` line into one map would let the wrong block's
@@ -27,9 +32,9 @@ function readHeadersBlockFor(forPath: string) {
   const blocks = config
     .split(/^\[\[headers\]\]/m)
     .map((block) => block.split(/^\[(?!headers\.)/m)[0])
-    .filter((block) => /^\s*for\s*=\s*"([^"]*)"/m.test(block));
+    .filter((block) => FOR_LINE_PATTERN.test(block));
   const matching = blocks.filter(
-    (block) => block.match(/for\s*=\s*"([^"]*)"/)?.[1] === forPath,
+    (block) => block.match(FOR_LINE_PATTERN)?.[1] === forPath,
   );
   if (matching.length !== 1) {
     throw new Error(
