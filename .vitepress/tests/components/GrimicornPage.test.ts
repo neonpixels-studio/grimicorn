@@ -67,6 +67,34 @@ function findToast(wrapper: GrimicornWrapper) {
     );
 }
 
+// Two `.colorful-btn` toggles now share the page (rave + content pause), so
+// each lookup targets its button explicitly rather than relying on document
+// order: the rave toggle by its "colorful" label, the pause toggle by its
+// distinguishing class. Throwing on a miss (matching findHeadingByText below)
+// keeps a broken selector failing loudly at the call site instead of silently
+// no-opping through `?.`.
+function findRaveButton(wrapper: GrimicornWrapper) {
+  const button = wrapper
+    .findAll(".colorful-btn")
+    .find((candidate) => candidate.text() === "colorful");
+  if (!button) {
+    throw new Error('No .colorful-btn with text "colorful" was found');
+  }
+  return button;
+}
+
+function findPauseButton(wrapper: GrimicornWrapper) {
+  return wrapper.find(".pause-toggle");
+}
+
+function getTagline(wrapper: GrimicornWrapper) {
+  return wrapper.find(".text-fg-muted span:last-child").text();
+}
+
+function getLogCount(wrapper: GrimicornWrapper) {
+  return wrapper.findAll(".border-l-2 div").length;
+}
+
 const REDUCED_MOTION_MEDIA_QUERY = "(prefers-reduced-motion: reduce)";
 const TAGLINE_ROTATION_INTERVAL_MS = 2800;
 const LOG_APPEND_INTERVAL_MS = 2000;
@@ -348,9 +376,7 @@ describe("GrimicornPage", () => {
     const toast = findToast(wrapper);
     expect(toast?.classes()).toContain("opacity-100");
     expect(toast?.text()).toBe(RAVE_ON_TOAST_MESSAGE);
-    expect(wrapper.find(".colorful-btn").attributes("aria-pressed")).toBe(
-      "true",
-    );
+    expect(findRaveButton(wrapper).attributes("aria-pressed")).toBe("true");
 
     wrapper.unmount();
   });
@@ -428,7 +454,7 @@ describe("GrimicornPage", () => {
     const wrapper = shallowMount(GrimicornPage);
     await wrapper.vm.$nextTick();
 
-    const colorfulButton = wrapper.find(".colorful-btn");
+    const colorfulButton = findRaveButton(wrapper);
     expect(colorfulButton.exists()).toBe(true);
 
     await colorfulButton.trigger("click");
@@ -452,7 +478,7 @@ describe("GrimicornPage", () => {
     const wrapper = shallowMount(GrimicornPage);
     await wrapper.vm.$nextTick();
 
-    const colorfulButton = wrapper.find(".colorful-btn");
+    const colorfulButton = findRaveButton(wrapper);
     expect(colorfulButton.attributes("aria-pressed")).toBe("false");
 
     await colorfulButton.trigger("click");
@@ -1051,6 +1077,214 @@ describe("GrimicornPage", () => {
         taglineAtStop,
       );
       expect(wrapper.findAll(".border-l-2 div").length).toBe(logCountAtStop);
+
+      wrapper.unmount();
+    });
+  });
+
+  describe("visitor-facing pause control (WCAG 2.2.2)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("renders a pause toggle whose aria-pressed reflects the paused state", async () => {
+      mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const pauseButton = findPauseButton(wrapper);
+      expect(pauseButton.exists()).toBe(true);
+      // A stable label carries the affordance; aria-pressed alone carries the
+      // on/off state (mirroring the rave toggle), so the two never contradict.
+      expect(pauseButton.text()).toBe("pause live updates");
+      expect(pauseButton.attributes("aria-pressed")).toBe("false");
+
+      await pauseButton.trigger("click");
+      expect(pauseButton.attributes("aria-pressed")).toBe("true");
+      expect(pauseButton.text()).toBe("pause live updates");
+
+      await pauseButton.trigger("click");
+      expect(pauseButton.attributes("aria-pressed")).toBe("false");
+
+      wrapper.unmount();
+    });
+
+    it("freezes the tagline rotation and log stream when paused via the control", async () => {
+      mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      // Advance one interval below the cap first so a later append would show
+      // as growth, not be silently trimmed — keeps the frozen assertion honest.
+      await vi.advanceTimersByTimeAsync(LOG_APPEND_INTERVAL_MS);
+      await wrapper.vm.$nextTick();
+
+      await findPauseButton(wrapper).trigger("click");
+
+      const taglineAtPause = getTagline(wrapper);
+      // Pinned to the exact expected count (6 seeded + 1 appended), not a
+      // range: a bare `< MAX_LOG_COUNT` would be satisfied by a 0 from a
+      // selector that stopped matching, letting the freeze assertion below pass
+      // vacuously against a component rendering no log at all.
+      const logCountAtPause = getLogCount(wrapper);
+      expect(logCountAtPause).toBe(INITIAL_LOG_COUNT + 1);
+
+      await vi.advanceTimersByTimeAsync(
+        TAGLINE_ROTATION_INTERVAL_MS * 3 + LOG_APPEND_INTERVAL_MS * 3,
+      );
+      await wrapper.vm.$nextTick();
+
+      expect(getTagline(wrapper)).toBe(taglineAtPause);
+      expect(getLogCount(wrapper)).toBe(logCountAtPause);
+
+      wrapper.unmount();
+    });
+
+    it("resumes the tagline rotation and log stream when unpaused via the control", async () => {
+      mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const pauseButton = findPauseButton(wrapper);
+      await pauseButton.trigger("click");
+
+      const taglineWhilePaused = getTagline(wrapper);
+      await vi.advanceTimersByTimeAsync(
+        TAGLINE_ROTATION_INTERVAL_MS + LOG_APPEND_INTERVAL_MS,
+      );
+      await wrapper.vm.$nextTick();
+      expect(getTagline(wrapper)).toBe(taglineWhilePaused);
+
+      await pauseButton.trigger("click");
+      await vi.advanceTimersByTimeAsync(
+        TAGLINE_ROTATION_INTERVAL_MS + LOG_APPEND_INTERVAL_MS * 5,
+      );
+      await wrapper.vm.$nextTick();
+
+      expect(getTagline(wrapper)).not.toBe(taglineWhilePaused);
+      expect(getLogCount(wrapper)).toBe(MAX_LOG_COUNT);
+
+      wrapper.unmount();
+    });
+
+    it("does not render the pause control while the OS prefers reduced motion, since nothing is moving to pause", async () => {
+      mockPrefersReducedMotion(true);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      // WCAG 2.2.2 needs a pause mechanism only for content that actually
+      // auto-updates; reduced motion already froze it, so the control is absent
+      // rather than advertising a paused state that doesn't correspond to
+      // anything on the page.
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+
+      wrapper.unmount();
+    });
+
+    it("appears when the OS reduced-motion preference switches off, and hides again when it switches back on", async () => {
+      const { setMatches } = mockPrefersReducedMotion(true);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+
+      setMatches(false);
+      await wrapper.vm.$nextTick();
+      expect(findPauseButton(wrapper).exists()).toBe(true);
+
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+
+      wrapper.unmount();
+    });
+
+    it("hides the now-inert control on the next toggle if the preference drifted to reduced motion without a change event", async () => {
+      const { mediaQueryList } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(true);
+
+      // The OS flips to reduced motion but the change listener never fires
+      // (e.g. addEventListener failed to attach, which onMounted anticipates).
+      // Without a shared reconcile step the control would be stranded — visible
+      // over a stream it can no longer move.
+      mediaQueryList.matches = true;
+
+      await findPauseButton(wrapper).trigger("click");
+      await wrapper.vm.$nextTick();
+
+      // The toggle re-reads the live preference through the same reconcile path
+      // the listener uses, so the control self-corrects and hides.
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+
+      wrapper.unmount();
+    });
+
+    it("does not render the pause control, nor start the stream, when window.matchMedia is unavailable", async () => {
+      const originalMatchMedia = window.matchMedia;
+      Reflect.deleteProperty(window, "matchMedia");
+      mockAnimationFrame();
+
+      try {
+        const wrapper = shallowMount(GrimicornPage);
+        await wrapper.vm.$nextTick();
+
+        // The preference is unknowable, so the component fails closed: no
+        // moving content, therefore no pause control to (mis)report state.
+        expect(findPauseButton(wrapper).exists()).toBe(false);
+
+        const frozenTagline = getTagline(wrapper);
+        const frozenLogCount = getLogCount(wrapper);
+        // Pinned to the seeded count so a selector miss (which would return 0)
+        // can't make the freeze assertion pass against an empty log.
+        expect(frozenLogCount).toBe(INITIAL_LOG_COUNT);
+        await vi.advanceTimersByTimeAsync(
+          TAGLINE_ROTATION_INTERVAL_MS * 2 + LOG_APPEND_INTERVAL_MS * 2,
+        );
+        await wrapper.vm.$nextTick();
+
+        expect(getTagline(wrapper)).toBe(frozenTagline);
+        expect(getLogCount(wrapper)).toBe(frozenLogCount);
+
+        wrapper.unmount();
+      } finally {
+        window.matchMedia = originalMatchMedia;
+      }
+    });
+
+    it("keeps a visitor's pause when the OS reduced-motion preference flips off", async () => {
+      const { setMatches } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      await findPauseButton(wrapper).trigger("click");
+      const taglineAtPause = getTagline(wrapper);
+      const logCountAtPause = getLogCount(wrapper);
+      expect(logCountAtPause).toBe(INITIAL_LOG_COUNT);
+
+      // A reduced-motion change event that resolves to "not reduced" must not
+      // resurrect the stream the visitor explicitly paused.
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+      setMatches(false);
+      await wrapper.vm.$nextTick();
+
+      await vi.advanceTimersByTimeAsync(
+        TAGLINE_ROTATION_INTERVAL_MS * 2 + LOG_APPEND_INTERVAL_MS * 2,
+      );
+      await wrapper.vm.$nextTick();
+
+      expect(getTagline(wrapper)).toBe(taglineAtPause);
+      expect(getLogCount(wrapper)).toBe(logCountAtPause);
 
       wrapper.unmount();
     });

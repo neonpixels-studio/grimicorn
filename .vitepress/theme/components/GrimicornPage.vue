@@ -51,8 +51,9 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 // cadences live here as named constants and their timers are gated on the same
 // prefers-reduced-motion check the CSS animations and cursor parallax already
 // use — a reduced-motion visitor sees static text instead of it mutating
-// roughly twice a second. A general pause control for visitors who have not set
-// that OS preference is intentionally out of scope for this change.
+// roughly twice a second. Visitors who have not set that OS preference get a
+// manual pause control instead (see `contentPaused` / `resolveContentTimers`),
+// so the same stream is pausable either way.
 const TAGLINE_ROTATION_INTERVAL_MS = 2800;
 const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
@@ -88,6 +89,18 @@ const raveActive = ref(false);
 const rainbowDur = ref("7s");
 const glowDur = ref("3.5s");
 const pageFilter = ref("none");
+// Visitor-driven WCAG 2.2.2 pause state for the auto-advancing tagline/log
+// stream, independent of the OS reduced-motion preference — either one holding
+// keeps the stream frozen (see resolveContentTimers).
+const contentPaused = ref(false);
+// Whether the stream is able to auto-advance at all — true only when the OS
+// isn't asking for reduced motion (and matchMedia was available to check); it
+// stays true while the visitor has merely paused. The pause control is shown
+// only while this holds: WCAG 2.2.2 needs a pause mechanism only for content
+// that actually moves, so under reduced motion (or an unknowable preference)
+// there's nothing to pause and the control is hidden rather than advertising a
+// state it can't deliver.
+const streamCanAutoAdvance = ref(false);
 
 const imageHeroRef = ref<HTMLImageElement | null>(null);
 const imagePortraitRef = ref<HTMLImageElement | null>(null);
@@ -233,21 +246,59 @@ function stopContentTimers() {
   logTimer = 0;
 }
 
+// Single decision point for whether the auto-advancing content stream runs.
+// It stays frozen when either input asks it to: the OS reduced-motion
+// preference (passed in explicitly by the caller) or the visitor's manual
+// pause control. Routing both through here means neither can silently override
+// the other — a paused visitor whose OS flips reduced motion off keeps their
+// pause, and a reduced-motion visitor who toggles the control never starts
+// motion the OS is still asking to suppress.
+function resolveContentTimers(reducedMotionPreferred: boolean) {
+  if (reducedMotionPreferred || contentPaused.value) {
+    stopContentTimers();
+    return;
+  }
+  startContentTimers();
+}
+
+// Derives both reduced-motion-dependent states from a single reading of the
+// preference so the visible control and the running timers can never disagree
+// about whether the stream may move: the control is shown only when the stream
+// can auto-advance, and the timers additionally respect the manual pause. Both
+// entry points (the change listener and the manual toggle) route through here,
+// so if the listener never attaches, a later toggle still self-corrects the
+// control's visibility instead of leaving it stranded.
+function reconcileMotion(reducedMotionPreferred: boolean) {
+  streamCanAutoAdvance.value = !reducedMotionPreferred;
+  resolveContentTimers(reducedMotionPreferred);
+}
+
+// Flips the manual pause state behind the visible control, then reconciles the
+// derived states against the live reduced-motion preference. Reading the
+// MediaQueryList directly (rather than a cached flag) keeps a resume from
+// starting motion the OS is still suppressing; a missing binding falls back to
+// "reduced", the same fail-closed default onMounted uses.
+function toggleContentPaused() {
+  contentPaused.value = !contentPaused.value;
+  reconcileMotion(reducedMotionQuery?.matches ?? true);
+}
+
 // Takes the MediaQueryList (initial check) or MediaQueryListEvent (change
 // event) directly rather than re-reading the outer reducedMotionQuery
 // variable, so the accessibility guard can't fail open if that binding is
 // ever missing by the time this runs. Governs every timed motion on the page:
-// the cursor parallax and both auto-advancing content swaps.
+// the cursor parallax and both auto-advancing content swaps (the latter also
+// gated on the manual pause control, via reconcileMotion).
 function handleReducedMotionChange(
   query: MediaQueryList | MediaQueryListEvent,
 ) {
   if (query.matches) {
     stopParallax();
-    stopContentTimers();
+    reconcileMotion(true);
     return;
   }
   startParallax();
-  startContentTimers();
+  reconcileMotion(false);
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -562,6 +613,14 @@ onUnmounted(() => {
             <span class="text-fg-subtle ml-[6px] truncate text-[12.5px]"
               >grimicorn-agent &mdash; zsh &mdash; 124&times;40</span
             >
+            <button
+              v-if="streamCanAutoAdvance"
+              class="colorful-btn pause-toggle ml-auto shrink-0 text-[12.5px]"
+              :aria-pressed="contentPaused"
+              @click="toggleContentPaused"
+            >
+              pause live updates
+            </button>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr]">
