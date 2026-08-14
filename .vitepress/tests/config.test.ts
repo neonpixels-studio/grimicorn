@@ -228,12 +228,10 @@ function extractBrandBackgroundColor(stylesheet: string, sourceLabel: string) {
     BRAND_BG_PATTERN,
     `${BRAND_BG_CUSTOM_PROPERTY} declaration in ${sourceLabel}`,
   );
-  if (!HEX_COLOR_PATTERN.test(value)) {
-    throw new Error(
-      `${BRAND_BG_CUSTOM_PROPERTY} in ${sourceLabel} is not a hex literal: ${value}`,
-    );
-  }
-  return value;
+  return normalizeHexColor(
+    value,
+    `${BRAND_BG_CUSTOM_PROPERTY} in ${sourceLabel}`,
+  );
 }
 
 function readBrandBackgroundColor() {
