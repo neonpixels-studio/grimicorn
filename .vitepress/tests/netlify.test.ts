@@ -85,15 +85,7 @@ describe("netlify security headers", () => {
   });
 });
 
-const CSP_HEADER_NAME = "Content-Security-Policy";
-const GLOBAL_HEADERS_PATH = "/*";
 const FONTS_HEADERS_PATH = "/fonts/*";
-
-// Google Fonts hostnames the policy must NOT allow anywhere: fonts are self-hosted
-// from /public/fonts (see .vitepress/theme/fonts.css), so every directive stays
-// first-party-only. Matched as substrings so a subdomain/path/wildcard variant
-// (e.g. *.gstatic.com, fonts.googleapis.com/css2) can't re-open the hole unseen.
-const GOOGLE_FONTS_HOSTS = ["googleapis.com", "gstatic.com"];
 
 // One year is the recommended immutable-asset cache floor; the fonts carry a ?v=
 // cache-bust so an immutable one-year cache is safe.
@@ -118,10 +110,6 @@ function readHeadersBlockFor(forPath: string) {
   return matching[0];
 }
 
-function readGlobalHeadersBlock() {
-  return readHeadersBlockFor(GLOBAL_HEADERS_PATH);
-}
-
 function readBlockHeader(block: string, name: string) {
   const match = block.match(new RegExp(`^\\s*${name}\\s*=\\s*"([^"]*)"`, "m"));
   if (!match) {
@@ -130,160 +118,19 @@ function readBlockHeader(block: string, name: string) {
   return match[1];
 }
 
-function readCspDirectives() {
-  const match = readGlobalHeadersBlock().match(
-    new RegExp(`^\\s*${CSP_HEADER_NAME}\\s*=\\s*"([^"]*)"`, "m"),
-  );
-  if (!match) {
-    throw new Error(`netlify.toml is missing a ${CSP_HEADER_NAME} header`);
-  }
-  const directives = new Map<string, string[]>();
-  for (const directive of match[1].split(";")) {
-    const [name, ...sources] = directive.trim().split(/\s+/);
-    // CSP names are case-insensitive; browsers honor the first occurrence only.
-    const key = name.toLowerCase();
-    if (!key || directives.has(key)) {
-      continue;
-    }
-    directives.set(key, sources);
-  }
-  return directives;
-}
+// The CSP carries per-build 'sha256-...' hashes for VitePress's inline scripts, so
+// it is generated into .vitepress/dist/_headers by the buildEnd hook (logic in
+// .vitepress/headers.ts, covered by headers.test.ts). netlify.toml must not also
+// declare one: netlify.toml takes precedence over _headers for a shared header
+// name, so a static CSP here would silently override the hashed policy and restore
+// 'unsafe-inline'. Match the header only where it is assigned a value (`=`), so the
+// explanatory comment in netlify.toml does not trip this guard.
+const CSP_HEADER_ASSIGNMENT = /^\s*Content-Security-Policy\s*=/im;
 
-// A host-source splits into an optional scheme, a host (with optional port), and
-// an optional path. Per the CSP spec the scheme and host are case-insensitive but
-// the path is compared verbatim, so this captures scheme+host separately from it.
-const HOST_SOURCE_PATTERN = /^([a-z][a-z0-9+.-]*:\/\/)?([^/]*)(\/.*)?$/i;
-
-// Fold a single CSP source to a canonical casing for comparison. Quoted keyword
-// sources ('self', 'none', 'unsafe-inline', nonces, hashes) fold whole because
-// only their keyword casing is insignificant; a host-source folds just its
-// scheme+host and preserves the case-sensitive path.
-function normalizeSource(source: string) {
-  if (source.startsWith("'")) {
-    return source.toLowerCase();
-  }
-  const match = source.match(HOST_SOURCE_PATTERN);
-  if (!match) {
-    return source.toLowerCase();
-  }
-  const [, scheme = "", host = "", path = ""] = match;
-  return `${scheme}${host}`.toLowerCase() + path;
-}
-
-// CSP source order and scheme/host casing are not semantically significant, so
-// compare on a normalized (case-folded scheme+host, sorted) basis rather than
-// asserting exact formatting. Paths stay case-sensitive per the CSP spec.
-function normalizeSources(sources: string[] | undefined) {
-  return [...(sources ?? [])].map(normalizeSource).sort();
-}
-
-function expectSources(
-  directives: Map<string, string[]>,
-  name: string,
-  expected: string[],
-) {
-  expect(normalizeSources(directives.get(name))).toEqual(
-    normalizeSources(expected),
-  );
-}
-
-// Every directive the policy is allowed to carry; a new/removed one must be reviewed
-// (a widening directive like script-src-elem would otherwise slip past named checks).
-const EXPECTED_DIRECTIVES = [
-  "default-src",
-  "script-src",
-  "style-src",
-  "font-src",
-  "img-src",
-  "connect-src",
-  "object-src",
-  "base-uri",
-  "frame-ancestors",
-  "form-action",
-];
-
-describe("normalizeSources", () => {
-  it("lowercases a mixed-case scheme and host", () => {
-    expect(normalizeSources(["HTTPS://Fonts.GoogleAPIs.com"])).toEqual([
-      "https://fonts.googleapis.com",
-    ]);
-  });
-
-  it("folds the host but preserves a case-sensitive path", () => {
-    expect(normalizeSources(["https://Example.com/SomePath"])).toEqual([
-      "https://example.com/SomePath",
-    ]);
-  });
-
-  it("preserves path casing across the port", () => {
-    expect(normalizeSources(["https://Example.com:8080/Mixed/Case"])).toEqual([
-      "https://example.com:8080/Mixed/Case",
-    ]);
-  });
-
-  it("lowercases keyword and scheme sources", () => {
-    expect(normalizeSources(["'SELF'", "'Unsafe-Inline'", "DATA:"])).toEqual([
-      "'self'",
-      "'unsafe-inline'",
-      "data:",
-    ]);
-  });
-});
-
-describe("Content-Security-Policy header", () => {
-  it("declares no directives beyond the reviewed set", () => {
-    const directives = readCspDirectives();
-    expect([...directives.keys()].sort()).toEqual(
-      [...EXPECTED_DIRECTIVES].sort(),
-    );
-  });
-
-  it("defines a self-scoped default fallback", () => {
-    expectSources(readCspDirectives(), "default-src", ["'self'"]);
-  });
-
-  it("allows the inline VitePress bootstrap and JSON-LD scripts", () => {
-    expectSources(readCspDirectives(), "script-src", [
-      "'self'",
-      "'unsafe-inline'",
-    ]);
-  });
-
-  it("allows inline style attributes but no third-party stylesheet origin", () => {
-    expectSources(readCspDirectives(), "style-src", [
-      "'self'",
-      "'unsafe-inline'",
-    ]);
-  });
-
-  it("keeps fonts first-party only", () => {
-    expectSources(readCspDirectives(), "font-src", ["'self'"]);
-  });
-
-  it("allows no Google Fonts host in any directive", () => {
-    const offenders = [...readCspDirectives()].flatMap(([name, sources]) =>
-      normalizeSources(sources)
-        .filter((source) =>
-          GOOGLE_FONTS_HOSTS.some((host) => source.includes(host)),
-        )
-        .map((source) => `${name}: ${source}`),
-    );
-    expect(offenders).toEqual([]);
-  });
-
-  it("keeps images and network requests same-origin", () => {
-    const directives = readCspDirectives();
-    expectSources(directives, "img-src", ["'self'", "data:"]);
-    expectSources(directives, "connect-src", ["'self'"]);
-  });
-
-  it("locks down framing, plugins, base URI, and form submissions", () => {
-    const directives = readCspDirectives();
-    expectSources(directives, "frame-ancestors", ["'none'"]);
-    expectSources(directives, "object-src", ["'none'"]);
-    expectSources(directives, "base-uri", ["'self'"]);
-    expectSources(directives, "form-action", ["'self'"]);
+describe("Content-Security-Policy", () => {
+  it("is generated into _headers, never declared statically in netlify.toml", () => {
+    const config = readFileSync(NETLIFY_CONFIG_PATH, "utf8");
+    expect(CSP_HEADER_ASSIGNMENT.test(config)).toBe(false);
   });
 });
 

@@ -13,12 +13,13 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains"
-    # script-src keeps 'unsafe-inline' because VitePress emits inline bootstrap scripts
-    # (dark-mode/mac-os detection, __VP_SITE_DATA__) plus the inline JSON-LD. A static
-    # netlify.toml cannot carry the per-build 'sha256-...' hashes those would need;
-    # @todo drop 'unsafe-inline' by generating a _headers file with computed hashes at
-    # build time. Until then, XSS hardening rests on object-src/base-uri/frame-ancestors.
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+    # Content-Security-Policy is intentionally NOT set here. It carries per-build
+    # 'sha256-...' hashes for VitePress's inline bootstrap scripts (dark-mode/mac-os
+    # detection, __VP_SITE_DATA__) so script-src can drop 'unsafe-inline', which a
+    # static config cannot express. The buildEnd hook in .vitepress/config.ts writes
+    # it to the generated .vitepress/dist/_headers file instead. Do not add a CSP
+    # here: netlify.toml takes precedence over _headers for a shared header name, so
+    # it would silently override the hashed policy.
 
 # Self-hosted fonts are immutable: their content never changes under a given URL
 # (a real change bumps the ?v= query in fonts.css), so serve them with a one-year
