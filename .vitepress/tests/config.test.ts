@@ -307,19 +307,27 @@ function readStructuredData() {
   return parsed as { url: string; image: string };
 }
 
-function normalizeHexColor(value: string) {
-  return value.trim().toLowerCase();
+// One hex contract for both sides of the comparison: the CSS source and the
+// manifest/meta colors are all held to a 6-digit literal, so `#fff` vs `#ffffff`
+// (identical to a browser) fails loud with a clear message instead of a confusing diff.
+function normalizeHexColor(value: unknown, description: string) {
+  if (typeof value !== "string") {
+    throw new Error(`${description} is not a string color: ${String(value)}`);
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!HEX_COLOR_PATTERN.test(normalized)) {
+    throw new Error(
+      `${description} is not a 6-digit hex literal: ${normalized}`,
+    );
+  }
+  return normalized;
 }
 
 // Missing/typo'd manifest color keys are exactly the desync this suite guards
-// against, so a missing field must fail loud with a readable message rather than
-// crashing normalizeHexColor on undefined — matching findMetaContent/findLinkHref.
+// against; normalizeHexColor fails loud on the missing value with a keyed
+// message, so a dropped color surfaces as a readable failure, not a crash.
 function readManifestColor(manifest: Record<string, unknown>, key: string) {
-  const value = manifest[key];
-  if (typeof value !== "string") {
-    throw new Error(`Web manifest is missing a string "${key}"`);
-  }
-  return normalizeHexColor(value);
+  return normalizeHexColor(manifest[key], `manifest ${key}`);
 }
 
 function readBrandBackgroundColor() {
@@ -330,13 +338,7 @@ function readBrandBackgroundColor() {
       `Expected exactly one ${BRAND_BG_CUSTOM_PROPERTY} declaration in ${THEME_STYLESHEET}, found ${matches.length}`,
     );
   }
-  const value = matches[0][1].trim();
-  if (!HEX_COLOR_PATTERN.test(value)) {
-    throw new Error(
-      `${BRAND_BG_CUSTOM_PROPERTY} is not a hex literal: ${value}`,
-    );
-  }
-  return value;
+  return matches[0][1].trim();
 }
 
 // Duplicate directives (two Sitemap lines, two Home links) are exactly the drift
@@ -422,16 +424,37 @@ function collectLocalAssetHrefs() {
   return [...new Set(hrefs)];
 }
 
+describe("Hex color normalization", () => {
+  it("rejects shorthand hex so #fff cannot masquerade as #ffffff", () => {
+    expect(() => normalizeHexColor("#fff", "test color")).toThrow(
+      /test color is not a 6-digit hex literal/,
+    );
+  });
+
+  it("reports a missing manifest color key with the key in the message", () => {
+    expect(() => readManifestColor({}, "theme_color")).toThrow(
+      /manifest theme_color is not a string color/,
+    );
+  });
+
+  it("lowercases and trims so casing and whitespace cannot cause a false mismatch", () => {
+    expect(normalizeHexColor("  #1A1A1A ", "test color")).toBe("#1a1a1a");
+  });
+});
+
 describe("Web app manifest colors", () => {
   it("pins the manifest colors to the site background so the PWA splash does not flash white", () => {
-    // Derive the expected color from --color-bg in theme/style.css at test time,
-    // so editing the CSS without updating the manifest fails this suite. The
-    // theme-color meta is asserted separately in its own describe block below.
-    const siteBackground = normalizeHexColor(readBrandBackgroundColor());
+    // Source of truth is `--color-bg` in the theme stylesheet, read at test time,
+    // so a CSS change that desyncs the PWA splash color fails this suite loudly.
+    // The `theme-color` meta tag is asserted separately in describe("theme-color").
+    const brandBackground = normalizeHexColor(
+      readBrandBackgroundColor(),
+      BRAND_BG_CUSTOM_PROPERTY,
+    );
     const manifest = readWebManifest();
-    expect(readManifestColor(manifest, "theme_color")).toBe(siteBackground);
+    expect(readManifestColor(manifest, "theme_color")).toBe(brandBackground);
     expect(readManifestColor(manifest, "background_color")).toBe(
-      siteBackground,
+      brandBackground,
     );
   });
 });
@@ -559,8 +582,10 @@ describe("Canonical URL", () => {
 
 describe("theme-color", () => {
   it("matches the brand dark background from the theme stylesheet", () => {
-    expect(normalizeHexColor(findMetaContent("theme-color"))).toBe(
-      normalizeHexColor(readBrandBackgroundColor()),
+    expect(
+      normalizeHexColor(findMetaContent("theme-color"), "theme-color meta"),
+    ).toBe(
+      normalizeHexColor(readBrandBackgroundColor(), BRAND_BG_CUSTOM_PROPERTY),
     );
   });
 });
