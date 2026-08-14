@@ -90,12 +90,18 @@ const SHARED_SPEC_IMPORT_PATTERN =
   /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/og-banner-spec\.mjs["']/;
 const REQUIRED_SPEC_BINDINGS = ["OG_WIDTH", "OG_HEIGHT", "OG_IMAGE_FILENAME"];
 
-// Shared by the generator-import scan (a commented-out import must not satisfy the
-// drift assertion) and the stylesheet scan (a commented-out `--color-bg` must not
-// be counted), so both scan code only. The `//` line rule is a no-op for CSS input,
-// which has block comments only.
+// CSS has block comments only, so the stylesheet scan strips just `/* ... */` — a
+// commented-out `--color-bg` must not be counted. Kept separate from the line-comment
+// rule because `^\s*//` would delete legal CSS (e.g. a protocol-relative `//cdn…` URL
+// on its own line), so each caller strips only the grammar its source actually uses.
+function stripBlockComments(source: string) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+// JS/TS sources (the generator-import scan) also carry `//` line comments; a
+// commented-out import must not satisfy the drift assertion.
 function stripComments(source: string) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  return stripBlockComments(source).replace(/^\s*\/\/.*$/gm, "");
 }
 
 // robots.txt and llms.txt carry literal site URLs and marketing copy with no
@@ -224,7 +230,7 @@ function readManifestColor(manifest: Record<string, unknown>, key: string) {
 // isolation, and so failures name the source the caller actually passed.
 function extractBrandBackgroundColor(stylesheet: string, sourceLabel: string) {
   const value = extractSingleCapture(
-    stripComments(stylesheet),
+    stripBlockComments(stylesheet),
     BRAND_BG_PATTERN,
     `${BRAND_BG_CUSTOM_PROPERTY} declaration in ${sourceLabel}`,
   );
@@ -504,6 +510,23 @@ describe("brand background color parsing", () => {
     expect(() =>
       extractBrandBackgroundColor(stylesheetWithNonHex, FIXTURE_LABEL),
     ).toThrow(/<fixture>[\s\S]*var\(--brand-ink\)/);
+  });
+
+  it("does not treat a protocol-relative url() line as a comment when scanning CSS", () => {
+    const stylesheetWithProtocolRelativeUrl = [
+      ":root {",
+      "  --color-bg: #0a0a0b;",
+      "  background: url(",
+      "    //cdn.example.com/bg.png",
+      "  );",
+      "}",
+    ].join("\n");
+    expect(
+      extractBrandBackgroundColor(
+        stylesheetWithProtocolRelativeUrl,
+        FIXTURE_LABEL,
+      ),
+    ).toBe("#0a0a0b");
   });
 });
 
