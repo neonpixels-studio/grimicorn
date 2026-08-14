@@ -230,7 +230,7 @@ function extractBrandBackgroundColor(stylesheet: string, sourceLabel: string) {
   );
   if (!HEX_COLOR_PATTERN.test(value)) {
     throw new Error(
-      `${BRAND_BG_CUSTOM_PROPERTY} is not a hex literal: ${value}`,
+      `${BRAND_BG_CUSTOM_PROPERTY} in ${sourceLabel} is not a hex literal: ${value}`,
     );
   }
   return value;
@@ -484,6 +484,28 @@ describe("brand background color parsing", () => {
     expect(() =>
       extractBrandBackgroundColor(stylesheetWithRealDuplicate, FIXTURE_LABEL),
     ).toThrow(/<fixture>[\s\S]*found 2/);
+  });
+
+  it("fails loud, naming the source, when every --color-bg declaration is commented out", () => {
+    const stylesheetWithOnlyComments = [
+      ":root {",
+      "  /* --color-bg: #0a0a0b; */",
+      "}",
+    ].join("\n");
+    expect(() =>
+      extractBrandBackgroundColor(stylesheetWithOnlyComments, FIXTURE_LABEL),
+    ).toThrow(/<fixture>[\s\S]*found 0/);
+  });
+
+  it("fails loud, naming the source, when --color-bg is not a hex literal", () => {
+    const stylesheetWithNonHex = [
+      ":root {",
+      "  --color-bg: var(--brand-ink);",
+      "}",
+    ].join("\n");
+    expect(() =>
+      extractBrandBackgroundColor(stylesheetWithNonHex, FIXTURE_LABEL),
+    ).toThrow(/<fixture>[\s\S]*var\(--brand-ink\)/);
   });
 });
 
