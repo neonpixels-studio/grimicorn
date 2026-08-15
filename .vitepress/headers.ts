@@ -18,8 +18,6 @@ const SELF = "'self'";
 const NONE = "'none'";
 const UNSAFE_INLINE = "'unsafe-inline'";
 const DATA_SCHEME = "data:";
-const GOOGLE_FONTS_STYLESHEET_ORIGIN = "https://fonts.googleapis.com";
-const GOOGLE_FONTS_FILE_ORIGIN = "https://fonts.gstatic.com";
 const SCRIPT_SRC_DIRECTIVE = "script-src";
 
 // The attribute capture stops at the first '>', which assumes no unencoded '>'
@@ -97,8 +95,10 @@ export function buildContentSecurityPolicy(scriptHashes: string[]) {
   const directives: Array<[string, string[]]> = [
     ["default-src", [SELF]],
     [SCRIPT_SRC_DIRECTIVE, [SELF, ...scriptHashes]],
-    ["style-src", [SELF, UNSAFE_INLINE, GOOGLE_FONTS_STYLESHEET_ORIGIN]],
-    ["font-src", [SELF, GOOGLE_FONTS_FILE_ORIGIN]],
+    // Fonts are self-hosted from /public/fonts (see .vitepress/theme/fonts.css), so
+    // style-src and font-src stay first-party-only — no Google Fonts origins.
+    ["style-src", [SELF, UNSAFE_INLINE]],
+    ["font-src", [SELF]],
     ["img-src", [SELF, DATA_SCHEME]],
     ["connect-src", [SELF]],
     ["object-src", [NONE]],

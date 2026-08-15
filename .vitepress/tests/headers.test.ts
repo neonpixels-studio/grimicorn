@@ -118,16 +118,9 @@ describe("buildContentSecurityPolicy", () => {
     expect(scriptSrc).not.toContain("'unsafe-inline'");
   });
 
-  it("keeps inline style attributes and the Google Fonts origins allowed", () => {
-    expect(directives.get("style-src")).toEqual([
-      "'self'",
-      "'unsafe-inline'",
-      "https://fonts.googleapis.com",
-    ]);
-    expect(directives.get("font-src")).toEqual([
-      "'self'",
-      "https://fonts.gstatic.com",
-    ]);
+  it("allows inline style attributes and keeps fonts first-party only", () => {
+    expect(directives.get("style-src")).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(directives.get("font-src")).toEqual(["'self'"]);
   });
 
   it("keeps images and network requests same-origin", () => {

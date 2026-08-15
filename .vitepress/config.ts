@@ -51,21 +51,31 @@ export default defineConfig({
     hostname: SITE_URL,
   },
   head: [
-    // Fonts
-    ["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }],
+    // Fonts are self-hosted via @font-face in .vitepress/theme/fonts.css
+    // (served from /public/fonts), so no Google Fonts preconnect or stylesheet
+    // is needed here and the CSP stays first-party-only for fonts. Preload only
+    // the two latin (default) subsets — they'd otherwise be discovered late, after
+    // the CSS bundle parses. crossorigin is required even same-origin: font fetches
+    // are always CORS-mode, so a bare preload would download the file twice. The
+    // ?v= must match fonts.css or the preload misses the cache and double-fetches.
     [
       "link",
       {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
+        rel: "preload",
+        as: "font",
+        type: "font/woff2",
+        href: "/fonts/space-grotesk-latin.woff2?v=20260813",
         crossorigin: "",
       },
     ],
     [
       "link",
       {
-        href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
-        rel: "stylesheet",
+        rel: "preload",
+        as: "font",
+        type: "font/woff2",
+        href: "/fonts/jetbrains-mono-latin.woff2?v=20260813",
+        crossorigin: "",
       },
     ],
     // Canonical + theme color

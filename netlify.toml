@@ -20,3 +20,12 @@
     # it to the generated .vitepress/dist/_headers file instead. Do not add a CSP
     # here: netlify.toml takes precedence over _headers for a shared header name, so
     # it would silently override the hashed policy.
+
+# Self-hosted fonts are immutable: their content never changes under a given URL
+# (a real change bumps the ?v= query in fonts.css), so serve them with a one-year
+# cache to match the CDN caching Google Fonts previously provided. Without this,
+# Netlify's static default (must-revalidate) revalidates every font per navigation.
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
