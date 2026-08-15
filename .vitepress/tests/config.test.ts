@@ -30,6 +30,34 @@ const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 const JSON_LD_MIME = "application/ld+json";
 
+// The hero <picture> in GrimicornPage.vue is the LCP element; config must preload
+// its first (avif) source so the fetch starts during HTML parse. These pin the
+// contract: the preload must point at the same avif the picture prefers, gated by
+// type, hinted high-priority, and scoped to every page except the 404.
+const HERO_COMPONENT = resolve(
+  process.cwd(),
+  ".vitepress/theme/components/GrimicornPage.vue",
+);
+const HERO_AVIF_TYPE = "image/avif";
+const HERO_PRELOAD_PRIORITY = "high";
+// Isolates the hero <picture> by its unique ref before reading the avif source, so
+// the test can't silently start asserting against the portrait picture (which has a
+// structurally identical avif <source>) if the template is reordered. The inner
+// group is tempered — `(?!</picture>)` stops it crossing a closing tag — so a
+// picture placed before the hero can't be swallowed into the match.
+const HERO_PICTURE_PATTERN =
+  /<picture\b[^>]*>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
+const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
+const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset="([^"]+)"/;
+// A `media` attribute makes a <source> conditional; the preloaded href is
+// unconditional, so the hero's first source must carry none or an avif client on the
+// excluded viewport fetches a different file than the preload pulled. The leading
+// whitespace requirement avoids matching hyphenated attributes like `data-media`.
+const MEDIA_ATTRIBUTE_PATTERN = /\smedia\s*=/;
+// srcset separates its candidate images with commas; a single-candidate srcset
+// (no comma) is the precondition for preloading via a plain `href`.
+const SRCSET_CANDIDATE_SEPARATOR = ",";
+
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
@@ -181,6 +209,94 @@ function findLinkHref(rel: string) {
     throw new Error(`Link tag rel="${rel}" has no href attribute`);
   }
   return href;
+}
+
+type TransformHeadContext = Parameters<
+  NonNullable<typeof config.transformHead>
+>[0];
+
+// Mirrors AppLayout's own gate: the hero (and its preload) belongs on every page
+// except the 404, which VitePress flags with pageData.isNotFound.
+async function headForPage(pageData: { isNotFound?: boolean }) {
+  const transformHead = config.transformHead;
+  if (typeof transformHead !== "function") {
+    throw new Error("config.transformHead is not defined");
+  }
+  const context = { pageData } as TransformHeadContext;
+  const transformed = (await transformHead(context)) ?? [];
+  // The page's real head is the site-wide config.head plus the per-page additions,
+  // so the negative test catches a site-wide hero preload if one is ever reintroduced.
+  return [...((config.head ?? []) as HeadEntry[]), ...transformed];
+}
+
+function filterPreloadImageEntries(head: HeadEntry[]) {
+  return head.filter(
+    ([tag, attributes]) =>
+      tag === "link" &&
+      attributes?.rel === "preload" &&
+      attributes?.as === "image",
+  );
+}
+
+function findPreloadImageAttributes(head: HeadEntry[]) {
+  const entries = filterPreloadImageEntries(head);
+  if (entries.length !== 1) {
+    throw new Error(
+      `Expected exactly one preload link for the hero image, found ${entries.length}`,
+    );
+  }
+  const attributes = entries[0][1];
+  if (!attributes) {
+    throw new Error("Hero preload link entry has no attributes");
+  }
+  return attributes;
+}
+
+function findPreloadImageHref(head: HeadEntry[]) {
+  const href = findPreloadImageAttributes(head).href;
+  if (href === undefined) {
+    throw new Error("Preload link has no href attribute");
+  }
+  return href;
+}
+
+function readHeroPictureMarkup() {
+  const markup = readFileSync(HERO_COMPONENT, "utf8");
+  const pictureMatch = markup.match(HERO_PICTURE_PATTERN);
+  if (!pictureMatch) {
+    throw new Error(
+      `Could not find the hero <picture> (ref="imageHeroRef") in ${HERO_COMPONENT}`,
+    );
+  }
+  return pictureMatch[1];
+}
+
+function readHeroFirstSourceTag() {
+  const sources = [...readHeroPictureMarkup().matchAll(SOURCE_TAG_PATTERN)].map(
+    ([tag]) => tag,
+  );
+  if (sources.length === 0) {
+    throw new Error(
+      `The hero <picture> in ${HERO_COMPONENT} has no <source> tags`,
+    );
+  }
+  return sources[0];
+}
+
+function readHeroAvifSrcset() {
+  const srcsetMatch = readHeroFirstSourceTag().match(SRCSET_ATTRIBUTE_PATTERN);
+  if (!srcsetMatch) {
+    throw new Error(
+      `The hero's first <source> has no srcset in ${HERO_COMPONENT}`,
+    );
+  }
+  return srcsetMatch[1];
+}
+
+// The first candidate URL of the avif srcset — the target a plain `href` preload
+// must equal while the srcset stays single-candidate.
+function readHeroAvifUrl() {
+  return readHeroAvifSrcset().trim().split(/\s+/)[0];
 }
 
 function readStructuredData() {
@@ -440,6 +556,43 @@ describe("Local head asset hrefs", () => {
 
   it.each(localHrefs)("resolves %s to a real file under public", (href) => {
     expect(isRealFileWithExactCase(publicPathForUrl(href)), href).toBe(true);
+  });
+});
+
+describe("Hero image preload", () => {
+  it("preloads the hero picture's avif source on content pages to improve LCP", async () => {
+    const head = await headForPage({ isNotFound: false });
+    const attributes = findPreloadImageAttributes(head);
+    expect(attributes.href).toBe(readHeroAvifUrl());
+    expect(attributes.type).toBe(HERO_AVIF_TYPE);
+    expect(attributes.fetchpriority).toBe(HERO_PRELOAD_PRIORITY);
+  });
+
+  it("keeps avif as the hero picture's first, unconditional source so the preload matches what avif clients fetch", () => {
+    const firstSource = readHeroFirstSourceTag();
+    expect(firstSource).toContain(`type="${HERO_AVIF_TYPE}"`);
+    expect(firstSource).not.toMatch(MEDIA_ATTRIBUTE_PATTERN);
+  });
+
+  it("preloads via href only while the hero avif source stays a single bare candidate", () => {
+    // A responsive srcset (multiple candidates OR a width/density descriptor) needs
+    // imagesrcset/imagesizes on the preload, not href, or an avif client can
+    // double-download. Reject a comma (extra candidate) and any whitespace (a
+    // descriptor), so either addition fails loud and forces the imagesrcset change.
+    const srcset = readHeroAvifSrcset().trim();
+    expect(srcset).not.toContain(SRCSET_CANDIDATE_SEPARATOR);
+    expect(srcset.split(/\s+/)).toHaveLength(1);
+  });
+
+  it("resolves the preloaded avif to a real file under public", async () => {
+    const head = await headForPage({ isNotFound: false });
+    const href = findPreloadImageHref(head);
+    expect(isRealFileWithExactCase(publicPathForUrl(href)), href).toBe(true);
+  });
+
+  it("does not preload the hero on the 404 page, which renders no hero", async () => {
+    const head = await headForPage({ isNotFound: true });
+    expect(filterPreloadImageEntries(head)).toHaveLength(0);
   });
 });
 
