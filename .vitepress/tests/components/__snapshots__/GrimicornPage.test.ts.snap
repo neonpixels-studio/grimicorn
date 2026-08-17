@@ -39,8 +39,8 @@ exports[`GrimicornPage > renders correctly 1`] = `
         <div class="relative rounded-[10px] p-[1.5px]" style="background: linear-gradient(135deg, #ff2d9b, #facc15, #22d3ee, #a855f7);">
           <div class="bg-bg overflow-hidden rounded-[9px]">
             <picture>
-              <source srcset="/assets/grimicorn-hero.avif" type="image/avif">
-              <source srcset="/assets/grimicorn-hero.webp" type="image/webp"><img src="/assets/grimicorn-hero.png" alt="Grimicorn — skeletal rainbow unicorn" width="1824" height="1824" class="block w-full will-change-transform">
+              <source srcset="/assets/grimicorn-hero.avif?v=20260816" type="image/avif">
+              <source srcset="/assets/grimicorn-hero.webp?v=20260816" type="image/webp"><img src="/assets/grimicorn-hero.png?v=20260816" alt="Grimicorn — skeletal rainbow unicorn" width="1824" height="1824" class="block w-full will-change-transform">
             </picture>
           </div>
         </div>
@@ -93,8 +93,8 @@ exports[`GrimicornPage > renders correctly 1`] = `
               <div class="animate-glow-pulse absolute inset-[-12px] rounded-[16px] blur-[30px]" style="background: linear-gradient(135deg, #22d3ee, #a855f7, #ff2d9b); opacity: 0.34;"></div>
               <div class="relative overflow-hidden rounded-[10px] border border-white/[0.12]">
                 <picture>
-                  <source srcset="/assets/grimicorn-head.avif" type="image/avif">
-                  <source srcset="/assets/grimicorn-head.webp" type="image/webp"><img src="/assets/grimicorn-head.png" alt="Grimicorn portrait" width="1237" height="1237" class="block w-full will-change-transform">
+                  <source srcset="/assets/grimicorn-head.avif?v=20260816" type="image/avif">
+                  <source srcset="/assets/grimicorn-head.webp?v=20260816" type="image/webp"><img src="/assets/grimicorn-head.png?v=20260816" alt="Grimicorn portrait" width="1237" height="1237" class="block w-full will-change-transform">
                 </picture>
               </div>
             </div>
