@@ -20,8 +20,15 @@ const EXPECTED_SITE_URL = "https://grimicorn.dev";
 // second copy of the literal.
 const THEME_STYLESHEET = resolve(process.cwd(), ".vitepress/theme/style.css");
 const BRAND_BG_CUSTOM_PROPERTY = "--color-bg";
+// Anchored to a declaration boundary: the char before the property must be a
+// non-identifier char (start of input, whitespace, `{`, or `;`), so a sibling whose
+// name ends with the full `--color-bg` token (e.g. `--accent--color-bg`) can't match
+// on a substring. The value runs to the next `;`, block-closing `}`, or end of input,
+// so a final declaration that omits its trailing semicolon still matches. The lazy
+// value group plus trailing `\s*` stop the capture from absorbing the whitespace
+// before a `}` or EOF terminator.
 const BRAND_BG_PATTERN = new RegExp(
-  `${BRAND_BG_CUSTOM_PROPERTY}\\s*:\\s*([^;]+);`,
+  `(?<![\\w-])${BRAND_BG_CUSTOM_PROPERTY}\\s*:\\s*([^;}]+?)\\s*(?:;|}|$)`,
   "g",
 );
 // The stylesheet and theme-color both use 6-digit hex; anything else fails loud
@@ -679,6 +686,74 @@ describe("brand background color parsing", () => {
         stylesheetWithProtocolRelativeUrl,
         FIXTURE_LABEL,
       ),
+    ).toBe("#0a0a0b");
+  });
+
+  it("does not match a sibling custom property that ends with --color-bg", () => {
+    const stylesheetWithSibling = [
+      ":root {",
+      "  --panel-color-bg: #ffffff;",
+      "  --accent--color-bg: #eeeeee;",
+      "  background: var(--color-bg);",
+      "  --color-bg: #0a0a0b;",
+      "}",
+    ].join("\n");
+    expect(
+      extractBrandBackgroundColor(stylesheetWithSibling, FIXTURE_LABEL),
+    ).toBe("#0a0a0b");
+  });
+
+  it("fails loud when only a sibling ending in --color-bg is present", () => {
+    const stylesheetWithOnlySibling = [
+      ":root {",
+      "  --accent--color-bg: #eeeeee;",
+      "}",
+    ].join("\n");
+    expect(() =>
+      extractBrandBackgroundColor(stylesheetWithOnlySibling, FIXTURE_LABEL),
+    ).toThrow(/<fixture>[\s\S]*found 0/);
+  });
+
+  it("does not match a sibling custom property that starts with --color-bg", () => {
+    const stylesheetWithSuffixSibling = [
+      ":root {",
+      "  --color-bg-hover: #ffffff;",
+      "  --color-bg: #0a0a0b;",
+      "}",
+    ].join("\n");
+    expect(
+      extractBrandBackgroundColor(stylesheetWithSuffixSibling, FIXTURE_LABEL),
+    ).toBe("#0a0a0b");
+  });
+
+  it("matches a final --color-bg declaration that omits its trailing semicolon", () => {
+    const stylesheetWithoutTrailingSemicolon = [
+      ":root {",
+      "  --color-bg: #0a0a0b",
+      "}",
+    ].join("\n");
+    expect(
+      extractBrandBackgroundColor(
+        stylesheetWithoutTrailingSemicolon,
+        FIXTURE_LABEL,
+      ),
+    ).toBe("#0a0a0b");
+  });
+
+  it("matches a --color-bg declaration terminated by end of input", () => {
+    expect(
+      extractBrandBackgroundColor("--color-bg: #0a0a0b", FIXTURE_LABEL),
+    ).toBe("#0a0a0b");
+  });
+
+  it("still matches a normal semicolon-terminated --color-bg declaration", () => {
+    const stylesheetWithSemicolon = [
+      ":root {",
+      "  --color-bg: #0a0a0b;",
+      "}",
+    ].join("\n");
+    expect(
+      extractBrandBackgroundColor(stylesheetWithSemicolon, FIXTURE_LABEL),
     ).toBe("#0a0a0b");
   });
 });
