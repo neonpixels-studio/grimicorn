@@ -87,6 +87,10 @@ function findPauseButton(wrapper: GrimicornWrapper) {
   return wrapper.find(".pause-toggle");
 }
 
+function getWindowChromeTitle(wrapper: GrimicornWrapper) {
+  return wrapper.get(".window-chrome-title").element;
+}
+
 function getTagline(wrapper: GrimicornWrapper) {
   return wrapper.find(".text-fg-muted span:last-child").text();
 }
@@ -1285,6 +1289,117 @@ describe("GrimicornPage", () => {
 
       expect(getTagline(wrapper)).toBe(taglineAtPause);
       expect(getLogCount(wrapper)).toBe(logCountAtPause);
+
+      wrapper.unmount();
+    });
+
+    // Focus management when the v-if control is hidden mid-keyboard-nav. These
+    // mount with attachTo so the elements are connected to the document and
+    // document.activeElement / focus() behave like the browser.
+    it("moves focus to the window-chrome title when an OS reduced-motion flip hides the focused control", async () => {
+      const { setMatches } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      const pauseButton = findPauseButton(wrapper);
+      (pauseButton.element as HTMLButtonElement).focus();
+      expect(document.activeElement).toBe(pauseButton.element);
+
+      // The OS switches to reduced motion: the stream freezes, so the control
+      // has nothing to pause and unmounts via v-if. Without focus management
+      // the focus it held would fall to <body>.
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      expect(document.activeElement).toBe(getWindowChromeTitle(wrapper));
+
+      wrapper.unmount();
+    });
+
+    it("moves focus to the window-chrome title when the drift-toggle path hides the focused control", async () => {
+      const { mediaQueryList } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      const pauseButton = findPauseButton(wrapper);
+      (pauseButton.element as HTMLButtonElement).focus();
+      expect(document.activeElement).toBe(pauseButton.element);
+
+      // The preference drifts to reduced motion without firing a change event;
+      // the next toggle re-reads it and hides the now-inert control.
+      mediaQueryList.matches = true;
+      await pauseButton.trigger("click");
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      expect(document.activeElement).toBe(getWindowChromeTitle(wrapper));
+
+      wrapper.unmount();
+    });
+
+    it("does not move focus when the control is hidden while some other element holds focus", async () => {
+      const { setMatches } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      // Focus lives on an unrelated control (the rave toggle), not the pause
+      // control, so hiding the pause control must leave focus untouched.
+      const raveButton = findRaveButton(wrapper);
+      (raveButton.element as HTMLButtonElement).focus();
+      expect(document.activeElement).toBe(raveButton.element);
+
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      expect(document.activeElement).toBe(raveButton.element);
+
+      wrapper.unmount();
+    });
+
+    it("does not move focus when the control is hidden while nothing holds focus", async () => {
+      const { setMatches } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      // The common mouse-only visitor: nothing is focused, so activeElement is
+      // <body>. Hiding the control must not commandeer focus to the title.
+      expect(findPauseButton(wrapper).exists()).toBe(true);
+      expect(document.activeElement).toBe(document.body);
+
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      expect(document.activeElement).toBe(document.body);
+
+      wrapper.unmount();
+    });
+
+    it("does not touch focus when the control reappears as reduced motion switches off", async () => {
+      const { setMatches } = mockPrefersReducedMotion(true);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      // The control is absent under reduced motion; focus sits on the rave
+      // toggle. When motion switches on and the control reappears, focus must
+      // stay put — the focus move is only for the hide direction.
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      const raveButton = findRaveButton(wrapper);
+      (raveButton.element as HTMLButtonElement).focus();
+      expect(document.activeElement).toBe(raveButton.element);
+
+      setMatches(false);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(true);
+      expect(document.activeElement).toBe(raveButton.element);
 
       wrapper.unmount();
     });

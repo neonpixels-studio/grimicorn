@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 
 interface LogEntry {
   t: string;
@@ -104,6 +104,11 @@ const streamCanAutoAdvance = ref(false);
 
 const imageHeroRef = ref<HTMLImageElement | null>(null);
 const imagePortraitRef = ref<HTMLImageElement | null>(null);
+// The pause control (v-if on streamCanAutoAdvance) and the window-chrome title
+// focus lands on if the control is hidden while it holds keyboard focus — see
+// the watcher below.
+const pauseControlRef = ref<HTMLButtonElement | null>(null);
+const windowChromeTitleRef = ref<HTMLElement | null>(null);
 
 const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 let tagTimer = 0;
@@ -283,6 +288,32 @@ function toggleContentPaused() {
   reconcileMotion(reducedMotionQuery?.matches ?? true);
 }
 
+// Hiding the pause control via v-if while it holds keyboard focus — an OS
+// reduced-motion flip, or the drift-toggle path in toggleContentPaused — would
+// otherwise strand focus on <body>. Driven by a pre-flush watch (registered
+// near onMounted) so it fires at the hide boundary, before Vue removes the
+// button, meaning document.activeElement still reflects whether the control
+// held focus. Only steal focus when the control actually had it, moving it to
+// the window-chrome title (tabindex="-1" makes it programmatically focusable);
+// otherwise leave focus alone rather than yanking it from wherever it sits.
+function redirectFocusFromHiddenPauseControl(canAutoAdvance: boolean) {
+  if (canAutoAdvance) {
+    return;
+  }
+  // When the control was never rendered, pauseControlRef.value is null; the
+  // explicit null check stops a null document.activeElement from comparing
+  // equal and stealing focus for a control that never held it.
+  if (
+    !pauseControlRef.value ||
+    document.activeElement !== pauseControlRef.value
+  ) {
+    return;
+  }
+  // preventScroll so a mid-page reduced-motion flip doesn't snap the viewport
+  // back up to the window chrome.
+  windowChromeTitleRef.value?.focus({ preventScroll: true });
+}
+
 // Takes the MediaQueryList (initial check) or MediaQueryListEvent (change
 // event) directly rather than re-reading the outer reducedMotionQuery
 // variable, so the accessibility guard can't fail open if that binding is
@@ -337,6 +368,8 @@ function toggleRave() {
     showToast("rave mode off — back to merely dark");
   }
 }
+
+watch(streamCanAutoAdvance, redirectFocusFromHiddenPauseControl);
 
 onMounted(() => {
   // Seed the static content that shows regardless of motion preference; the
@@ -610,11 +643,15 @@ onUnmounted(() => {
               <span class="bg-yellow h-3 w-3 rounded-full" />
               <span class="bg-lime h-3 w-3 rounded-full" />
             </span>
-            <span class="text-fg-subtle ml-[6px] truncate text-[12.5px]"
+            <span
+              ref="windowChromeTitleRef"
+              tabindex="-1"
+              class="window-chrome-title text-fg-subtle ml-[6px] truncate text-[12.5px]"
               >grimicorn-agent &mdash; zsh &mdash; 124&times;40</span
             >
             <button
               v-if="streamCanAutoAdvance"
+              ref="pauseControlRef"
               class="colorful-btn pause-toggle ml-auto shrink-0 text-[12.5px]"
               :aria-pressed="contentPaused"
               @click="toggleContentPaused"
