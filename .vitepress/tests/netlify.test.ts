@@ -16,6 +16,9 @@ const STATIC_HEADERS = {
 
 const GLOBAL_HEADERS_PATH = "/*";
 const FONTS_HEADERS_PATH = "/fonts/*";
+// Static image assets are served from two public roots: /assets (hero/portrait art,
+// OG banner) and /images (favicons). Both are long-cached like the fonts.
+const ASSET_HEADERS_PATHS = ["/assets/*", "/images/*"];
 
 // One anchored pattern for both detecting a block's `for` line and reading its
 // value, so a stray unanchored match (e.g. a commented `# for = "…"`) can't
@@ -79,6 +82,9 @@ function parseCacheMaxAge(headerValue: string) {
 // One year is the recommended immutable-asset cache floor; the fonts carry a ?v=
 // cache-bust so an immutable one-year cache is safe.
 const FONT_CACHE_MIN_MAX_AGE_SECONDS = 31536000;
+// Static image assets carry the same ?v= cache-bust as the fonts, so they get the
+// same one-year immutable floor.
+const ASSET_CACHE_MIN_MAX_AGE_SECONDS = 31536000;
 
 const globalHeadersBlock = readHeadersBlockFor(GLOBAL_HEADERS_PATH);
 
@@ -133,4 +139,27 @@ describe("self-hosted font caching", () => {
   it("marks the font cache immutable so repeat visits skip revalidation", () => {
     expect(cacheControl.toLowerCase()).toContain("immutable");
   });
+});
+
+describe("static image asset caching", () => {
+  it.each(ASSET_HEADERS_PATHS)("caches %s for at least one year", (path) => {
+    const cacheControl = readBlockHeader(
+      readHeadersBlockFor(path),
+      "Cache-Control",
+    );
+    expect(parseCacheMaxAge(cacheControl)).toBeGreaterThanOrEqual(
+      ASSET_CACHE_MIN_MAX_AGE_SECONDS,
+    );
+  });
+
+  it.each(ASSET_HEADERS_PATHS)(
+    "marks %s immutable so repeat and social-referral visits skip revalidation",
+    (path) => {
+      const cacheControl = readBlockHeader(
+        readHeadersBlockFor(path),
+        "Cache-Control",
+      );
+      expect(cacheControl.toLowerCase()).toContain("immutable");
+    },
+  );
 });

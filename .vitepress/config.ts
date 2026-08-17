@@ -7,7 +7,13 @@ import { writeCspHeaders } from "./write-headers";
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
-const OG_IMAGE = `${SITE_URL}/assets/${OG_IMAGE_FILENAME}`;
+// Static image assets are served with a one-year immutable cache (see the /assets/*
+// header in netlify.toml), so every reference carries a ?v= cache-bust to force a
+// refetch when the file behind the stable URL actually changes. The token must match
+// the one on the hero <picture> srcsets in GrimicornPage.vue or an avif client fetches
+// a different URL than the preload warmed.
+const ASSET_CACHE_BUST = "?v=20260816";
+const OG_IMAGE = `${SITE_URL}/assets/${OG_IMAGE_FILENAME}${ASSET_CACHE_BUST}`;
 const OG_IMAGE_WIDTH = String(OG_WIDTH);
 const OG_IMAGE_HEIGHT = String(OG_HEIGHT);
 const OG_IMAGE_ALT =
@@ -19,7 +25,7 @@ const OG_IMAGE_ALT =
 // matches what an avif-capable client actually fetches with no wasted bytes. A second
 // type-differentiated preload (webp) would double-download in browsers that support
 // both formats, so we intentionally omit it.
-const HERO_IMAGE_HREF = "/assets/grimicorn-hero.avif";
+const HERO_IMAGE_HREF = `/assets/grimicorn-hero.avif${ASSET_CACHE_BUST}`;
 const HERO_IMAGE_TYPE = "image/avif";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   "link",
@@ -136,7 +142,13 @@ export default defineConfig({
       "meta",
       { name: "apple-mobile-web-app-title", content: "Grimicorn Agent" },
     ],
-    ["link", { rel: "manifest", href: "/images/site.webmanifest?v=20260618" }],
+    // The manifest lives under /images and is now long-cached immutable, so its ?v=
+    // must bump whenever its body changes (it just gained versioned icon srcs) or
+    // returning visitors keep a stale copy for a year.
+    [
+      "link",
+      { rel: "manifest", href: `/images/site.webmanifest${ASSET_CACHE_BUST}` },
+    ],
   ],
   // Scope the preload to where the hero renders: every page except the 404. AppLayout
   // shows NotFound (no hero) when page.isNotFound and GrimicornPage otherwise, so this

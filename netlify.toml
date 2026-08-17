@@ -29,3 +29,20 @@
   for = "/fonts/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# Static image assets are immutable under a given URL for the same reason the fonts
+# are: the preloaded hero/portrait art (/assets/grimicorn-hero|head.*) and the OG
+# banner carry a ?v= cache-bust on every reference (the hero <picture> in
+# GrimicornPage.vue, the hero preload + og:image in .vitepress/config.ts), and the
+# favicons under /images already do too — a real change bumps that query. Without
+# this, Netlify's static default (must-revalidate) re-validates the LCP art on every
+# navigation for repeat and social-referral visitors.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

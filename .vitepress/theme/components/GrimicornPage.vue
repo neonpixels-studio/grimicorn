@@ -544,16 +544,16 @@ onUnmounted(() => {
             <div class="bg-bg overflow-hidden rounded-[9px]">
               <picture>
                 <source
-                  srcset="/assets/grimicorn-hero.avif"
+                  srcset="/assets/grimicorn-hero.avif?v=20260816"
                   type="image/avif"
                 />
                 <source
-                  srcset="/assets/grimicorn-hero.webp"
+                  srcset="/assets/grimicorn-hero.webp?v=20260816"
                   type="image/webp"
                 />
                 <img
                   ref="imageHeroRef"
-                  src="/assets/grimicorn-hero.png"
+                  src="/assets/grimicorn-hero.png?v=20260816"
                   alt="Grimicorn — skeletal rainbow unicorn"
                   width="1824"
                   height="1824"
@@ -745,16 +745,16 @@ onUnmounted(() => {
                 >
                   <picture>
                     <source
-                      srcset="/assets/grimicorn-head.avif"
+                      srcset="/assets/grimicorn-head.avif?v=20260816"
                       type="image/avif"
                     />
                     <source
-                      srcset="/assets/grimicorn-head.webp"
+                      srcset="/assets/grimicorn-head.webp?v=20260816"
                       type="image/webp"
                     />
                     <img
                       ref="imagePortraitRef"
-                      src="/assets/grimicorn-head.png"
+                      src="/assets/grimicorn-head.png?v=20260816"
                       alt="Grimicorn portrait"
                       width="1237"
                       height="1237"
