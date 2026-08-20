@@ -486,18 +486,7 @@ onUnmounted(() => {
             <span class="block">GRIMICORN</span>{{ " "
             }}<span
               class="animate-rainbow-pan block bg-clip-text text-transparent"
-              style="
-                background-image: linear-gradient(
-                  90deg,
-                  #ff2d9b,
-                  #fb923c,
-                  #facc15,
-                  #a3e635,
-                  #22d3ee,
-                  #a855f7,
-                  #ff2d9b
-                );
-              "
+              style="background-image: var(--gx-rainbow)"
               >AGENT</span
             >
           </h1>
@@ -524,17 +513,7 @@ onUnmounted(() => {
               target="_blank"
               rel="noopener noreferrer"
               class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
-              style="
-                background-image: linear-gradient(
-                  90deg,
-                  #ff2d9b,
-                  #fb923c,
-                  #facc15,
-                  #a3e635,
-                  #22d3ee,
-                  #a855f7
-                );
-              "
+              style="background-image: var(--gx-rainbow-cta)"
             >
               view on github &rarr;
             </a>
@@ -607,18 +586,7 @@ onUnmounted(() => {
       <!-- rainbow divider -->
       <div
         class="animate-rainbow-pan h-[2px]"
-        style="
-          background-image: linear-gradient(
-            90deg,
-            #ff2d9b,
-            #fb923c,
-            #facc15,
-            #a3e635,
-            #22d3ee,
-            #a855f7,
-            #ff2d9b
-          );
-        "
+        style="background-image: var(--gx-rainbow)"
       />
 
       <!-- terminal section -->

@@ -16,6 +16,34 @@
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Single source of truth for the brand rainbow gradient, hoisted out of the
+   templates that paint it (wordmark, dividers, CTA buttons, 404 numeral, and
+   .colorful-btn below) so the spectrum can't drift between them. --gx-rainbow
+   repeats the leading pink stop at the tail so the 200% background-pan
+   animation wraps seamlessly; --gx-rainbow-cta is the same spectrum without
+   that trailing stop, for the solid-fill CTA buttons. */
+:root {
+  --gx-rainbow: linear-gradient(
+    90deg,
+    #ff2d9b,
+    #fb923c,
+    #facc15,
+    #a3e635,
+    #22d3ee,
+    #a855f7,
+    #ff2d9b
+  );
+  --gx-rainbow-cta: linear-gradient(
+    90deg,
+    #ff2d9b,
+    #fb923c,
+    #facc15,
+    #a3e635,
+    #22d3ee,
+    #a855f7
+  );
+}
+
 @keyframes gx-rainbow-pan {
   to {
     background-position: 200% center;
@@ -131,16 +159,7 @@ body {
   font: inherit;
   cursor: pointer;
   color: #6f6c66;
-  background-image: linear-gradient(
-    90deg,
-    #ff2d9b,
-    #fb923c,
-    #facc15,
-    #a3e635,
-    #22d3ee,
-    #a855f7,
-    #ff2d9b
-  );
+  background-image: var(--gx-rainbow);
   background-size: 200% auto;
   background-color: transparent;
   -webkit-background-clip: text;
