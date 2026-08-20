@@ -46,6 +46,13 @@ const KONAMI = [
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+// Announced through the visually-hidden live region when the pause control is
+// removed while it holds keyboard focus and focus is redirected to the
+// window-chrome title. Without this, screen-reader users hear focus jump to an
+// unrelated element with no explanation for why.
+const PAUSE_CONTROL_REMOVED_ANNOUNCEMENT =
+  "Live updates stopped, so the pause control was removed. Focus moved to the terminal window title.";
+
 // The two auto-advancing content swaps (tagline rotation and chaos.log stream)
 // are themselves auto-updating motion (WCAG 2.2.2 Pause, Stop, Hide), so their
 // cadences live here as named constants and their timers are gated on the same
@@ -109,6 +116,11 @@ const imagePortraitRef = ref<HTMLImageElement | null>(null);
 // the watcher below.
 const pauseControlRef = ref<HTMLButtonElement | null>(null);
 const windowChromeTitleRef = ref<HTMLElement | null>(null);
+// Text for the visually-hidden aria-live region; populated only when focus is
+// actually redirected away from the removed pause control (see
+// redirectFocusFromHiddenPauseControl), so screen readers announce why focus
+// moved rather than jumping silently.
+const focusMoveAnnouncement = ref("");
 
 const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 let tagTimer = 0;
@@ -312,6 +324,10 @@ function redirectFocusFromHiddenPauseControl(canAutoAdvance: boolean) {
   // preventScroll so a mid-page reduced-motion flip doesn't snap the viewport
   // back up to the window chrome.
   windowChromeTitleRef.value?.focus({ preventScroll: true });
+  // Announce the reason for the focus jump through the live region, so a
+  // screen-reader user who was on the control isn't left guessing why focus
+  // suddenly landed on the window title.
+  focusMoveAnnouncement.value = PAUSE_CONTROL_REMOVED_ANNOUNCEMENT;
 }
 
 // Takes the MediaQueryList (initial check) or MediaQueryListEvent (change
@@ -659,6 +675,17 @@ onUnmounted(() => {
               pause live updates
             </button>
           </div>
+
+          <!-- Visually-hidden live region: announces why keyboard focus jumped
+          when the pause control is removed while focused (see
+          redirectFocusFromHiddenPauseControl). -->
+          <p
+            class="pause-focus-announcement sr-only"
+            role="status"
+            aria-live="polite"
+          >
+            {{ focusMoveAnnouncement }}
+          </p>
 
           <div class="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr]">
             <!-- left: terminal output -->

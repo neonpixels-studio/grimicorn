@@ -91,6 +91,10 @@ function getWindowChromeTitle(wrapper: GrimicornWrapper) {
   return wrapper.get(".window-chrome-title").element;
 }
 
+function findFocusAnnouncement(wrapper: GrimicornWrapper) {
+  return wrapper.find(".pause-focus-announcement");
+}
+
 function getTagline(wrapper: GrimicornWrapper) {
   return wrapper.find(".text-fg-muted span:last-child").text();
 }
@@ -98,6 +102,11 @@ function getTagline(wrapper: GrimicornWrapper) {
 function getLogCount(wrapper: GrimicornWrapper) {
   return wrapper.findAll(".border-l-2 div").length;
 }
+
+// Mirrors PAUSE_CONTROL_REMOVED_ANNOUNCEMENT in the component: the message the
+// live region must carry once focus is redirected off the removed control.
+const PAUSE_CONTROL_REMOVED_ANNOUNCEMENT =
+  "Live updates stopped, so the pause control was removed. Focus moved to the terminal window title.";
 
 const REDUCED_MOTION_MEDIA_QUERY = "(prefers-reduced-motion: reduce)";
 const TAGLINE_ROTATION_INTERVAL_MS = 2800;
@@ -1400,6 +1409,67 @@ describe("GrimicornPage", () => {
 
       expect(findPauseButton(wrapper).exists()).toBe(true);
       expect(document.activeElement).toBe(raveButton.element);
+
+      wrapper.unmount();
+    });
+
+    it("exposes a visually-hidden polite status region that starts empty", async () => {
+      mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const announcement = findFocusAnnouncement(wrapper);
+      expect(announcement.exists()).toBe(true);
+      // role="status" + aria-live="polite" is the live-region contract screen
+      // readers rely on; sr-only keeps it out of the visual layout.
+      expect(announcement.attributes("role")).toBe("status");
+      expect(announcement.attributes("aria-live")).toBe("polite");
+      expect(announcement.classes()).toContain("sr-only");
+      // Empty until focus actually jumps, so nothing is announced on load.
+      expect(announcement.text()).toBe("");
+
+      wrapper.unmount();
+    });
+
+    it("announces why focus moved when an OS reduced-motion flip removes the focused control", async () => {
+      const { setMatches } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      const pauseButton = findPauseButton(wrapper);
+      (pauseButton.element as HTMLButtonElement).focus();
+      expect(findFocusAnnouncement(wrapper).text()).toBe("");
+
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      expect(document.activeElement).toBe(getWindowChromeTitle(wrapper));
+      expect(findFocusAnnouncement(wrapper).text()).toBe(
+        PAUSE_CONTROL_REMOVED_ANNOUNCEMENT,
+      );
+
+      wrapper.unmount();
+    });
+
+    it("does not announce a focus move when the control is removed while another element holds focus", async () => {
+      const { setMatches } = mockPrefersReducedMotion(false);
+      mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage, { attachTo: document.body });
+      await wrapper.vm.$nextTick();
+
+      // Focus sits on an unrelated control, so removing the pause control moves
+      // no focus and there is nothing to explain.
+      const raveButton = findRaveButton(wrapper);
+      (raveButton.element as HTMLButtonElement).focus();
+
+      setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      expect(findPauseButton(wrapper).exists()).toBe(false);
+      expect(findFocusAnnouncement(wrapper).text()).toBe("");
 
       wrapper.unmount();
     });
