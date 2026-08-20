@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
 
 interface LogEntry {
   t: string;
@@ -80,6 +81,12 @@ const PORTRAIT_PARALLAX: ParallaxConfig = {
   rotation: 0.7,
   scale: 1.08,
 };
+
+// The hero <picture>'s avif source is the LCP element and is preloaded from
+// .vitepress/config.ts. Both derive the base path from the shared
+// hero-image-spec module so the preload target and this source cannot drift.
+// The ?v= token mirrors the other srcsets here and ASSET_CACHE_BUST in config.
+const HERO_AVIF_SRCSET = `${HERO_AVIF_HREF}?v=20260816`;
 
 const tagIndex = ref(0);
 const logs = ref<LogEntry[]>([]);
@@ -576,10 +583,7 @@ onUnmounted(() => {
           >
             <div class="bg-bg overflow-hidden rounded-[9px]">
               <picture>
-                <source
-                  srcset="/assets/grimicorn-hero.avif?v=20260816"
-                  type="image/avif"
-                />
+                <source :srcset="HERO_AVIF_SRCSET" type="image/avif" />
                 <source
                   srcset="/assets/grimicorn-hero.webp?v=20260816"
                   type="image/webp"
