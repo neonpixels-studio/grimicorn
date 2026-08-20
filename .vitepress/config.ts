@@ -3,6 +3,7 @@ import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 import { writeCspHeaders } from "./write-headers";
+import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
@@ -167,5 +168,8 @@ export default defineConfig({
   },
   buildEnd(siteConfig: SiteConfig) {
     writeCspHeaders(siteConfig.outDir);
+    // Guard the rendered output too: the source-level scan can't see an origin a
+    // dependency or plugin injects into the built HTML/CSS/JS (see scan-origins.ts).
+    assertBuildOutputHasNoDisallowedOrigins(siteConfig.outDir);
   },
 });

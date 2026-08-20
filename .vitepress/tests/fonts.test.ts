@@ -3,6 +3,7 @@ import { readFileSync, statSync, readdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
 import config from "../config";
+import { DISALLOWED_ORIGINS } from "../origins";
 
 const THEME_DIR = resolve(process.cwd(), ".vitepress/theme");
 const FONTS_CSS_PATH = resolve(THEME_DIR, "fonts.css");
@@ -26,11 +27,10 @@ const WOFF2_FORMAT_PATTERN = /format\(\s*["']woff2["']\s*\)/;
 // HTML error page fails loud instead of silently falling back to a system font.
 const WOFF2_SIGNATURE = "wOF2";
 
-// Neither origin may reappear anywhere in the head once fonts are self-hosted.
-const GOOGLE_FONTS_ORIGINS = [
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-];
+// Neither origin may reappear anywhere in the head once fonts are self-hosted. The
+// list is shared with the build-output scan (see .vitepress/origins.ts) so both
+// guards move together.
+const GOOGLE_FONTS_ORIGINS = DISALLOWED_ORIGINS;
 
 const FAMILY_PATTERN = /font-family:\s*["']([^"']+)["']/;
 const DISPLAY_PATTERN = /font-display:\s*([a-z-]+)/;
