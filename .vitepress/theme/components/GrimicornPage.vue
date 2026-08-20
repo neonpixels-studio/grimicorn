@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { withAssetCacheBust } from "../../asset-cache-bust";
 
 interface LogEntry {
   t: string;
@@ -577,16 +578,16 @@ onUnmounted(() => {
             <div class="bg-bg overflow-hidden rounded-[9px]">
               <picture>
                 <source
-                  srcset="/assets/grimicorn-hero.avif?v=20260816"
+                  :srcset="withAssetCacheBust('/assets/grimicorn-hero.avif')"
                   type="image/avif"
                 />
                 <source
-                  srcset="/assets/grimicorn-hero.webp?v=20260816"
+                  :srcset="withAssetCacheBust('/assets/grimicorn-hero.webp')"
                   type="image/webp"
                 />
                 <img
                   ref="imageHeroRef"
-                  src="/assets/grimicorn-hero.png?v=20260816"
+                  :src="withAssetCacheBust('/assets/grimicorn-hero.png')"
                   alt="Grimicorn — skeletal rainbow unicorn"
                   width="1824"
                   height="1824"
@@ -782,16 +783,20 @@ onUnmounted(() => {
                 >
                   <picture>
                     <source
-                      srcset="/assets/grimicorn-head.avif?v=20260816"
+                      :srcset="
+                        withAssetCacheBust('/assets/grimicorn-head.avif')
+                      "
                       type="image/avif"
                     />
                     <source
-                      srcset="/assets/grimicorn-head.webp?v=20260816"
+                      :srcset="
+                        withAssetCacheBust('/assets/grimicorn-head.webp')
+                      "
                       type="image/webp"
                     />
                     <img
                       ref="imagePortraitRef"
-                      src="/assets/grimicorn-head.png?v=20260816"
+                      :src="withAssetCacheBust('/assets/grimicorn-head.png')"
                       alt="Grimicorn portrait"
                       width="1237"
                       height="1237"

@@ -3,17 +3,15 @@ import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 import { writeCspHeaders } from "./write-headers";
+import { withAssetCacheBust } from "./asset-cache-bust";
 
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
-// Static image assets are served with a one-year immutable cache (see the /assets/*
-// header in netlify.toml), so every reference carries a ?v= cache-bust to force a
-// refetch when the file behind the stable URL actually changes. The token must match
-// the one on the hero <picture> srcsets in GrimicornPage.vue or an avif client fetches
-// a different URL than the preload warmed.
-const ASSET_CACHE_BUST = "?v=20260816";
-const OG_IMAGE = `${SITE_URL}/assets/${OG_IMAGE_FILENAME}${ASSET_CACHE_BUST}`;
+// The ?v= cache-bust token is the single source of truth in ./asset-cache-bust,
+// shared with the hero <picture> srcsets in GrimicornPage.vue so an avif client
+// never fetches a different URL than the preload warmed.
+const OG_IMAGE = withAssetCacheBust(`${SITE_URL}/assets/${OG_IMAGE_FILENAME}`);
 const OG_IMAGE_WIDTH = String(OG_WIDTH);
 const OG_IMAGE_HEIGHT = String(OG_HEIGHT);
 const OG_IMAGE_ALT =
@@ -25,7 +23,7 @@ const OG_IMAGE_ALT =
 // matches what an avif-capable client actually fetches with no wasted bytes. A second
 // type-differentiated preload (webp) would double-download in browsers that support
 // both formats, so we intentionally omit it.
-const HERO_IMAGE_HREF = `/assets/grimicorn-hero.avif${ASSET_CACHE_BUST}`;
+const HERO_IMAGE_HREF = withAssetCacheBust("/assets/grimicorn-hero.avif");
 const HERO_IMAGE_TYPE = "image/avif";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   "link",
@@ -147,7 +145,7 @@ export default defineConfig({
     // returning visitors keep a stale copy for a year.
     [
       "link",
-      { rel: "manifest", href: `/images/site.webmanifest${ASSET_CACHE_BUST}` },
+      { rel: "manifest", href: withAssetCacheBust("/images/site.webmanifest") },
     ],
   ],
   // Scope the preload to where the hero renders: every page except the 404. AppLayout

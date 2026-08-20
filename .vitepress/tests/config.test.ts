@@ -8,6 +8,7 @@ import {
   OG_HEIGHT,
   OG_IMAGE_FILENAME,
 } from "../../og-banner-spec.mjs";
+import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -56,6 +57,12 @@ const HERO_PICTURE_PATTERN =
   /<picture\b[^>]*>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
 const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
 const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset="([^"]+)"/;
+// The hero sources bind their srcset from the shared cache-bust helper
+// (`:srcset="withAssetCacheBust('/assets/...')"`), so the raw attribute holds the
+// helper call rather than a literal URL. This unwraps the asset path argument so the
+// preloaded avif can be compared against the real URL the component renders.
+const CACHE_BUST_HELPER_PATTERN =
+  /withAssetCacheBust\(\s*["']([^"']+)["']\s*\)/;
 // A `media` attribute makes a <source> conditional; the preloaded href is
 // unconditional, so the hero's first source must carry none or an avif client on the
 // excluded viewport fetches a different file than the preload pulled. The leading
@@ -301,9 +308,16 @@ function readHeroAvifSrcset() {
 }
 
 // The first candidate URL of the avif srcset — the target a plain `href` preload
-// must equal while the srcset stays single-candidate.
+// must equal while the srcset stays single-candidate. The srcset is bound from the
+// shared cache-bust helper, so resolve that call to the real URL; fall back to a
+// literal srcset so a future revert to an inline URL still verifies loud.
 function readHeroAvifUrl() {
-  return readHeroAvifSrcset().trim().split(/\s+/)[0];
+  const srcset = readHeroAvifSrcset().trim();
+  const helperMatch = srcset.match(CACHE_BUST_HELPER_PATTERN);
+  if (helperMatch) {
+    return `${helperMatch[1]}${ASSET_CACHE_BUST}`;
+  }
+  return srcset.split(/\s+/)[0];
 }
 
 function readStructuredData() {
