@@ -2,6 +2,7 @@ import { defineConfig, type HeadConfig } from "vitepress";
 import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
+import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
 import { writeCspHeaders } from "./write-headers";
 
 const SITE_URL = "https://grimicorn.dev";
@@ -25,7 +26,7 @@ const OG_IMAGE_ALT =
 // matches what an avif-capable client actually fetches with no wasted bytes. A second
 // type-differentiated preload (webp) would double-download in browsers that support
 // both formats, so we intentionally omit it.
-const HERO_IMAGE_HREF = `/assets/grimicorn-hero.avif${ASSET_CACHE_BUST}`;
+const HERO_IMAGE_HREF = `${HERO_AVIF_HREF}${ASSET_CACHE_BUST}`;
 const HERO_IMAGE_TYPE = "image/avif";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   "link",
