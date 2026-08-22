@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { withAssetCacheBust } from "../../asset-cache-bust";
+import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
 
 interface LogEntry {
   t: string;
@@ -47,6 +48,13 @@ const KONAMI = [
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
+// Announced through the visually-hidden live region when the pause control is
+// removed while it holds keyboard focus and focus is redirected to the
+// window-chrome title. Without this, screen-reader users hear focus jump to an
+// unrelated element with no explanation for why.
+const PAUSE_CONTROL_REMOVED_ANNOUNCEMENT =
+  "Live updates stopped, so the pause control was removed. Focus moved to the terminal window title.";
+
 // The two auto-advancing content swaps (tagline rotation and chaos.log stream)
 // are themselves auto-updating motion (WCAG 2.2.2 Pause, Stop, Hide), so their
 // cadences live here as named constants and their timers are gated on the same
@@ -82,6 +90,14 @@ const PORTRAIT_PARALLAX: ParallaxConfig = {
   scale: 1.08,
 };
 
+// The hero <picture>'s avif source is the LCP element and is preloaded from
+// .vitepress/config.ts. Both derive the base path from the shared
+// hero-image-spec module so the preload target and this source cannot drift.
+// The ?v= token comes from the shared ASSET_CACHE_BUST in ../../asset-cache-bust,
+// the single source of truth shared with config.ts and the other srcsets here, so
+// the preloaded avif URL and this fetched source cannot drift.
+const HERO_AVIF_SRCSET = withAssetCacheBust(HERO_AVIF_HREF);
+
 const tagIndex = ref(0);
 const logs = ref<LogEntry[]>([]);
 const toastText = ref("");
@@ -110,6 +126,11 @@ const imagePortraitRef = ref<HTMLImageElement | null>(null);
 // the watcher below.
 const pauseControlRef = ref<HTMLButtonElement | null>(null);
 const windowChromeTitleRef = ref<HTMLElement | null>(null);
+// Text for the visually-hidden aria-live region; populated only when focus is
+// actually redirected away from the removed pause control (see
+// redirectFocusFromHiddenPauseControl), so screen readers announce why focus
+// moved rather than jumping silently.
+const focusMoveAnnouncement = ref("");
 
 const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 let tagTimer = 0;
@@ -313,6 +334,10 @@ function redirectFocusFromHiddenPauseControl(canAutoAdvance: boolean) {
   // preventScroll so a mid-page reduced-motion flip doesn't snap the viewport
   // back up to the window chrome.
   windowChromeTitleRef.value?.focus({ preventScroll: true });
+  // Announce the reason for the focus jump through the live region, so a
+  // screen-reader user who was on the control isn't left guessing why focus
+  // suddenly landed on the window title.
+  focusMoveAnnouncement.value = PAUSE_CONTROL_REMOVED_ANNOUNCEMENT;
 }
 
 // Takes the MediaQueryList (initial check) or MediaQueryListEvent (change
@@ -487,18 +512,7 @@ onUnmounted(() => {
             <span class="block">GRIMICORN</span>{{ " "
             }}<span
               class="animate-rainbow-pan block bg-clip-text text-transparent"
-              style="
-                background-image: linear-gradient(
-                  90deg,
-                  #ff2d9b,
-                  #fb923c,
-                  #facc15,
-                  #a3e635,
-                  #22d3ee,
-                  #a855f7,
-                  #ff2d9b
-                );
-              "
+              style="background-image: var(--gx-rainbow)"
               >AGENT</span
             >
           </h1>
@@ -525,17 +539,7 @@ onUnmounted(() => {
               target="_blank"
               rel="noopener noreferrer"
               class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
-              style="
-                background-image: linear-gradient(
-                  90deg,
-                  #ff2d9b,
-                  #fb923c,
-                  #facc15,
-                  #a3e635,
-                  #22d3ee,
-                  #a855f7
-                );
-              "
+              style="background-image: var(--gx-rainbow-cta)"
             >
               view on github &rarr;
             </a>
@@ -577,10 +581,7 @@ onUnmounted(() => {
           >
             <div class="bg-bg overflow-hidden rounded-[9px]">
               <picture>
-                <source
-                  :srcset="withAssetCacheBust('/assets/grimicorn-hero.avif')"
-                  type="image/avif"
-                />
+                <source :srcset="HERO_AVIF_SRCSET" type="image/avif" />
                 <source
                   :srcset="withAssetCacheBust('/assets/grimicorn-hero.webp')"
                   type="image/webp"
@@ -608,18 +609,7 @@ onUnmounted(() => {
       <!-- rainbow divider -->
       <div
         class="animate-rainbow-pan h-[2px]"
-        style="
-          background-image: linear-gradient(
-            90deg,
-            #ff2d9b,
-            #fb923c,
-            #facc15,
-            #a3e635,
-            #22d3ee,
-            #a855f7,
-            #ff2d9b
-          );
-        "
+        style="background-image: var(--gx-rainbow)"
       />
 
       <!-- terminal section -->
@@ -660,6 +650,17 @@ onUnmounted(() => {
               pause live updates
             </button>
           </div>
+
+          <!-- Visually-hidden live region: announces why keyboard focus jumped
+          when the pause control is removed while focused (see
+          redirectFocusFromHiddenPauseControl). -->
+          <p
+            class="pause-focus-announcement sr-only"
+            role="status"
+            aria-live="polite"
+          >
+            {{ focusMoveAnnouncement }}
+          </p>
 
           <div class="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr]">
             <!-- left: terminal output -->

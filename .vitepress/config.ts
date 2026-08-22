@@ -2,8 +2,10 @@ import { defineConfig, type HeadConfig } from "vitepress";
 import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
+import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
+import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
@@ -23,7 +25,7 @@ const OG_IMAGE_ALT =
 // matches what an avif-capable client actually fetches with no wasted bytes. A second
 // type-differentiated preload (webp) would double-download in browsers that support
 // both formats, so we intentionally omit it.
-const HERO_IMAGE_HREF = withAssetCacheBust("/assets/grimicorn-hero.avif");
+const HERO_IMAGE_HREF = withAssetCacheBust(HERO_AVIF_HREF);
 const HERO_IMAGE_TYPE = "image/avif";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   "link",
@@ -165,5 +167,8 @@ export default defineConfig({
   },
   buildEnd(siteConfig: SiteConfig) {
     writeCspHeaders(siteConfig.outDir);
+    // Guard the rendered output too: the source-level scan can't see an origin a
+    // dependency or plugin injects into the built HTML/CSS/JS (see scan-origins.ts).
+    assertBuildOutputHasNoDisallowedOrigins(siteConfig.outDir);
   },
 });

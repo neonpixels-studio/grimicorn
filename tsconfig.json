@@ -27,7 +27,8 @@
     "**/*.vue",
     ".vitepress/**/*.ts",
     ".vitepress/**/*.vue",
-    "og-banner-spec.mjs"
+    "og-banner-spec.mjs",
+    "hero-image-spec.mjs"
   ],
   "exclude": ["node_modules", ".vitepress/cache", ".vitepress/dist"]
 }

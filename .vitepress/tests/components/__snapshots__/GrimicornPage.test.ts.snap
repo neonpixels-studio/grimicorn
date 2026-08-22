@@ -29,10 +29,10 @@ exports[`GrimicornPage > renders correctly 1`] = `
                without it Vue's whitespace-condense collapses the gap and the
                name reads as one run-together word for find-in-page, copy, and
                assistive tech. -->
-        <h1 class="font-display m-0 text-[52px] leading-[0.92] font-bold tracking-[-0.02em] sm:text-[68px] lg:text-[84px]"><span class="block">GRIMICORN</span> <span class="animate-rainbow-pan block bg-clip-text text-transparent" style="background-image: linear-gradient(90deg, #ff2d9b, #fb923c, #facc15, #a3e635, #22d3ee, #a855f7, #ff2d9b);">AGENT</span></h1>
+        <h1 class="font-display m-0 text-[52px] leading-[0.92] font-bold tracking-[-0.02em] sm:text-[68px] lg:text-[84px]"><span class="block">GRIMICORN</span> <span class="animate-rainbow-pan block bg-clip-text text-transparent" style="background-image: var(--gx-rainbow);">AGENT</span></h1>
         <div class="text-fg-muted mt-[26px] flex items-center gap-[10px] text-[13px]"><span class="text-lime">▸</span><span>spawning gremlins on a branch you forgot about…</span></div>
         <p class="text-fg-muted mt-[26px] max-w-none text-sm leading-[1.8] lg:max-w-[440px]"> A chaotic coding sidekick that builds the things I don't have time for — then unleashes a swarm of gremlins to break them until they can't break in production. Dark, dead, colorful and lively at the same time. </p>
-        <div class="mt-[34px] flex flex-wrap gap-[14px]"><a href="https://github.com/grimicorn-agent" target="_blank" rel="noopener noreferrer" class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline" style="background-image: linear-gradient(90deg, #ff2d9b, #fb923c, #facc15, #a3e635, #22d3ee, #a855f7);"> view on github → </a><a href="#status" class="text-fg rounded-lg border border-white/[0.16] bg-white/[0.02] px-[22px] py-[13px] text-[13px] font-medium no-underline"> what's it doing? ↓ </a></div>
+        <div class="mt-[34px] flex flex-wrap gap-[14px]"><a href="https://github.com/grimicorn-agent" target="_blank" rel="noopener noreferrer" class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline" style="background-image: var(--gx-rainbow-cta);"> view on github → </a><a href="#status" class="text-fg rounded-lg border border-white/[0.16] bg-white/[0.02] px-[22px] py-[13px] text-[13px] font-medium no-underline"> what's it doing? ↓ </a></div>
       </div><!-- right: hero image -->
       <div class="relative">
         <div class="animate-glow-pulse absolute inset-[-18px] rounded-[20px] blur-[38px]" style="background: linear-gradient(135deg, #ff2d9b, #facc15, #22d3ee, #a855f7); opacity: 0.32;"></div>
@@ -47,12 +47,16 @@ exports[`GrimicornPage > renders correctly 1`] = `
         <div class="text-fg-dim mt-3 flex justify-between text-[11px] tracking-[0.04em]"><span>fig.01 — grimicorn, in the wild</span><span>rev. 6.6.6</span></div>
       </div>
     </section><!-- rainbow divider -->
-    <div class="animate-rainbow-pan h-[2px]" style="background-image: linear-gradient(90deg, #ff2d9b, #fb923c, #facc15, #a3e635, #22d3ee, #a855f7, #ff2d9b);"></div><!-- terminal section -->
+    <div class="animate-rainbow-pan h-[2px]" style="background-image: var(--gx-rainbow);"></div><!-- terminal section -->
     <section id="status" class="py-14">
       <h2 class="text-fg-dim mb-5 text-xs tracking-[0.16em] uppercase"><span aria-hidden="true">—</span> what it's doing right now </h2>
       <div class="overflow-hidden rounded-xl border border-white/[0.08] text-[#d4d4d8]" style="background: #08080a; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);">
         <!-- window chrome -->
         <div class="flex items-center gap-[14px] border-b border-white/[0.07] bg-white/[0.015] px-[22px] py-4"><span class="flex gap-2"><span class="bg-pink h-3 w-3 rounded-full"></span><span class="bg-yellow h-3 w-3 rounded-full"></span><span class="bg-lime h-3 w-3 rounded-full"></span></span><span tabindex="-1" class="window-chrome-title text-fg-subtle ml-[6px] truncate text-[12.5px]">grimicorn-agent — zsh — 124×40</span><button class="colorful-btn pause-toggle ml-auto shrink-0 text-[12.5px]" aria-pressed="false"> pause live updates </button></div>
+        <!-- Visually-hidden live region: announces why keyboard focus jumped
+          when the pause control is removed while focused (see
+          redirectFocusFromHiddenPauseControl). -->
+        <p class="pause-focus-announcement sr-only" role="status" aria-live="polite"></p>
         <div class="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr]">
           <!-- left: terminal output -->
           <div class="p-5 text-[13.5px] leading-loose sm:p-[34px_36px]">

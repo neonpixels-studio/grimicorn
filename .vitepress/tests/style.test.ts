@@ -3,12 +3,38 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const STYLE_CSS_PATH = resolve(process.cwd(), ".vitepress/theme/style.css");
+const GRIMICORN_PAGE_PATH = resolve(
+  process.cwd(),
+  ".vitepress/theme/components/GrimicornPage.vue",
+);
+const NOT_FOUND_PATH = resolve(
+  process.cwd(),
+  ".vitepress/theme/components/NotFound.vue",
+);
 
 const BRAND_BG = "#0a0a0b";
 const BRAND_BG_TOKEN = "--color-bg";
 
+const RAINBOW_TOKEN = "--gx-rainbow";
+const RAINBOW_CTA_TOKEN = "--gx-rainbow-cta";
+// The seamless-loop spectrum repeats the leading pink stop; the CTA fill omits
+// it. Whitespace is stripped before matching so multi-line CSS formatting
+// doesn't break the comparison.
+const RAINBOW_LOOP_LITERAL =
+  "linear-gradient(90deg,#ff2d9b,#fb923c,#facc15,#a3e635,#22d3ee,#a855f7,#ff2d9b)";
+const RAINBOW_CTA_LITERAL =
+  "linear-gradient(90deg,#ff2d9b,#fb923c,#facc15,#a3e635,#22d3ee,#a855f7)";
+
 function readStyleCss() {
   return readFileSync(STYLE_CSS_PATH, "utf8");
+}
+
+function stripWhitespace(source: string) {
+  return source.replace(/\s+/g, "");
+}
+
+function countOccurrences(haystack: string, needle: string) {
+  return haystack.split(needle).length - 1;
 }
 
 describe("brand background token", () => {
@@ -37,5 +63,44 @@ describe("brand background token", () => {
       new RegExp(`background:\\s*var\\(${BRAND_BG_TOKEN}\\)\\s*;`),
     );
     expect(block).not.toMatch(new RegExp(BRAND_BG, "i"));
+  });
+});
+
+describe("brand rainbow gradient token", () => {
+  const strippedCss = stripWhitespace(readStyleCss());
+  const strippedGrimicornPage = stripWhitespace(
+    readFileSync(GRIMICORN_PAGE_PATH, "utf8"),
+  );
+  const strippedNotFound = stripWhitespace(
+    readFileSync(NOT_FOUND_PATH, "utf8"),
+  );
+
+  it("defines both rainbow tokens with their gradient literals in style.css", () => {
+    expect(strippedCss).toContain(`${RAINBOW_TOKEN}:${RAINBOW_LOOP_LITERAL}`);
+    expect(strippedCss).toContain(
+      `${RAINBOW_CTA_TOKEN}:${RAINBOW_CTA_LITERAL}`,
+    );
+  });
+
+  it("keeps each rainbow gradient literal in exactly one place in style.css", () => {
+    expect(countOccurrences(strippedCss, RAINBOW_LOOP_LITERAL)).toBe(1);
+    expect(countOccurrences(strippedCss, RAINBOW_CTA_LITERAL)).toBe(1);
+  });
+
+  it("references the tokens from .colorful-btn instead of a second literal", () => {
+    const colorfulBtnBlock = strippedCss.match(/\.colorful-btn\{([^}]*)\}/);
+    expect(colorfulBtnBlock, ".colorful-btn rule not found").not.toBeNull();
+    const block = colorfulBtnBlock![1];
+    expect(block).toContain(`background-image:var(${RAINBOW_TOKEN})`);
+    expect(block).not.toContain(RAINBOW_LOOP_LITERAL);
+  });
+
+  it("paints the templates from the tokens with no inline gradient literal left", () => {
+    [strippedGrimicornPage, strippedNotFound].forEach((template) => {
+      expect(template).toContain(`var(${RAINBOW_TOKEN})`);
+      expect(template).toContain(`var(${RAINBOW_CTA_TOKEN})`);
+      expect(template).not.toContain(RAINBOW_LOOP_LITERAL);
+      expect(template).not.toContain(RAINBOW_CTA_LITERAL);
+    });
   });
 });

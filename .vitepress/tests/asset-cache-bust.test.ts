@@ -15,15 +15,22 @@ const COMPONENT_PATH = resolve(
 );
 
 // The versioned asset paths that must build their URL from the shared helper rather
-// than carry an inline ?v= token — three hero sources plus three portrait sources.
+// than carry an inline ?v= token. The hero avif is excluded: its base path now comes
+// from the shared hero-image-spec (HERO_AVIF_HREF) so config's preload and the
+// picture source cannot drift, so it is composed as withAssetCacheBust(HERO_AVIF_HREF)
+// and asserted separately below. These five still carry an inline path literal.
 const CACHE_BUSTED_ASSET_PATHS = [
-  "/assets/grimicorn-hero.avif",
   "/assets/grimicorn-hero.webp",
   "/assets/grimicorn-hero.png",
   "/assets/grimicorn-head.avif",
   "/assets/grimicorn-head.webp",
   "/assets/grimicorn-head.png",
 ];
+
+// The hero avif srcset is composed from the shared hero-image-spec path through the
+// same cache-bust helper, keeping the token single-sourced while the base path stays
+// shared with config's preload target.
+const HERO_AVIF_HELPER_CALL = "withAssetCacheBust(HERO_AVIF_HREF)";
 
 const SHARED_MODULE_IMPORT_PATTERN =
   /import\s*\{[^}]*\bwithAssetCacheBust\b[^}]*\}\s*from\s*["'][^"']*asset-cache-bust["']/;
@@ -75,5 +82,6 @@ describe("asset cache-bust token", () => {
     for (const assetPath of CACHE_BUSTED_ASSET_PATHS) {
       expect(source, assetPath).toContain(`withAssetCacheBust('${assetPath}')`);
     }
+    expect(source).toContain(HERO_AVIF_HELPER_CALL);
   });
 });

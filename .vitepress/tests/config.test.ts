@@ -9,6 +9,7 @@ import {
   OG_IMAGE_FILENAME,
 } from "../../og-banner-spec.mjs";
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
+import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -56,13 +57,20 @@ const HERO_PRELOAD_PRIORITY = "high";
 const HERO_PICTURE_PATTERN =
   /<picture\b[^>]*>((?:(?!<\/picture>)[\s\S])*?ref="imageHeroRef"(?:(?!<\/picture>)[\s\S])*?)<\/picture>/;
 const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
-const SRCSET_ATTRIBUTE_PATTERN = /\bsrcset="([^"]+)"/;
-// The hero sources bind their srcset from the shared cache-bust helper
-// (`:srcset="withAssetCacheBust('/assets/...')"`), so the raw attribute holds the
-// helper call rather than a literal URL. This unwraps the asset path argument so the
-// preloaded avif can be compared against the real URL the component renders.
-const CACHE_BUST_HELPER_PATTERN =
-  /withAssetCacheBust\(\s*["']([^"']+)["']\s*\)/;
+// The hero avif <source> binds (`:srcset`) its srcset to the shared, composed value
+// rather than hardcoding a URL literal, so a static template attribute here fails loud.
+const HERO_BOUND_SRCSET_PATTERN = /:srcset="([^"]+)"/;
+// The hero avif base path and its cache-bust token are both shared, not inlined:
+// config.ts and GrimicornPage.vue import HERO_AVIF_HREF from hero-image-spec.mjs and
+// compose it through withAssetCacheBust (ASSET_CACHE_BUST from asset-cache-bust.ts),
+// so the preload target and the picture source cannot drift. The component binds its
+// avif <source> to the named HERO_AVIF_SRCSET const; the test reconstructs the exact
+// URL the component fetches from those two shared modules and asserts it equals
+// config's preload href. The import pattern (mirroring the OG generator check)
+// asserts the path comes from the shared module, not a re-inlined literal.
+const HERO_AVIF_SRCSET_BINDING = "HERO_AVIF_SRCSET";
+const HERO_SPEC_IMPORT_PATTERN =
+  /import\s*\{([^}]*)\}\s*from\s*["'][^"']*hero-image-spec\.mjs["']/;
 // A `media` attribute makes a <source> conditional; the preloaded href is
 // unconditional, so the hero's first source must carry none or an avif client on the
 // excluded viewport fetches a different file than the preload pulled. The leading
@@ -297,27 +305,25 @@ function readHeroFirstSourceTag() {
   return sources[0];
 }
 
+function readHeroComponentSource() {
+  return readFileSync(HERO_COMPONENT, "utf8");
+}
+
+// The avif srcset the hero <picture> actually renders: the shared base path
+// (HERO_AVIF_HREF from hero-image-spec.mjs) composed with the shared cache-bust token
+// (ASSET_CACHE_BUST from asset-cache-bust.ts) — the exact two sources of truth the
+// component's `withAssetCacheBust(HERO_AVIF_HREF)` srcset resolves to. Reconstructed
+// from the shared modules rather than read off the bound attribute (which holds a JS
+// identifier, not the URL) so the single-candidate guard and the preload-match check
+// operate on the real fetched value.
 function readHeroAvifSrcset() {
-  const srcsetMatch = readHeroFirstSourceTag().match(SRCSET_ATTRIBUTE_PATTERN);
-  if (!srcsetMatch) {
-    throw new Error(
-      `The hero's first <source> has no srcset in ${HERO_COMPONENT}`,
-    );
-  }
-  return srcsetMatch[1];
+  return `${HERO_AVIF_HREF}${ASSET_CACHE_BUST}`;
 }
 
 // The first candidate URL of the avif srcset — the target a plain `href` preload
-// must equal while the srcset stays single-candidate. The srcset is bound from the
-// shared cache-bust helper, so resolve that call to the real URL; fall back to a
-// literal srcset so a future revert to an inline URL still verifies loud.
+// must equal while the srcset stays single-candidate.
 function readHeroAvifUrl() {
-  const srcset = readHeroAvifSrcset().trim();
-  const helperMatch = srcset.match(CACHE_BUST_HELPER_PATTERN);
-  if (helperMatch) {
-    return `${helperMatch[1]}${ASSET_CACHE_BUST}`;
-  }
-  return srcset.split(/\s+/)[0];
+  return readHeroAvifSrcset().trim().split(/\s+/)[0];
 }
 
 function readStructuredData() {
@@ -614,6 +620,57 @@ describe("Hero image preload", () => {
   it("does not preload the hero on the 404 page, which renders no hero", async () => {
     const head = await headForPage({ isNotFound: true });
     expect(filterPreloadImageEntries(head)).toHaveLength(0);
+  });
+});
+
+describe("Hero avif path shared source of truth", () => {
+  const CONFIG_SOURCE_FILE = resolve(process.cwd(), ".vitepress/config.ts");
+  const HERO_SPEC_BINDING = "HERO_AVIF_HREF";
+
+  function importsHeroSpec(source: string) {
+    const [, bindingList = ""] =
+      stripComments(source).match(HERO_SPEC_IMPORT_PATTERN) ?? [];
+    return bindingList.split(",").map((binding) => binding.trim());
+  }
+
+  it("exports a single hero avif base path under /assets", () => {
+    expect(HERO_AVIF_HREF).toMatch(/^\/assets\/.+\.avif$/);
+  });
+
+  it("imports the hero avif path from the shared spec in config.ts", () => {
+    const source = readFileSync(CONFIG_SOURCE_FILE, "utf8");
+    expect(importsHeroSpec(source)).toContain(HERO_SPEC_BINDING);
+  });
+
+  it("imports the hero avif path from the shared spec in the component", () => {
+    expect(importsHeroSpec(readHeroComponentSource())).toContain(
+      HERO_SPEC_BINDING,
+    );
+  });
+
+  it("does not re-inline the hero avif path literal in either consumer", () => {
+    expect(readFileSync(CONFIG_SOURCE_FILE, "utf8")).not.toContain(
+      HERO_AVIF_HREF,
+    );
+    expect(readHeroComponentSource()).not.toContain(HERO_AVIF_HREF);
+  });
+
+  it("binds the hero <source> srcset to the shared composed value, not a literal", () => {
+    const [, boundValue] =
+      readHeroFirstSourceTag().match(HERO_BOUND_SRCSET_PATTERN) ?? [];
+    expect(boundValue).toBe(HERO_AVIF_SRCSET_BINDING);
+  });
+
+  it("keeps config's preload target on the shared hero avif path", async () => {
+    const head = await headForPage({ isNotFound: false });
+    const href = findPreloadImageHref(head);
+    expect(href.startsWith(HERO_AVIF_HREF)).toBe(true);
+    expect(href.slice(0, HERO_AVIF_HREF.length)).toBe(HERO_AVIF_HREF);
+  });
+
+  it("resolves the preload target to the exact url the component fetches", async () => {
+    const head = await headForPage({ isNotFound: false });
+    expect(findPreloadImageHref(head)).toBe(readHeroAvifUrl());
   });
 });
 

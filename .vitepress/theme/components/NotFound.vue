@@ -54,16 +54,7 @@ onMounted(() => {
         style="
           font-size: clamp(6rem, 22vw, 12rem);
           line-height: 0.9;
-          background-image: linear-gradient(
-            90deg,
-            #ff2d9b,
-            #fb923c,
-            #facc15,
-            #a3e635,
-            #22d3ee,
-            #a855f7,
-            #ff2d9b
-          );
+          background-image: var(--gx-rainbow);
         "
       >
         404
@@ -88,17 +79,7 @@ onMounted(() => {
         <a
           href="/"
           class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
-          style="
-            background-image: linear-gradient(
-              90deg,
-              #ff2d9b,
-              #fb923c,
-              #facc15,
-              #a3e635,
-              #22d3ee,
-              #a855f7
-            );
-          "
+          style="background-image: var(--gx-rainbow-cta)"
         >
           &#x25B8; back to home
         </a>
