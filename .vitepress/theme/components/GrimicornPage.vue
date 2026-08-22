@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { withAssetCacheBust } from "../../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
 
 interface LogEntry {
@@ -92,8 +93,10 @@ const PORTRAIT_PARALLAX: ParallaxConfig = {
 // The hero <picture>'s avif source is the LCP element and is preloaded from
 // .vitepress/config.ts. Both derive the base path from the shared
 // hero-image-spec module so the preload target and this source cannot drift.
-// The ?v= token mirrors the other srcsets here and ASSET_CACHE_BUST in config.
-const HERO_AVIF_SRCSET = `${HERO_AVIF_HREF}?v=20260816`;
+// The ?v= token comes from the shared ASSET_CACHE_BUST in ../../asset-cache-bust,
+// the single source of truth shared with config.ts and the other srcsets here, so
+// the preloaded avif URL and this fetched source cannot drift.
+const HERO_AVIF_SRCSET = withAssetCacheBust(HERO_AVIF_HREF);
 
 const tagIndex = ref(0);
 const logs = ref<LogEntry[]>([]);
@@ -580,12 +583,12 @@ onUnmounted(() => {
               <picture>
                 <source :srcset="HERO_AVIF_SRCSET" type="image/avif" />
                 <source
-                  srcset="/assets/grimicorn-hero.webp?v=20260816"
+                  :srcset="withAssetCacheBust('/assets/grimicorn-hero.webp')"
                   type="image/webp"
                 />
                 <img
                   ref="imageHeroRef"
-                  src="/assets/grimicorn-hero.png?v=20260816"
+                  :src="withAssetCacheBust('/assets/grimicorn-hero.png')"
                   alt="Grimicorn — skeletal rainbow unicorn"
                   width="1824"
                   height="1824"
@@ -781,16 +784,20 @@ onUnmounted(() => {
                 >
                   <picture>
                     <source
-                      srcset="/assets/grimicorn-head.avif?v=20260816"
+                      :srcset="
+                        withAssetCacheBust('/assets/grimicorn-head.avif')
+                      "
                       type="image/avif"
                     />
                     <source
-                      srcset="/assets/grimicorn-head.webp?v=20260816"
+                      :srcset="
+                        withAssetCacheBust('/assets/grimicorn-head.webp')
+                      "
                       type="image/webp"
                     />
                     <img
                       ref="imagePortraitRef"
-                      src="/assets/grimicorn-head.png?v=20260816"
+                      :src="withAssetCacheBust('/assets/grimicorn-head.png')"
                       alt="Grimicorn portrait"
                       width="1237"
                       height="1237"

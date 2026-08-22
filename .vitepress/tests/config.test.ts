@@ -8,6 +8,7 @@ import {
   OG_HEIGHT,
   OG_IMAGE_FILENAME,
 } from "../../og-banner-spec.mjs";
+import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
@@ -59,18 +60,15 @@ const SOURCE_TAG_PATTERN = /<source\b[^>]*>/g;
 // The hero avif <source> binds (`:srcset`) its srcset to the shared, composed value
 // rather than hardcoding a URL literal, so a static template attribute here fails loud.
 const HERO_BOUND_SRCSET_PATTERN = /:srcset="([^"]+)"/;
-// The hero avif base path is shared, not inlined: config.ts and GrimicornPage.vue
-// both import HERO_AVIF_HREF from hero-image-spec.mjs, so the preload target and
-// the picture source cannot drift. These pin that contract. The component binds its
-// avif <source> to a srcset composed as `${HERO_AVIF_HREF}<cache-bust>`; the pattern
-// captures the cache-bust suffix so the test can reconstruct the exact URL the
-// component fetches and assert it equals config's preload href. The import pattern
-// (mirroring the OG generator check) asserts the path comes from the shared module,
-// not a re-inlined literal.
+// The hero avif base path and its cache-bust token are both shared, not inlined:
+// config.ts and GrimicornPage.vue import HERO_AVIF_HREF from hero-image-spec.mjs and
+// compose it through withAssetCacheBust (ASSET_CACHE_BUST from asset-cache-bust.ts),
+// so the preload target and the picture source cannot drift. The component binds its
+// avif <source> to the named HERO_AVIF_SRCSET const; the test reconstructs the exact
+// URL the component fetches from those two shared modules and asserts it equals
+// config's preload href. The import pattern (mirroring the OG generator check)
+// asserts the path comes from the shared module, not a re-inlined literal.
 const HERO_AVIF_SRCSET_BINDING = "HERO_AVIF_SRCSET";
-const HERO_AVIF_SRCSET_TEMPLATE_PATTERN = new RegExp(
-  `${HERO_AVIF_SRCSET_BINDING}\\s*=\\s*\`\\$\\{HERO_AVIF_HREF\\}([^\`]*)\``,
-);
 const HERO_SPEC_IMPORT_PATTERN =
   /import\s*\{([^}]*)\}\s*from\s*["'][^"']*hero-image-spec\.mjs["']/;
 // A `media` attribute makes a <source> conditional; the preloaded href is
@@ -311,28 +309,15 @@ function readHeroComponentSource() {
   return readFileSync(HERO_COMPONENT, "utf8");
 }
 
-// The cache-bust suffix the component appends to the shared HERO_AVIF_HREF when it
-// composes its avif srcset. Captured from source so the reconstructed URL tracks the
-// component without the test re-inlining the path (which is the whole point of the
-// shared spec). Fails loud if the srcset is no longer composed from HERO_AVIF_HREF.
-function readHeroAvifCacheBust() {
-  const match = readHeroComponentSource().match(
-    HERO_AVIF_SRCSET_TEMPLATE_PATTERN,
-  );
-  if (!match) {
-    throw new Error(
-      `Could not find the ${HERO_AVIF_SRCSET_BINDING} srcset composed from HERO_AVIF_HREF in ${HERO_COMPONENT}`,
-    );
-  }
-  return match[1];
-}
-
-// The avif srcset the hero <picture> actually renders: the shared base path plus the
-// component's cache-bust suffix. Reconstructed rather than read off the bound
-// attribute (which holds a JS identifier, not the URL) so the single-candidate guard
-// and the preload-match check still operate on the real fetched value.
+// The avif srcset the hero <picture> actually renders: the shared base path
+// (HERO_AVIF_HREF from hero-image-spec.mjs) composed with the shared cache-bust token
+// (ASSET_CACHE_BUST from asset-cache-bust.ts) — the exact two sources of truth the
+// component's `withAssetCacheBust(HERO_AVIF_HREF)` srcset resolves to. Reconstructed
+// from the shared modules rather than read off the bound attribute (which holds a JS
+// identifier, not the URL) so the single-candidate guard and the preload-match check
+// operate on the real fetched value.
 function readHeroAvifSrcset() {
-  return `${HERO_AVIF_HREF}${readHeroAvifCacheBust()}`;
+  return `${HERO_AVIF_HREF}${ASSET_CACHE_BUST}`;
 }
 
 // The first candidate URL of the avif srcset — the target a plain `href` preload
