@@ -847,6 +847,23 @@ describe("Site URL consistency", () => {
   });
 });
 
+describe("Structured data offers", () => {
+  it("exposes a truthful free-tier Offer on the SoftwareApplication markup", () => {
+    const structuredData = readStructuredData() as Record<string, unknown>;
+    expect(structuredData.offers).toEqual({
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+    });
+  });
+
+  it("omits any fabricated aggregateRating or review", () => {
+    const structuredData = readStructuredData() as Record<string, unknown>;
+    expect("aggregateRating" in structuredData).toBe(false);
+    expect("review" in structuredData).toBe(false);
+  });
+});
+
 describe("robots.txt", () => {
   it("points its Sitemap directive at the config site URL", () => {
     const siteUrl = findLinkHref("canonical");

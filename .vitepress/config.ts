@@ -38,6 +38,13 @@ const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
   },
 ];
 
+// Grimicorn is free, so the schema.org Offer carries a real price of 0 — the
+// offers field the SoftwareApplication markup was missing. There is no real review
+// data, so aggregateRating and review stay omitted rather than fabricated; the
+// Offer is valid schema.org on its own.
+const OFFER_PRICE = "0";
+const OFFER_CURRENCY = "USD";
+
 const JSON_LD = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -47,6 +54,11 @@ const JSON_LD = JSON.stringify({
   applicationCategory: "DeveloperApplication",
   operatingSystem: "All",
   image: OG_IMAGE,
+  offers: {
+    "@type": "Offer",
+    price: OFFER_PRICE,
+    priceCurrency: OFFER_CURRENCY,
+  },
 });
 
 export default defineConfig({
