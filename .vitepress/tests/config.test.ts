@@ -565,7 +565,11 @@ describe("Web app manifest installability", () => {
   it.each(REQUIRED_INSTALL_FIELDS)(
     "declares a non-empty %s field required for installability",
     (field) => {
-      expect(readWebManifest()[field], field).toBeTruthy();
+      const value = readWebManifest()[field];
+      expect(value, field).toBeDefined();
+      const length =
+        typeof value === "string" ? value.trim().length : value.length;
+      expect(length, field).toBeGreaterThan(0);
     },
   );
 
@@ -582,7 +586,7 @@ describe("Web app manifest installability", () => {
   it.each(REQUIRED_ICON_SIZES)(
     "offers a %s icon the browser can use for the install prompt",
     (size) => {
-      const icons: { sizes?: string; purpose?: string }[] =
+      const icons: { src: string; sizes?: string; purpose?: string }[] =
         readWebManifest().icons ?? [];
       const usableIcons = icons.filter(
         (icon) =>
@@ -590,6 +594,16 @@ describe("Web app manifest installability", () => {
           iconPurposeTokens(icon.purpose).includes(INSTALL_ICON_PURPOSE),
       );
       expect(usableIcons, size).not.toHaveLength(0);
+      // Chromium reads the decoded PNG, not the declared sizes attribute, so pin
+      // the file's real dimensions rather than trusting the manifest string.
+      const [expectedWidth, expectedHeight] = size.split("x").map(Number);
+      for (const icon of usableIcons) {
+        const dimensions = readPngDimensions(publicPathForUrl(icon.src));
+        expect(dimensions, icon.src).toEqual({
+          width: expectedWidth,
+          height: expectedHeight,
+        });
+      }
     },
   );
 
