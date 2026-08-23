@@ -430,10 +430,12 @@ function resolveMetaImagePath(identifier: string) {
   return publicPathForUrl(findMetaContent(identifier));
 }
 
+function readRawWebManifest() {
+  return readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8");
+}
+
 function readWebManifest() {
-  return JSON.parse(
-    readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8"),
-  );
+  return JSON.parse(readRawWebManifest());
 }
 
 // Confirms the path is a real file AND that its case matches disk, since macOS (APFS)
@@ -541,19 +543,29 @@ describe("Web app manifest installability", () => {
   const EXPECTED_START_URL = "/";
   const EXPECTED_ID = "/";
   const EXPECTED_DISPLAY = "standalone";
+  // Chromium ignores an icon for the install prompt unless its purpose includes
+  // `any` (a maskable-only icon does not satisfy the criteria), so an installable
+  // icon set must offer both documented sizes with an `any`-capable purpose.
+  const INSTALL_ICON_PURPOSE = "any";
+  const REQUIRED_ICON_SIZES = ["192x192", "512x512"];
+
+  function iconPurposeTokens(purpose: unknown) {
+    // Per spec an omitted purpose defaults to `any`; a present one is a
+    // space-separated token list.
+    if (typeof purpose !== "string") {
+      return [INSTALL_ICON_PURPOSE];
+    }
+    return purpose.trim().split(/\s+/);
+  }
 
   it("parses as valid JSON", () => {
-    const rawManifest = readFileSync(
-      publicPathForUrl(findLinkHref("manifest")),
-      "utf8",
-    );
-    expect(() => JSON.parse(rawManifest)).not.toThrow();
+    expect(() => JSON.parse(readRawWebManifest())).not.toThrow();
   });
 
   it.each(REQUIRED_INSTALL_FIELDS)(
-    "declares the %s field required for installability",
+    "declares a non-empty %s field required for installability",
     (field) => {
-      expect(readWebManifest()).toHaveProperty(field);
+      expect(readWebManifest()[field], field).toBeTruthy();
     },
   );
 
@@ -563,11 +575,29 @@ describe("Web app manifest installability", () => {
     expect(manifest.id).toBe(EXPECTED_ID);
   });
 
-  it("requests a standalone display mode with icons the browser can use", () => {
-    const manifest = readWebManifest();
-    expect(manifest.display).toBe(EXPECTED_DISPLAY);
-    expect(Array.isArray(manifest.icons)).toBe(true);
-    expect(manifest.icons.length).toBeGreaterThan(0);
+  it("requests a standalone display mode", () => {
+    expect(readWebManifest().display).toBe(EXPECTED_DISPLAY);
+  });
+
+  it.each(REQUIRED_ICON_SIZES)(
+    "offers a %s icon the browser can use for the install prompt",
+    (size) => {
+      const icons: { sizes?: string; purpose?: string }[] =
+        readWebManifest().icons ?? [];
+      const usableIcons = icons.filter(
+        (icon) =>
+          icon.sizes === size &&
+          iconPurposeTokens(icon.purpose).includes(INSTALL_ICON_PURPOSE),
+      );
+      expect(usableIcons, size).not.toHaveLength(0);
+    },
+  );
+
+  it("keeps the manifest description in sync with the config description", () => {
+    // Same recoupling the theme_color and llms.txt guards use: the description is
+    // duplicated from config, so pin it to the source of truth rather than a
+    // second literal that can drift silently.
+    expect(readWebManifest().description).toBe(config.description);
   });
 });
 
