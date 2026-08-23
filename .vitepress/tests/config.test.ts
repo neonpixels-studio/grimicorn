@@ -547,15 +547,30 @@ describe("Web app manifest installability", () => {
   // `any` (a maskable-only icon does not satisfy the criteria), so an installable
   // icon set must offer both documented sizes with an `any`-capable purpose.
   const INSTALL_ICON_PURPOSE = "any";
+  // These PNGs are pre-rounded squircles with transparent corners and content that
+  // runs to the top edge, so they lack the opaque bleed and 20% safe zone a
+  // maskable icon needs; declaring `maskable` would double-round them and clip the
+  // horn. They ship as `any` only, and this guard stops a silent flip back.
+  const MASKABLE_ICON_PURPOSE = "maskable";
   const REQUIRED_ICON_SIZES = ["192x192", "512x512"];
 
   function iconPurposeTokens(purpose: unknown) {
     // Per spec an omitted purpose defaults to `any`; a present one is a
-    // space-separated token list.
+    // space-separated token list user agents ASCII-lowercase before matching.
     if (typeof purpose !== "string") {
       return [INSTALL_ICON_PURPOSE];
     }
-    return purpose.trim().split(/\s+/);
+    return purpose.trim().toLowerCase().split(/\s+/);
+  }
+
+  function manifestFieldLength(value: unknown, field: string) {
+    if (typeof value === "string") {
+      return value.trim().length;
+    }
+    if (Array.isArray(value)) {
+      return value.length;
+    }
+    throw new Error(`manifest ${field} is not a string or array: ${value}`);
   }
 
   it("parses as valid JSON", () => {
@@ -566,10 +581,7 @@ describe("Web app manifest installability", () => {
     "declares a non-empty %s field required for installability",
     (field) => {
       const value = readWebManifest()[field];
-      expect(value, field).toBeDefined();
-      const length =
-        typeof value === "string" ? value.trim().length : value.length;
-      expect(length, field).toBeGreaterThan(0);
+      expect(manifestFieldLength(value, field), field).toBeGreaterThan(0);
     },
   );
 
@@ -612,6 +624,16 @@ describe("Web app manifest installability", () => {
     // duplicated from config, so pin it to the source of truth rather than a
     // second literal that can drift silently.
     expect(readWebManifest().description).toBe(config.description);
+  });
+
+  it("does not claim maskable on icons that lack a maskable safe zone", () => {
+    const icons: { purpose?: string }[] = readWebManifest().icons ?? [];
+    for (const icon of icons) {
+      expect(
+        iconPurposeTokens(icon.purpose),
+        `${MASKABLE_ICON_PURPOSE} requires dedicated safe-zone art`,
+      ).not.toContain(MASKABLE_ICON_PURPOSE);
+    }
   });
 });
 
