@@ -525,6 +525,52 @@ describe("Web app manifest icons", () => {
   );
 });
 
+describe("Web app manifest installability", () => {
+  // Chromium only offers the install prompt when the manifest is valid JSON and
+  // declares these fields; start_url/id are the ones the standalone manifest was
+  // missing (issue #114). The site is served from the domain root, so both the
+  // launch target and the stable app identity are "/".
+  const REQUIRED_INSTALL_FIELDS = [
+    "name",
+    "short_name",
+    "start_url",
+    "id",
+    "icons",
+    "display",
+  ];
+  const EXPECTED_START_URL = "/";
+  const EXPECTED_ID = "/";
+  const EXPECTED_DISPLAY = "standalone";
+
+  it("parses as valid JSON", () => {
+    const rawManifest = readFileSync(
+      publicPathForUrl(findLinkHref("manifest")),
+      "utf8",
+    );
+    expect(() => JSON.parse(rawManifest)).not.toThrow();
+  });
+
+  it.each(REQUIRED_INSTALL_FIELDS)(
+    "declares the %s field required for installability",
+    (field) => {
+      expect(readWebManifest()).toHaveProperty(field);
+    },
+  );
+
+  it("launches from and identifies against the site root", () => {
+    const manifest = readWebManifest();
+    expect(manifest.start_url).toBe(EXPECTED_START_URL);
+    expect(manifest.id).toBe(EXPECTED_ID);
+  });
+
+  it("requests a standalone display mode with icons the browser can use", () => {
+    const manifest = readWebManifest();
+    expect(manifest.display).toBe(EXPECTED_DISPLAY);
+    expect(Array.isArray(manifest.icons)).toBe(true);
+    expect(manifest.icons.length).toBeGreaterThan(0);
+  });
+});
+
 describe("Open Graph image metadata", () => {
   it("points twitter:image at the same asset as og:image", () => {
     expect(findMetaContent("twitter:image")).toBe(findMetaContent("og:image"));
