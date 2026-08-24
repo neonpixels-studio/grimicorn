@@ -3,3 +3,6 @@ node_modules
 .vitepress/dist
 dist
 .DS_Store
+test-results
+playwright-report
+playwright/.cache
