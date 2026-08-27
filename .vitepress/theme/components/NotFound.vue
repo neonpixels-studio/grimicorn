@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
+import { MAIN_CONTENT_ID } from "../constants";
 
 const GREMLIN_LINES = [
   "no such page, only gremlins",
@@ -38,7 +39,11 @@ onMounted(() => {
       "
     />
 
-    <div class="relative w-full max-w-[680px] text-center">
+    <main
+      :id="MAIN_CONTENT_ID"
+      tabindex="-1"
+      class="relative w-full max-w-[680px] text-center"
+    >
       <!-- crumb -->
       <div
         class="text-purple mb-6 flex items-center justify-center gap-3 text-xs tracking-[0.16em] uppercase"
@@ -134,6 +139,6 @@ onMounted(() => {
           </div>
         </div>
       </div>
-    </div>
+    </main>
   </div>
 </template>

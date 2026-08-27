@@ -153,6 +153,46 @@ body {
   }
 }
 
+/* The skip-to-content link ships visually hidden via Tailwind's `sr-only`; on
+   keyboard focus it overrides that hiding to surface as a real, on-brand CTA
+   pinned to the top-left, matching the outline button style used across the
+   theme. This rule is unlayered while Tailwind's `.sr-only` sits in the
+   `utilities` layer, so it wins on focus regardless of specificity — do not
+   move it into a layer. z-index sits above the rave toast (z-[9999]). */
+.skip-link:focus {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 10000;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+  padding: 13px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.5rem;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  outline: 2px solid var(--color-purple);
+  outline-offset: 2px;
+}
+
+/* The <main> landmark is focusable only programmatically (tabindex="-1"), so it
+   receives focus when the skip link jumps to it. Suppress the focus ring on the
+   container itself: it's not in the tab order (so WCAG 2.4.7 doesn't apply), and
+   a full-width outline around the whole content region reads as a rendering
+   artifact rather than a focus cue. The screen-reader landmark announcement plus
+   the skip link disappearing carry the feedback instead. */
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+
 .colorful-btn {
   border: none;
   padding: 0;

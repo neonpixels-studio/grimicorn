@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { withAssetCacheBust } from "../../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
+import { MAIN_CONTENT_ID } from "../constants";
 
 interface LogEntry {
   t: string;
@@ -481,23 +482,24 @@ onUnmounted(() => {
         </div>
       </nav>
 
-      <!-- hero -->
-      <section
-        id="about"
-        class="grid grid-cols-1 gap-8 pt-10 pb-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-[52px] lg:pt-16 lg:pb-14"
-      >
-        <!-- left -->
-        <div>
-          <!-- Decorative eyebrow that sits above the h1, so it stays a div:
+      <main :id="MAIN_CONTENT_ID" tabindex="-1">
+        <!-- hero -->
+        <section
+          id="about"
+          class="grid grid-cols-1 gap-8 pt-10 pb-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-[52px] lg:pt-16 lg:pb-14"
+        >
+          <!-- left -->
+          <div>
+            <!-- Decorative eyebrow that sits above the h1, so it stays a div:
                the h1 below is this section's heading, and promoting an element
                that precedes the h1 to a heading would put a heading before the
                page's h1. -->
-          <div
-            class="text-purple mb-[22px] text-xs tracking-[0.16em] uppercase"
-          >
-            — grim reaper × unicorn
-          </div>
-          <!-- The GRIMICORN / AGENT wordmark is one title split across two
+            <div
+              class="text-purple mb-[22px] text-xs tracking-[0.16em] uppercase"
+            >
+              — grim reaper × unicorn
+            </div>
+            <!-- The GRIMICORN / AGENT wordmark is one title split across two
                visually distinct lines, so it's a single h1 (two block spans)
                rather than an h1 + h2 — splitting one brand name across two
                heading levels would create a phantom "AGENT" subsection that
@@ -506,323 +508,325 @@ onUnmounted(() => {
                without it Vue's whitespace-condense collapses the gap and the
                name reads as one run-together word for find-in-page, copy, and
                assistive tech. -->
-          <h1
-            class="font-display m-0 text-[52px] leading-[0.92] font-bold tracking-[-0.02em] sm:text-[68px] lg:text-[84px]"
-          >
-            <span class="block">GRIMICORN</span>{{ " "
-            }}<span
-              class="animate-rainbow-pan block bg-clip-text text-transparent"
-              style="background-image: var(--gx-rainbow)"
-              >AGENT</span
+            <h1
+              class="font-display m-0 text-[52px] leading-[0.92] font-bold tracking-[-0.02em] sm:text-[68px] lg:text-[84px]"
             >
-          </h1>
+              <span class="block">GRIMICORN</span>{{ " "
+              }}<span
+                class="animate-rainbow-pan block bg-clip-text text-transparent"
+                style="background-image: var(--gx-rainbow)"
+                >AGENT</span
+              >
+            </h1>
 
-          <div
-            class="text-fg-muted mt-[26px] flex items-center gap-[10px] text-[13px]"
-          >
-            <span class="text-lime">&#x25B8;</span>
-            <span>{{ currentTagline }}</span>
-          </div>
-
-          <p
-            class="text-fg-muted mt-[26px] max-w-none text-sm leading-[1.8] lg:max-w-[440px]"
-          >
-            A chaotic coding sidekick that builds the things I don't have time
-            for &mdash; then unleashes a swarm of gremlins to break them until
-            they can't break in production. Dark, dead, colorful and lively at
-            the same time.
-          </p>
-
-          <div class="mt-[34px] flex flex-wrap gap-[14px]">
-            <a
-              href="https://github.com/grimicorn-agent"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
-              style="background-image: var(--gx-rainbow-cta)"
+            <div
+              class="text-fg-muted mt-[26px] flex items-center gap-[10px] text-[13px]"
             >
-              view on github &rarr;
-            </a>
-            <a
-              href="#status"
-              class="text-fg rounded-lg border border-white/[0.16] bg-white/[0.02] px-[22px] py-[13px] text-[13px] font-medium no-underline"
-            >
-              what's it doing? &darr;
-            </a>
-          </div>
-        </div>
+              <span class="text-lime">&#x25B8;</span>
+              <span>{{ currentTagline }}</span>
+            </div>
 
-        <!-- right: hero image -->
-        <div class="relative">
-          <div
-            class="animate-glow-pulse absolute inset-[-18px] rounded-[20px] blur-[38px]"
-            style="
-              background: linear-gradient(
-                135deg,
-                #ff2d9b,
-                #facc15,
-                #22d3ee,
-                #a855f7
-              );
-              opacity: 0.32;
-            "
-          />
-          <div
-            class="relative rounded-[10px] p-[1.5px]"
-            style="
-              background: linear-gradient(
-                135deg,
-                #ff2d9b,
-                #facc15,
-                #22d3ee,
-                #a855f7
-              );
-            "
-          >
-            <div class="bg-bg overflow-hidden rounded-[9px]">
-              <picture>
-                <source :srcset="HERO_AVIF_SRCSET" type="image/avif" />
-                <source
-                  :srcset="withAssetCacheBust('/assets/grimicorn-hero.webp')"
-                  type="image/webp"
-                />
-                <img
-                  ref="imageHeroRef"
-                  :src="withAssetCacheBust('/assets/grimicorn-hero.png')"
-                  alt="Grimicorn — skeletal rainbow unicorn"
-                  width="1824"
-                  height="1824"
-                  class="block w-full will-change-transform"
-                />
-              </picture>
+            <p
+              class="text-fg-muted mt-[26px] max-w-none text-sm leading-[1.8] lg:max-w-[440px]"
+            >
+              A chaotic coding sidekick that builds the things I don't have time
+              for &mdash; then unleashes a swarm of gremlins to break them until
+              they can't break in production. Dark, dead, colorful and lively at
+              the same time.
+            </p>
+
+            <div class="mt-[34px] flex flex-wrap gap-[14px]">
+              <a
+                href="https://github.com/grimicorn-agent"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
+                style="background-image: var(--gx-rainbow-cta)"
+              >
+                view on github &rarr;
+              </a>
+              <a
+                href="#status"
+                class="text-fg rounded-lg border border-white/[0.16] bg-white/[0.02] px-[22px] py-[13px] text-[13px] font-medium no-underline"
+              >
+                what's it doing? &darr;
+              </a>
             </div>
           </div>
-          <div
-            class="text-fg-dim mt-3 flex justify-between text-[11px] tracking-[0.04em]"
-          >
-            <span>fig.01 &mdash; grimicorn, in the wild</span>
-            <span>rev. 6.6.6</span>
+
+          <!-- right: hero image -->
+          <div class="relative">
+            <div
+              class="animate-glow-pulse absolute inset-[-18px] rounded-[20px] blur-[38px]"
+              style="
+                background: linear-gradient(
+                  135deg,
+                  #ff2d9b,
+                  #facc15,
+                  #22d3ee,
+                  #a855f7
+                );
+                opacity: 0.32;
+              "
+            />
+            <div
+              class="relative rounded-[10px] p-[1.5px]"
+              style="
+                background: linear-gradient(
+                  135deg,
+                  #ff2d9b,
+                  #facc15,
+                  #22d3ee,
+                  #a855f7
+                );
+              "
+            >
+              <div class="bg-bg overflow-hidden rounded-[9px]">
+                <picture>
+                  <source :srcset="HERO_AVIF_SRCSET" type="image/avif" />
+                  <source
+                    :srcset="withAssetCacheBust('/assets/grimicorn-hero.webp')"
+                    type="image/webp"
+                  />
+                  <img
+                    ref="imageHeroRef"
+                    :src="withAssetCacheBust('/assets/grimicorn-hero.png')"
+                    alt="Grimicorn — skeletal rainbow unicorn"
+                    width="1824"
+                    height="1824"
+                    class="block w-full will-change-transform"
+                  />
+                </picture>
+              </div>
+            </div>
+            <div
+              class="text-fg-dim mt-3 flex justify-between text-[11px] tracking-[0.04em]"
+            >
+              <span>fig.01 &mdash; grimicorn, in the wild</span>
+              <span>rev. 6.6.6</span>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- rainbow divider -->
-      <div
-        class="animate-rainbow-pan h-[2px]"
-        style="background-image: var(--gx-rainbow)"
-      />
-
-      <!-- terminal section -->
-      <section id="status" class="py-14">
-        <h2 class="text-fg-dim mb-5 text-xs tracking-[0.16em] uppercase">
-          <span aria-hidden="true">—</span> what it's doing right now
-        </h2>
-
+        <!-- rainbow divider -->
         <div
-          class="overflow-hidden rounded-xl border border-white/[0.08] text-[#d4d4d8]"
-          style="
-            background: #08080a;
-            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
-          "
-        >
-          <!-- window chrome -->
-          <div
-            class="flex items-center gap-[14px] border-b border-white/[0.07] bg-white/[0.015] px-[22px] py-4"
-          >
-            <span class="flex gap-2">
-              <span class="bg-pink h-3 w-3 rounded-full" />
-              <span class="bg-yellow h-3 w-3 rounded-full" />
-              <span class="bg-lime h-3 w-3 rounded-full" />
-            </span>
-            <span
-              ref="windowChromeTitleRef"
-              tabindex="-1"
-              class="window-chrome-title text-fg-subtle ml-[6px] truncate text-[12.5px]"
-              >grimicorn-agent &mdash; zsh &mdash; 124&times;40</span
-            >
-            <button
-              v-if="streamCanAutoAdvance"
-              ref="pauseControlRef"
-              class="colorful-btn pause-toggle ml-auto shrink-0 text-[12.5px]"
-              :aria-pressed="contentPaused"
-              @click="toggleContentPaused"
-            >
-              pause live updates
-            </button>
-          </div>
+          class="animate-rainbow-pan h-[2px]"
+          style="background-image: var(--gx-rainbow)"
+        />
 
-          <!-- Visually-hidden live region: announces why keyboard focus jumped
+        <!-- terminal section -->
+        <section id="status" class="py-14">
+          <h2 class="text-fg-dim mb-5 text-xs tracking-[0.16em] uppercase">
+            <span aria-hidden="true">—</span> what it's doing right now
+          </h2>
+
+          <div
+            class="overflow-hidden rounded-xl border border-white/[0.08] text-[#d4d4d8]"
+            style="
+              background: #08080a;
+              box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+            "
+          >
+            <!-- window chrome -->
+            <div
+              class="flex items-center gap-[14px] border-b border-white/[0.07] bg-white/[0.015] px-[22px] py-4"
+            >
+              <span class="flex gap-2">
+                <span class="bg-pink h-3 w-3 rounded-full" />
+                <span class="bg-yellow h-3 w-3 rounded-full" />
+                <span class="bg-lime h-3 w-3 rounded-full" />
+              </span>
+              <span
+                ref="windowChromeTitleRef"
+                tabindex="-1"
+                class="window-chrome-title text-fg-subtle ml-[6px] truncate text-[12.5px]"
+                >grimicorn-agent &mdash; zsh &mdash; 124&times;40</span
+              >
+              <button
+                v-if="streamCanAutoAdvance"
+                ref="pauseControlRef"
+                class="colorful-btn pause-toggle ml-auto shrink-0 text-[12.5px]"
+                :aria-pressed="contentPaused"
+                @click="toggleContentPaused"
+              >
+                pause live updates
+              </button>
+            </div>
+
+            <!-- Visually-hidden live region: announces why keyboard focus jumped
           when the pause control is removed while focused (see
           redirectFocusFromHiddenPauseControl). -->
-          <p
-            class="pause-focus-announcement sr-only"
-            role="status"
-            aria-live="polite"
-          >
-            {{ focusMoveAnnouncement }}
-          </p>
-
-          <div class="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr]">
-            <!-- left: terminal output -->
-            <div class="p-5 text-[13.5px] leading-loose sm:p-[34px_36px]">
-              <div>
-                <span class="text-lime">grimicorn</span
-                ><span class="text-[#737b8a]">@</span
-                ><span class="text-cyan">dev</span>
-                <span class="text-[#737b8a]"> ~ %</span> whoami
-              </div>
-              <div class="mb-[14px] text-[#cdcac4]">
-                chaotic coding sidekick :: builds what you don't have time for
-              </div>
-
-              <div>
-                <span class="text-lime">grimicorn</span
-                ><span class="text-[#737b8a]">@</span
-                ><span class="text-cyan">dev</span>
-                <span class="text-[#737b8a]"> ~ %</span> status
-              </div>
-              <div class="mb-[14px]">
-                <span class="font-bold tracking-[0.06em] text-white"
-                  >UNLEASHED</span
-                >
-                <span
-                  class="bg-lime animate-blink ml-2 inline-block h-[15px] w-[9px] align-[-2px]"
-                />
-              </div>
-
-              <!-- stat grid -->
-              <div class="mt-2 mb-[22px] grid grid-cols-2 gap-[14px]">
-                <div class="rounded-[10px] border border-white/[0.08] p-4">
-                  <div
-                    class="font-display text-pink text-[32px] leading-none font-bold"
-                  >
-                    1,204
-                  </div>
-                  <div
-                    class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
-                  >
-                    gremlins spawned
-                  </div>
-                </div>
-                <div class="rounded-[10px] border border-white/[0.08] p-4">
-                  <div
-                    class="font-display text-cyan text-[32px] leading-none font-bold"
-                  >
-                    38
-                  </div>
-                  <div
-                    class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
-                  >
-                    commits while you slept
-                  </div>
-                </div>
-                <div class="rounded-[10px] border border-white/[0.08] p-4">
-                  <div
-                    class="font-display text-yellow text-[32px] leading-none font-bold"
-                  >
-                    17
-                  </div>
-                  <div
-                    class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
-                  >
-                    things broken on purpose
-                  </div>
-                </div>
-                <div class="rounded-[10px] border border-white/[0.08] p-4">
-                  <div
-                    class="font-display text-lime text-[32px] leading-none font-bold"
-                  >
-                    99.9%
-                  </div>
-                  <div
-                    class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
-                  >
-                    uptime (suspicious)
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <span class="text-lime">grimicorn</span
-                ><span class="text-[#737b8a]">@</span
-                ><span class="text-cyan">dev</span>
-                <span class="text-[#737b8a]"> ~ %</span> tail -f chaos.log
-              </div>
-              <div
-                class="border-purple/40 mt-[6px] flex h-[188px] flex-col justify-end overflow-hidden border-l-2 pl-[14px]"
-              >
-                <div
-                  v-for="(line, index) in logs"
-                  :key="index"
-                  class="text-[12.5px] leading-[1.95] text-[#9a9aa3]"
-                >
-                  <span class="text-purple">[{{ line.t }}]</span>
-                  <span class="text-[#cdcac4]"> {{ line.text }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- right: portrait + links -->
-            <div
-              class="flex flex-col gap-6 border-t border-white/[0.07] p-5 sm:p-[34px_30px] lg:border-t-0 lg:border-l"
+            <p
+              class="pause-focus-announcement sr-only"
+              role="status"
+              aria-live="polite"
             >
-              <div class="relative">
+              {{ focusMoveAnnouncement }}
+            </p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr]">
+              <!-- left: terminal output -->
+              <div class="p-5 text-[13.5px] leading-loose sm:p-[34px_36px]">
+                <div>
+                  <span class="text-lime">grimicorn</span
+                  ><span class="text-[#737b8a]">@</span
+                  ><span class="text-cyan">dev</span>
+                  <span class="text-[#737b8a]"> ~ %</span> whoami
+                </div>
+                <div class="mb-[14px] text-[#cdcac4]">
+                  chaotic coding sidekick :: builds what you don't have time for
+                </div>
+
+                <div>
+                  <span class="text-lime">grimicorn</span
+                  ><span class="text-[#737b8a]">@</span
+                  ><span class="text-cyan">dev</span>
+                  <span class="text-[#737b8a]"> ~ %</span> status
+                </div>
+                <div class="mb-[14px]">
+                  <span class="font-bold tracking-[0.06em] text-white"
+                    >UNLEASHED</span
+                  >
+                  <span
+                    class="bg-lime animate-blink ml-2 inline-block h-[15px] w-[9px] align-[-2px]"
+                  />
+                </div>
+
+                <!-- stat grid -->
+                <div class="mt-2 mb-[22px] grid grid-cols-2 gap-[14px]">
+                  <div class="rounded-[10px] border border-white/[0.08] p-4">
+                    <div
+                      class="font-display text-pink text-[32px] leading-none font-bold"
+                    >
+                      1,204
+                    </div>
+                    <div
+                      class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
+                    >
+                      gremlins spawned
+                    </div>
+                  </div>
+                  <div class="rounded-[10px] border border-white/[0.08] p-4">
+                    <div
+                      class="font-display text-cyan text-[32px] leading-none font-bold"
+                    >
+                      38
+                    </div>
+                    <div
+                      class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
+                    >
+                      commits while you slept
+                    </div>
+                  </div>
+                  <div class="rounded-[10px] border border-white/[0.08] p-4">
+                    <div
+                      class="font-display text-yellow text-[32px] leading-none font-bold"
+                    >
+                      17
+                    </div>
+                    <div
+                      class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
+                    >
+                      things broken on purpose
+                    </div>
+                  </div>
+                  <div class="rounded-[10px] border border-white/[0.08] p-4">
+                    <div
+                      class="font-display text-lime text-[32px] leading-none font-bold"
+                    >
+                      99.9%
+                    </div>
+                    <div
+                      class="text-fg-subtle mt-[7px] text-[11px] tracking-[0.05em]"
+                    >
+                      uptime (suspicious)
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <span class="text-lime">grimicorn</span
+                  ><span class="text-[#737b8a]">@</span
+                  ><span class="text-cyan">dev</span>
+                  <span class="text-[#737b8a]"> ~ %</span> tail -f chaos.log
+                </div>
                 <div
-                  class="animate-glow-pulse absolute inset-[-12px] rounded-[16px] blur-[30px]"
-                  style="
-                    background: linear-gradient(
-                      135deg,
-                      #22d3ee,
-                      #a855f7,
-                      #ff2d9b
-                    );
-                    opacity: 0.34;
-                  "
-                />
-                <div
-                  class="relative overflow-hidden rounded-[10px] border border-white/[0.12]"
+                  class="border-purple/40 mt-[6px] flex h-[188px] flex-col justify-end overflow-hidden border-l-2 pl-[14px]"
                 >
-                  <picture>
-                    <source
-                      :srcset="
-                        withAssetCacheBust('/assets/grimicorn-head.avif')
-                      "
-                      type="image/avif"
-                    />
-                    <source
-                      :srcset="
-                        withAssetCacheBust('/assets/grimicorn-head.webp')
-                      "
-                      type="image/webp"
-                    />
-                    <img
-                      ref="imagePortraitRef"
-                      :src="withAssetCacheBust('/assets/grimicorn-head.png')"
-                      alt="Grimicorn portrait"
-                      width="1237"
-                      height="1237"
-                      class="block w-full will-change-transform"
-                    />
-                  </picture>
+                  <div
+                    v-for="(line, index) in logs"
+                    :key="index"
+                    class="text-[12.5px] leading-[1.95] text-[#9a9aa3]"
+                  >
+                    <span class="text-purple">[{{ line.t }}]</span>
+                    <span class="text-[#cdcac4]"> {{ line.text }}</span>
+                  </div>
                 </div>
               </div>
 
-              <div>
-                <h3 class="mb-[10px] text-[12.5px] text-[#737b8a]">
-                  <span class="text-lime" aria-hidden="true">~ %</span>
-                  grimicorn links --all
-                </h3>
-                <div class="flex flex-col gap-2">
-                  <a
-                    href="https://github.com/grimicorn-agent"
-                    class="hover:border-purple hover:bg-purple/[0.06] flex items-center justify-between rounded-[9px] border border-white/[0.1] bg-white/[0.02] px-[14px] py-[11px] no-underline transition-colors"
-                    target="_blank"
-                    rel="noopener noreferrer"
+              <!-- right: portrait + links -->
+              <div
+                class="flex flex-col gap-6 border-t border-white/[0.07] p-5 sm:p-[34px_30px] lg:border-t-0 lg:border-l"
+              >
+                <div class="relative">
+                  <div
+                    class="animate-glow-pulse absolute inset-[-12px] rounded-[16px] blur-[30px]"
+                    style="
+                      background: linear-gradient(
+                        135deg,
+                        #22d3ee,
+                        #a855f7,
+                        #ff2d9b
+                      );
+                      opacity: 0.34;
+                    "
+                  />
+                  <div
+                    class="relative overflow-hidden rounded-[10px] border border-white/[0.12]"
                   >
-                    <span class="text-[13px] font-bold text-white">github</span>
-                    <span class="text-purple text-[14px]">&#x2197;</span>
-                  </a>
-                  <!-- <a
+                    <picture>
+                      <source
+                        :srcset="
+                          withAssetCacheBust('/assets/grimicorn-head.avif')
+                        "
+                        type="image/avif"
+                      />
+                      <source
+                        :srcset="
+                          withAssetCacheBust('/assets/grimicorn-head.webp')
+                        "
+                        type="image/webp"
+                      />
+                      <img
+                        ref="imagePortraitRef"
+                        :src="withAssetCacheBust('/assets/grimicorn-head.png')"
+                        alt="Grimicorn portrait"
+                        width="1237"
+                        height="1237"
+                        class="block w-full will-change-transform"
+                      />
+                    </picture>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 class="mb-[10px] text-[12.5px] text-[#737b8a]">
+                    <span class="text-lime" aria-hidden="true">~ %</span>
+                    grimicorn links --all
+                  </h3>
+                  <div class="flex flex-col gap-2">
+                    <a
+                      href="https://github.com/grimicorn-agent"
+                      class="hover:border-purple hover:bg-purple/[0.06] flex items-center justify-between rounded-[9px] border border-white/[0.1] bg-white/[0.02] px-[14px] py-[11px] no-underline transition-colors"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <span class="text-[13px] font-bold text-white"
+                        >github</span
+                      >
+                      <span class="text-purple text-[14px]">&#x2197;</span>
+                    </a>
+                    <!-- <a
                     href="#"
                     class="hover:border-cyan hover:bg-cyan/[0.06] flex items-center justify-between rounded-[9px] border border-white/[0.1] bg-white/[0.02] px-[14px] py-[11px] no-underline transition-colors"
                   >
@@ -831,7 +835,7 @@ onUnmounted(() => {
                     >
                     <span class="text-cyan text-[14px]">&#x2197;</span>
                   </a> -->
-                  <!-- <a
+                    <!-- <a
                     href="#"
                     class="hover:border-pink hover:bg-pink/[0.06] flex items-center justify-between rounded-[9px] border border-white/[0.1] bg-white/[0.02] px-[14px] py-[11px] no-underline transition-colors"
                   >
@@ -840,25 +844,26 @@ onUnmounted(() => {
                     >
                     <span class="text-pink text-[14px]">&#x2197;</span>
                   </a> -->
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <!-- terminal footer prompt -->
-          <div
-            class="border-t border-white/[0.07] px-5 py-5 text-[13px] sm:px-[36px]"
-          >
-            <span class="text-lime">grimicorn</span
-            ><span class="text-[#737b8a]">@</span
-            ><span class="text-cyan">dev</span>
-            <span class="text-[#737b8a]"> ~ %</span>
-            <span
-              class="animate-blink ml-1 inline-block h-[15px] w-[9px] bg-[#d4d4d8] align-[-2px]"
-            />
+            <!-- terminal footer prompt -->
+            <div
+              class="border-t border-white/[0.07] px-5 py-5 text-[13px] sm:px-[36px]"
+            >
+              <span class="text-lime">grimicorn</span
+              ><span class="text-[#737b8a]">@</span
+              ><span class="text-cyan">dev</span>
+              <span class="text-[#737b8a]"> ~ %</span>
+              <span
+                class="animate-blink ml-1 inline-block h-[15px] w-[9px] bg-[#d4d4d8] align-[-2px]"
+              />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
       <!-- page footer -->
       <footer

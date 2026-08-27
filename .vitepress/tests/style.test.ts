@@ -104,3 +104,51 @@ describe("brand rainbow gradient token", () => {
     });
   });
 });
+
+// The skip link ships `sr-only` and is surfaced only by `.skip-link:focus`
+// overriding that hiding. Without this guard the reveal rule can be deleted and
+// every DOM/markup test still passes while the link stays invisible forever.
+describe("skip link focus reveal", () => {
+  const css = readStyleCss();
+
+  // Each Tailwind `sr-only` property the reveal must undo to become visible on
+  // focus; dropping any one leaves the link clipped.
+  const SR_ONLY_OVERRIDES = [
+    "position:fixed",
+    "width:auto",
+    "height:auto",
+    "margin:0",
+    "overflow:visible",
+    "clip:auto",
+    "white-space:normal",
+  ];
+
+  it("undoes every sr-only property on focus", () => {
+    const rule = css.match(/(?:^|\})\s*\.skip-link:focus\s*\{([^}]*)\}/m);
+    expect(rule, ".skip-link:focus rule not found").not.toBeNull();
+
+    const declarations = stripWhitespace(rule![1]);
+    SR_ONLY_OVERRIDES.forEach((declaration) => {
+      expect(declarations).toContain(declaration);
+    });
+  });
+
+  it("keeps the reveal rule outside any @layer so it outranks Tailwind's utilities layer", () => {
+    // Scoped to the cascade before the rule: an @layer wrapping .skip-link:focus
+    // would drop it below Tailwind's `sr-only` in the utilities layer. Unrelated
+    // layers added later elsewhere must not fail this.
+    const beforeRule = css.slice(0, css.indexOf(".skip-link:focus"));
+    expect(
+      countOccurrences(beforeRule, "@layer"),
+      ".skip-link:focus sits inside an @layer",
+    ).toBe(0);
+  });
+
+  it("suppresses the focus ring on the programmatically-focused landmark", () => {
+    const rule = css.match(
+      /(?:^|\})\s*main\[tabindex="-1"\]:focus\s*\{([^}]*)\}/m,
+    );
+    expect(rule, 'main[tabindex="-1"]:focus rule not found').not.toBeNull();
+    expect(stripWhitespace(rule![1])).toContain("outline:none");
+  });
+});
