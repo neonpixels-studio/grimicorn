@@ -1,210 +1,267 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { basename, resolve } from "node:path";
+import { mount, type VueWrapper } from "@vue/test-utils";
 
-import { ASSET_CACHE_BUST } from "../asset-cache-bust";
-import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
-import { OG_IMAGE_FILENAME } from "../../og-banner-spec.mjs";
-import {
-  PROJECT_ROOT,
-  VERSIONED_ASSET_FILES,
-  assertTokenBumpedForChangedAssets,
-  changedAssetPaths,
-  fingerprintAssets,
-  hashAssetBytes,
-  readAssetCacheBustToken,
-  readAssetVersionLock,
-} from "../../asset-version-manifest.mjs";
+import config from "../config";
+import GrimicornPage from "@components/GrimicornPage.vue";
 
-// Assets under /assets/* and /images/* are served immutable for a year (netlify.toml),
-// so the only thing that forces returning visitors to refetch a changed byte is the
-// shared ?v= token. These tests bind that token to the actual bytes via
-// asset-version-lock.json: change an asset without bumping the token + regenerating the
-// lock and the suite goes red. Regenerate with `npm run lock:assets` (after bumping
-// ASSET_CACHE_BUST in asset-cache-bust.ts).
-const PUBLIC_DIR = "public";
-const APPENDED_BYTE = Buffer.from([0]);
-const CACHE_BUST_CALL_PATTERN =
-  /withAssetCacheBust\(\s*['"](\/[^'"]+)['"]\s*\)/g;
-const BUMPED_TOKEN = "?v=29990101";
-// Where production code lives. tests/ (fixtures/example paths), cache/ and dist/
-// (build output) are excluded so only real render-time call sites are discovered.
-const CACHE_BUST_SOURCE_DIR = ".vitepress";
-const CACHE_BUST_SOURCE_EXTENSIONS = [".ts", ".mts", ".vue"];
-const CACHE_BUST_EXCLUDED_DIRS = ["tests", "cache", "dist"];
-// Distinct assets currently cache-busted via a string literal (hero webp/png, head
-// avif/webp/png, site.webmanifest). A drop below this means the literal scan silently
-// stopped matching — a renamed helper, a reformatted call, a switch to a template
-// literal — so the drift guard would go blind. Bump this when call sites legitimately
-// change (and add the asset to VERSIONED_ASSET_FILES).
-const EXPECTED_LITERAL_CALL_SITE_FILES = 6;
+const PUBLIC_DIR = resolve(process.cwd(), "public");
 
-function readProjectFile(relativePath: string) {
-  return readFileSync(resolve(PROJECT_ROOT, relativePath), "utf8");
+// The public roots served with a one-year `immutable` Cache-Control (see the
+// /assets/* and /images/* [[headers]] blocks in netlify.toml). Each file is frozen
+// at its URL for a year, so every reference must carry a ?v= version query to force
+// a refetch when the bytes behind that stable URL actually change. This test turns
+// that prose assumption into an enforced guard.
+const IMMUTABLE_ASSET_DIRS = ["assets", "images"];
+
+// The web app manifest lives under /images and lists its own icon srcs, which are
+// immutable assets too, so it is scanned as a reference surface as well as an asset.
+const MANIFEST_PATH = resolve(PUBLIC_DIR, "images/site.webmanifest");
+
+// Theme stylesheets are a reference surface too: a background-image url(...) into an
+// immutable root is a reference like any other. None exist today (grep-verified),
+// but scanning them keeps a future one from silently escaping the version guard.
+const THEME_DIR = resolve(PUBLIC_DIR, "..", ".vitepress/theme");
+
+// One immutable-asset reference (path plus its own optional query) inside a larger
+// string, e.g. "/assets/grimicorn-hero.avif?v=20260816" — including the one embedded
+// in an absolute og:image URL. Built from IMMUTABLE_ASSET_DIRS so a new root can't be
+// added to the list yet missed here. Global so a multi-URL string (a srcset, a
+// JSON-LD blob, rendered markup) yields one reference per URL, not just the first,
+// and the query travels with its own path so the version check can't be satisfied by
+// an unrelated ?v= elsewhere in the string. The excluded characters bound each URL at
+// the delimiters used by srcset (comma/space), HTML attributes (quotes/angles) and
+// CSS url() (parens/backtick).
+const ASSET_REFERENCE_PATTERN = new RegExp(
+  `/(?:${IMMUTABLE_ASSET_DIRS.join("|")})/[^?#"'\\s,<>)\`]+(?:\\?[^#"'\\s,<>)\`]*)?`,
+  "g",
+);
+
+// Captures the value of a non-empty version query, e.g. "20260816" from ?v=20260816.
+// An empty ?v= would defeat the cache-bust, so the value is required.
+const VERSION_QUERY_PATTERN = /[?&]v=([^&#\s"',)]+)/;
+
+interface AssetReference {
+  source: string;
+  url: string;
+  path: string;
 }
 
-function isExcludedSource(relativePath: string) {
-  return CACHE_BUST_EXCLUDED_DIRS.some((dir) => {
-    return relativePath.startsWith(`${dir}/`);
+// The version value of a reference, or "" when it carries none. Single source for
+// the three checks (presence, and consistency across surfaces) so they can't drift.
+function versionOf(reference: AssetReference): string {
+  return reference.url.match(VERSION_QUERY_PATTERN)?.[1] ?? "";
+}
+
+function walkFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      return walkFiles(entryPath);
+    }
+    return [entryPath];
   });
 }
 
-function isScannableSource(relativePath: string) {
-  if (isExcludedSource(relativePath)) {
-    return false;
+function toPublicUrlPath(filePath: string): string {
+  return filePath.slice(PUBLIC_DIR.length).replace(/\\/g, "/");
+}
+
+// A file under an immutable root that can carry a versioned reference. Dotfiles (a
+// macOS .DS_Store dropped into public/images) never can, so they are excluded rather
+// than reported as unreferenced.
+function isReferenceableAsset(urlPath: string): boolean {
+  return !basename(urlPath).startsWith(".");
+}
+
+function listImmutableAssetUrlPaths(): string[] {
+  return IMMUTABLE_ASSET_DIRS.flatMap((subDir) => {
+    const dirPath = resolve(PUBLIC_DIR, subDir);
+    if (!existsSync(dirPath)) {
+      throw new Error(`Immutable asset dir is missing: ${dirPath}`);
+    }
+    return walkFiles(dirPath).map(toPublicUrlPath).filter(isReferenceableAsset);
+  });
+}
+
+// A head entry is [tag, attributes?, innerText?]; collect every string value that
+// could carry an asset URL (link/meta attributes plus inline JSON-LD text).
+function headEntryStrings(
+  entry: NonNullable<typeof config.head>[number],
+): string[] {
+  const [, attributes, innerText] = entry as [
+    string,
+    Record<string, string>?,
+    string?,
+  ];
+  const attributeValues = attributes
+    ? Object.values(attributes).filter((value) => typeof value === "string")
+    : [];
+  const innerValues = typeof innerText === "string" ? [innerText] : [];
+  return [...attributeValues, ...innerValues];
+}
+
+function headReferenceStrings(): string[] {
+  return (config.head ?? []).flatMap(headEntryStrings);
+}
+
+// A full mount renders child components too, so an asset reference stays covered even
+// if the hero/portrait <picture> is later extracted into a child (shallowMount would
+// stub it out and let that reference escape). Scanning the whole rendered markup
+// rather than only img/source src|srcset also catches a background-image, poster, or
+// any other rendered reference. The unmount and vi.useRealTimers() run in the finally
+// so a throw here can't leave the component mounted or the suite on fake timers.
+function componentReferenceStrings(): string[] {
+  vi.useFakeTimers();
+  let wrapper: VueWrapper | undefined;
+  try {
+    wrapper = mount(GrimicornPage);
+    return [wrapper.html()];
+  } finally {
+    wrapper?.unmount();
+    vi.useRealTimers();
   }
-  return CACHE_BUST_SOURCE_EXTENSIONS.some((ext) => {
-    return relativePath.endsWith(ext);
-  });
 }
 
-function cacheBustSourceFiles() {
-  const sourceRoot = resolve(PROJECT_ROOT, CACHE_BUST_SOURCE_DIR);
-  const entries = readdirSync(sourceRoot, { recursive: true }) as string[];
-  return entries
-    .filter(isScannableSource)
-    .map((relativePath) => resolve(sourceRoot, relativePath));
+// Manifest icon srcs resolve relative to the manifest URL (/images/site.webmanifest).
+// A bare or "./"-prefixed src points into /images/; an absolute URL is reduced to its
+// pathname. Normalising to a root-absolute path means a relative or absolute
+// unversioned icon is caught rather than silently dropped by the reference matcher.
+function resolveManifestIconSrc(src: string): string {
+  if (/^https?:\/\//.test(src)) {
+    return new URL(src).pathname;
+  }
+  if (src.startsWith("/")) {
+    return src;
+  }
+  return `/images/${src.replace(/^\.\//, "")}`;
 }
 
-// Public URL paths passed as string literals to withAssetCacheBust, mapped to their
-// on-disk file under public/. Indirect call sites (spec-derived hrefs like
-// HERO_AVIF_HREF) use identifiers, not literals, so they are asserted separately.
-function literalCacheBustAssetFiles() {
-  const matches = cacheBustSourceFiles().flatMap((absolutePath) => {
-    return [
-      ...readFileSync(absolutePath, "utf8").matchAll(CACHE_BUST_CALL_PATTERN),
-    ];
-  });
-  return [...new Set(matches.map((match) => `${PUBLIC_DIR}${match[1]}`))];
+function manifestReferenceStrings(): string[] {
+  if (!existsSync(MANIFEST_PATH)) {
+    throw new Error(`Web app manifest is missing: ${MANIFEST_PATH}`);
+  }
+  const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
+  const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
+  return icons
+    .map((icon: { src?: unknown }) => icon.src)
+    .filter((src: unknown): src is string => typeof src === "string")
+    .map(resolveManifestIconSrc);
 }
 
-describe("asset version invariant", () => {
-  const lock = readAssetVersionLock();
+// Strip CSS block comments so a comment citing a path (like the ?v= reminder in
+// fonts.css) is not mistaken for a resource the browser actually fetches.
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, "");
+}
 
-  it("locks the same ?v= token that asset-cache-bust.ts exports", () => {
-    expect(lock.token).toBe(ASSET_CACHE_BUST);
-    expect(readAssetCacheBustToken()).toBe(ASSET_CACHE_BUST);
+function themeStyleReferenceStrings(): string[] {
+  return walkFiles(THEME_DIR)
+    .filter((filePath) => filePath.endsWith(".css"))
+    .map((filePath) => stripCssComments(readFileSync(filePath, "utf8")));
+}
+
+// One AssetReference per asset URL found in the strings. url is the matched URL (path
+// plus its own query), so the version check applies to this asset alone; path is that
+// URL without the query, for comparison against a file on disk.
+function toAssetReferences(
+  source: string,
+  strings: string[],
+): AssetReference[] {
+  return strings.flatMap((text) =>
+    [...text.matchAll(ASSET_REFERENCE_PATTERN)].map((match) => ({
+      source,
+      url: match[0],
+      path: match[0].split("?")[0],
+    })),
+  );
+}
+
+function collectAssetReferences(): AssetReference[] {
+  return [
+    ...toAssetReferences("config head", headReferenceStrings()),
+    ...toAssetReferences("GrimicornPage render", componentReferenceStrings()),
+    ...toAssetReferences("theme stylesheet", themeStyleReferenceStrings()),
+    ...toAssetReferences("site.webmanifest icons", manifestReferenceStrings()),
+  ];
+}
+
+const immutableAssetUrlPaths = listImmutableAssetUrlPaths();
+let assetReferences: AssetReference[];
+let versionedAssetPaths: Set<string>;
+
+beforeAll(() => {
+  assetReferences = collectAssetReferences();
+  versionedAssetPaths = new Set(
+    assetReferences
+      .filter((reference) => versionOf(reference) !== "")
+      .map((reference) => reference.path),
+  );
+});
+
+describe("immutable asset cache-bust invariant", () => {
+  it("finds immutable asset files to check", () => {
+    // A zero-length it.each below would report as passing and cover nothing.
+    expect(immutableAssetUrlPaths.length).toBeGreaterThan(0);
   });
 
-  it("locks exactly the set of token-versioned assets", () => {
-    const lockedPaths = Object.keys(lock.assets).sort();
-    expect(lockedPaths).toEqual([...VERSIONED_ASSET_FILES].sort());
+  it("finds asset references to check", () => {
+    expect(assetReferences.length).toBeGreaterThan(0);
   });
 
-  it("matches every asset's current bytes to its locked content hash", () => {
-    expect(fingerprintAssets()).toEqual(lock.assets);
-  });
+  // The scanned surfaces (config head, the rendered page, theme stylesheets, the web
+  // manifest) are the only ones that reference public assets. A new referencing
+  // surface, or an immutable asset that nothing references, must fail here on purpose
+  // — an unreferenced immutable file is dead weight, and a reference from an unscanned
+  // surface would escape the version guard.
+  it.each(immutableAssetUrlPaths)(
+    "%s is referenced with a ?v= version query",
+    (assetUrlPath) => {
+      expect(versionedAssetPaths, assetUrlPath).toContain(assetUrlPath);
+    },
+  );
 
-  it("tracks every asset the code cache-busts with the shared token", () => {
-    const literalFiles = literalCacheBustAssetFiles();
-    expect(literalFiles.length).toBe(EXPECTED_LITERAL_CALL_SITE_FILES);
-    const indirectFiles = [
-      `${PUBLIC_DIR}${HERO_AVIF_HREF}`,
-      `${PUBLIC_DIR}/assets/${OG_IMAGE_FILENAME}`,
-    ];
-    for (const assetFile of [...literalFiles, ...indirectFiles]) {
-      expect(VERSIONED_ASSET_FILES, assetFile).toContain(assetFile);
-    }
-  });
-
-  it("cache-busts every site.webmanifest icon with the shared token", () => {
-    const manifest = JSON.parse(
-      readProjectFile("public/images/site.webmanifest"),
+  it("carries a ?v= version query on every immutable asset reference", () => {
+    const unversioned = assetReferences.filter(
+      (reference) => versionOf(reference) === "",
     );
-    expect(manifest.icons.length).toBeGreaterThan(0);
-    for (const icon of manifest.icons) {
-      expect(icon.src.endsWith(ASSET_CACHE_BUST), icon.src).toBe(true);
+    const detail = unversioned
+      .map((reference) => `${reference.source}: ${reference.url}`)
+      .join("\n");
+    expect(
+      unversioned,
+      `Unversioned immutable asset references:\n${detail}`,
+    ).toEqual([]);
+  });
+
+  it("references only immutable assets that exist on disk", () => {
+    const knownPaths = new Set(immutableAssetUrlPaths);
+    const missing = assetReferences.filter(
+      (reference) => !knownPaths.has(reference.path),
+    );
+    const detail = missing
+      .map((reference) => `${reference.source}: ${reference.url}`)
+      .join("\n");
+    expect(missing, `References to missing files:\n${detail}`).toEqual([]);
+  });
+
+  it("uses one version query per asset path across every surface", () => {
+    // The preload and the <picture> source for the same file must warm and fetch the
+    // identical URL, so a path referenced from two surfaces with different ?v= values
+    // is a cache-bust drift bug even though each reference is individually versioned.
+    const versionsByPath = new Map<string, Set<string>>();
+    for (const reference of assetReferences) {
+      const versions = versionsByPath.get(reference.path) ?? new Set<string>();
+      versions.add(versionOf(reference));
+      versionsByPath.set(reference.path, versions);
     }
-  });
-
-  // Real end-to-end proof the guard bites: hash actual asset bytes with one extra byte,
-  // splice that into the real fingerprint, and assert the shared guard flags it and
-  // refuses the unchanged token.
-  it("fails the guard when an asset's bytes change under the current token", () => {
-    const [firstAsset] = VERSIONED_ASSET_FILES;
-    const tamperedBytes = Buffer.concat([
-      readFileSync(resolve(PROJECT_ROOT, firstAsset)),
-      APPENDED_BYTE,
-    ]);
-    const tampered = {
-      ...lock.assets,
-      [firstAsset]: hashAssetBytes(tamperedBytes),
-    };
-    expect(changedAssetPaths(lock.assets, tampered)).toContain(firstAsset);
-    expect(() => {
-      assertTokenBumpedForChangedAssets(lock, lock.token, tampered);
-    }).toThrow(/not newer/);
-  });
-});
-
-describe("changedAssetPaths", () => {
-  it("reports existing assets whose hash moved", () => {
-    const previous = { "a.png": "hash-a", "b.png": "hash-b" };
-    const next = { "a.png": "hash-a", "b.png": "hash-b-new" };
-    expect(changedAssetPaths(previous, next)).toEqual(["b.png"]);
-  });
-
-  it("ignores a newly tracked asset with no cached copies to invalidate", () => {
-    const previous = { "a.png": "hash-a" };
-    const next = { "a.png": "hash-a", "new.png": "hash-new" };
-    expect(changedAssetPaths(previous, next)).toEqual([]);
-  });
-});
-
-describe("assertTokenBumpedForChangedAssets", () => {
-  const previousLock = {
-    token: "?v=20260816",
-    assets: { "a.png": "hash-a" },
-  };
-
-  it("throws when an existing asset changed but the token did not advance", () => {
-    const fingerprint = { "a.png": "hash-a-new" };
-    expect(() => {
-      assertTokenBumpedForChangedAssets(
-        previousLock,
-        previousLock.token,
-        fingerprint,
-      );
-    }).toThrow(/not newer/);
-  });
-
-  it("throws when a changed asset is paired with an older (downgraded) token", () => {
-    const fingerprint = { "a.png": "hash-a-new" };
-    expect(() => {
-      assertTokenBumpedForChangedAssets(
-        previousLock,
-        "?v=20260101",
-        fingerprint,
-      );
-    }).toThrow(/not newer/);
-  });
-
-  it("passes when a changed asset is paired with a newer token", () => {
-    const fingerprint = { "a.png": "hash-a-new" };
-    expect(() => {
-      assertTokenBumpedForChangedAssets(
-        previousLock,
-        BUMPED_TOKEN,
-        fingerprint,
-      );
-    }).not.toThrow();
-  });
-
-  it("passes when only a new asset was added under the same token", () => {
-    const fingerprint = { "a.png": "hash-a", "new.png": "hash-new" };
-    expect(() => {
-      assertTokenBumpedForChangedAssets(
-        previousLock,
-        previousLock.token,
-        fingerprint,
-      );
-    }).not.toThrow();
-  });
-
-  it("passes on the first lock, when there is no previous lock", () => {
-    const fingerprint = { "a.png": "hash-a" };
-    expect(() => {
-      assertTokenBumpedForChangedAssets(null, previousLock.token, fingerprint);
-    }).not.toThrow();
+    const conflicting = [...versionsByPath].filter(
+      ([, versions]) => versions.size > 1,
+    );
+    const detail = conflicting
+      .map(([path, versions]) => `${path}: ${[...versions].join(", ")}`)
+      .join("\n");
+    expect(conflicting, `Conflicting version queries:\n${detail}`).toEqual([]);
   });
 });

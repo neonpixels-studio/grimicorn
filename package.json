@@ -11,6 +11,7 @@
     "lock:assets": "node scripts/regenerate-asset-version-lock.mjs",
     "test": "vitest",
     "test:ci": "vitest run",
+    "test:e2e": "vitepress build && playwright test",
     "typecheck": "vue-tsc --noEmit",
     "audit": "npm audit --omit=dev --audit-level=high",
     "lint": "prettier --check . && eslint .",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@typescript-eslint/parser": "^8.67.0",
     "@vitejs/plugin-vue": "^6.0.8",
