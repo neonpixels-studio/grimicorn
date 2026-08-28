@@ -430,10 +430,12 @@ function resolveMetaImagePath(identifier: string) {
   return publicPathForUrl(findMetaContent(identifier));
 }
 
+function readRawWebManifest() {
+  return readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8");
+}
+
 function readWebManifest() {
-  return JSON.parse(
-    readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8"),
-  );
+  return JSON.parse(readRawWebManifest());
 }
 
 // Confirms the path is a real file AND that its case matches disk, since macOS (APFS)
@@ -523,6 +525,116 @@ describe("Web app manifest icons", () => {
       expect(isRealFileWithExactCase(publicPathForUrl(src)), src).toBe(true);
     },
   );
+});
+
+describe("Web app manifest installability", () => {
+  // Chromium only offers the install prompt when the manifest is valid JSON and
+  // declares these fields; start_url/id are the ones the standalone manifest was
+  // missing (issue #114). The site is served from the domain root, so both the
+  // launch target and the stable app identity are "/".
+  const REQUIRED_INSTALL_FIELDS = [
+    "name",
+    "short_name",
+    "start_url",
+    "id",
+    "icons",
+    "display",
+  ];
+  const EXPECTED_START_URL = "/";
+  const EXPECTED_ID = "/";
+  const EXPECTED_DISPLAY = "standalone";
+  // Chromium ignores an icon for the install prompt unless its purpose includes
+  // `any` (a maskable-only icon does not satisfy the criteria), so an installable
+  // icon set must offer both documented sizes with an `any`-capable purpose.
+  const INSTALL_ICON_PURPOSE = "any";
+  // These PNGs are pre-rounded squircles with transparent corners and content that
+  // runs to the top edge, so they lack the opaque bleed and 20% safe zone a
+  // maskable icon needs; declaring `maskable` would double-round them and clip the
+  // horn. They ship as `any` only, and this guard stops a silent flip back.
+  const MASKABLE_ICON_PURPOSE = "maskable";
+  const REQUIRED_ICON_SIZES = ["192x192", "512x512"];
+
+  function iconPurposeTokens(purpose: unknown) {
+    // Per spec an omitted purpose defaults to `any`; a present one is a
+    // space-separated token list user agents ASCII-lowercase before matching.
+    if (typeof purpose !== "string") {
+      return [INSTALL_ICON_PURPOSE];
+    }
+    return purpose.trim().toLowerCase().split(/\s+/);
+  }
+
+  function manifestFieldLength(value: unknown, field: string) {
+    if (typeof value === "string") {
+      return value.trim().length;
+    }
+    if (Array.isArray(value)) {
+      return value.length;
+    }
+    throw new Error(`manifest ${field} is not a string or array: ${value}`);
+  }
+
+  it("parses as valid JSON", () => {
+    expect(() => JSON.parse(readRawWebManifest())).not.toThrow();
+  });
+
+  it.each(REQUIRED_INSTALL_FIELDS)(
+    "declares a non-empty %s field required for installability",
+    (field) => {
+      const value = readWebManifest()[field];
+      expect(manifestFieldLength(value, field), field).toBeGreaterThan(0);
+    },
+  );
+
+  it("launches from and identifies against the site root", () => {
+    const manifest = readWebManifest();
+    expect(manifest.start_url).toBe(EXPECTED_START_URL);
+    expect(manifest.id).toBe(EXPECTED_ID);
+  });
+
+  it("requests a standalone display mode", () => {
+    expect(readWebManifest().display).toBe(EXPECTED_DISPLAY);
+  });
+
+  it.each(REQUIRED_ICON_SIZES)(
+    "offers a %s icon the browser can use for the install prompt",
+    (size) => {
+      const icons: { src: string; sizes?: string; purpose?: string }[] =
+        readWebManifest().icons ?? [];
+      const usableIcons = icons.filter(
+        (icon) =>
+          icon.sizes === size &&
+          iconPurposeTokens(icon.purpose).includes(INSTALL_ICON_PURPOSE),
+      );
+      expect(usableIcons, size).not.toHaveLength(0);
+      // Chromium reads the decoded PNG, not the declared sizes attribute, so pin
+      // the file's real dimensions rather than trusting the manifest string.
+      const [expectedWidth, expectedHeight] = size.split("x").map(Number);
+      for (const icon of usableIcons) {
+        const dimensions = readPngDimensions(publicPathForUrl(icon.src));
+        expect(dimensions, icon.src).toEqual({
+          width: expectedWidth,
+          height: expectedHeight,
+        });
+      }
+    },
+  );
+
+  it("keeps the manifest description in sync with the config description", () => {
+    // Same recoupling the theme_color and llms.txt guards use: the description is
+    // duplicated from config, so pin it to the source of truth rather than a
+    // second literal that can drift silently.
+    expect(readWebManifest().description).toBe(config.description);
+  });
+
+  it("does not claim maskable on icons that lack a maskable safe zone", () => {
+    const icons: { purpose?: string }[] = readWebManifest().icons ?? [];
+    for (const icon of icons) {
+      expect(
+        iconPurposeTokens(icon.purpose),
+        `${MASKABLE_ICON_PURPOSE} requires dedicated safe-zone art`,
+      ).not.toContain(MASKABLE_ICON_PURPOSE);
+    }
+  });
 });
 
 describe("Open Graph image metadata", () => {

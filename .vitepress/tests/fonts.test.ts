@@ -6,12 +6,98 @@ import config from "../config";
 import { DISALLOWED_ORIGINS } from "../origins";
 
 const THEME_DIR = resolve(process.cwd(), ".vitepress/theme");
-const FONTS_CSS_PATH = resolve(THEME_DIR, "fonts.css");
 const THEME_INDEX_PATH = resolve(THEME_DIR, "index.ts");
+const STYLE_CSS_PATH = resolve(THEME_DIR, "style.css");
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
-// The two families the theme uses (see --font-display / --font-mono in style.css).
-const EXPECTED_FAMILIES = ["Space Grotesk", "JetBrains Mono"];
+// index.ts pulls the @font-face declarations in via this side-effect stylesheet
+// import. The theme wiring test asserts the (comment-stripped) import graph still
+// contains it, so a commented-out or renamed import fails CI instead of silently
+// shipping a page with no custom fonts. FONTS_CSS_PATH resolves from the same
+// specifier so the two stay in lockstep.
+const FONTS_STYLESHEET_IMPORT = "./fonts.css";
+const FONTS_CSS_PATH = resolve(THEME_DIR, FONTS_STYLESHEET_IMPORT);
+
+// The families are not hand-copied: they derive from the theme's live values so a
+// rename in style.css that isn't mirrored in fonts.css (or the preloads) fails CI
+// rather than silently falling back to system fonts. The theme renders copy with
+// --font-display and code with --font-mono; the first quoted entry in each stack
+// is the custom face, the rest are system fallbacks.
+const THEME_FONT_VARS = ["--font-display", "--font-mono"];
+// Opening and closing quotes must agree (backreference), so a typo'd `"Foo'`
+// fails here rather than surfacing later as a confusing font-file lookup miss.
+const CUSTOM_FAMILY_PATTERN = /^(["'])([^"']+)\1$/;
+
+// The theme tokens live in style.css's @theme block(s). Scope parsing to those
+// blocks, comments stripped, so a redefinition in a scoped/conditional rule
+// elsewhere — or a commented-out line that would otherwise win "last declaration" —
+// can't stand in for the value the page actually renders with. Tailwind v4 merges
+// multiple @theme blocks (later declaration wins), so read every one, not just the
+// first, or a second block's override would render a family this test never checks.
+// The blocks hold flat token declarations, so a body ends at its first `}`.
+const THEME_BLOCK_PATTERN = /@theme\b[^{]*\{([^}]*)\}/g;
+
+function themeBlockBodies(css: string) {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const blocks = [...withoutComments.matchAll(THEME_BLOCK_PATTERN)];
+  if (!blocks.length) {
+    throw new Error("style.css has no @theme block to read font vars from");
+  }
+  return blocks.map((block) => block[1]).join("\n");
+}
+
+function customFamilyForVar(themeBody: string, varName: string) {
+  // Anchor on a property boundary so --font-display can't be hijacked by a longer
+  // name (--vp-font-display), terminate on ; or } so a semicolon-less declaration
+  // doesn't run into the next rule, and take the last match (cascade winner).
+  const pattern = new RegExp(`(?:^|[;{\\s])${varName}\\s*:\\s*([^;}]+)`, "g");
+  const declarations = [...themeBody.matchAll(pattern)];
+  if (!declarations.length) {
+    throw new Error(`@theme is missing the ${varName} custom property`);
+  }
+  const firstEntry = declarations[declarations.length - 1][1]
+    .split(",")[0]
+    .trim();
+  const family = firstEntry.match(CUSTOM_FAMILY_PATTERN);
+  if (!family) {
+    throw new Error(
+      `${varName}'s first family "${firstEntry}" is not a quoted custom face`,
+    );
+  }
+  return family[2];
+}
+
+function readThemeFontFamilies() {
+  const themeBodies = themeBlockBodies(readFileSync(STYLE_CSS_PATH, "utf8"));
+  return THEME_FONT_VARS.map((varName) =>
+    customFamilyForVar(themeBodies, varName),
+  );
+}
+
+// Derived lazily and memoized: a malformed @theme throws, and doing that at module
+// scope would abort the whole file — including the DISALLOWED_ORIGINS security
+// scans below — so only the family-dependent assertions fail instead.
+let cachedThemeFontFamilies: string[] | undefined;
+function expectedFamilies() {
+  cachedThemeFontFamilies ??= readThemeFontFamilies();
+  return cachedThemeFontFamilies;
+}
+
+// index.ts imports stylesheets for their side effects; parse the specifiers so the
+// wiring test sees a live import, not one buried in a comment. The match is anchored
+// to line start (after optional indentation): a commented-out `// import ...` puts
+// the marker before `import`, so it can't satisfy the anchor — no `//`-stripping
+// (which would corrupt a protocol-relative `import "//cdn/x.css"`) is needed. Block
+// comments are stripped first for the `/* import "./fonts.css"; */` case.
+const CSS_IMPORT_PATTERN = /^[^\S\n]*import\s+["']([^"']+\.css)["']/gm;
+
+function themeStylesheetImports() {
+  const source = readFileSync(THEME_INDEX_PATH, "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+  return [...source.matchAll(CSS_IMPORT_PATTERN)].map((match) => match[1]);
+}
 
 // Self-hosted fonts must be served first-party from /public/fonts and stay
 // non-blocking via font-display: swap.
@@ -89,7 +175,7 @@ describe("self-hosted @font-face declarations", () => {
   const faces = readFontFaces();
 
   it("declares at least one @font-face per expected family", () => {
-    for (const family of EXPECTED_FAMILIES) {
+    for (const family of expectedFamilies()) {
       const familyFaces = faces.filter((face) => face.family === family);
       expect(familyFaces.length, family).toBeGreaterThan(0);
     }
@@ -97,7 +183,7 @@ describe("self-hosted @font-face declarations", () => {
 
   it("only declares the expected families", () => {
     const families = new Set(faces.map((face) => face.family));
-    expect([...families].sort()).toEqual([...EXPECTED_FAMILIES].sort());
+    expect([...families].sort()).toEqual([...expectedFamilies()].sort());
   });
 
   it.each(faces)(
@@ -127,10 +213,67 @@ describe("self-hosted @font-face declarations", () => {
   });
 });
 
+describe("theme font families", () => {
+  it("derives a distinct custom family from each theme font var", () => {
+    // map() already guarantees the count, so the real drift this guards is two
+    // vars resolving to the same family: that would make the derived set a
+    // duplicate pair and silently invert the per-family preload assertion below.
+    expect(new Set(expectedFamilies()).size).toBe(THEME_FONT_VARS.length);
+  });
+});
+
+// The parsing helpers are the whole point of this file — they must fail when the
+// theme drifts. Exercise their guards directly with inline CSS so a regex
+// regression surfaces here instead of silently returning the wrong family.
+describe("theme font var parsing", () => {
+  it("takes the last declaration (cascade winner) across @theme blocks", () => {
+    const css =
+      '@theme { --font-display: "First", sans-serif; }\n' +
+      '@theme { --font-display: "Last", sans-serif; }';
+    expect(customFamilyForVar(themeBlockBodies(css), "--font-display")).toBe(
+      "Last",
+    );
+  });
+
+  it("is not hijacked by a longer property name", () => {
+    const css =
+      '@theme { --vp-font-display: "Wrong", sans-serif; --font-display: "Right", sans-serif; }';
+    expect(customFamilyForVar(themeBlockBodies(css), "--font-display")).toBe(
+      "Right",
+    );
+  });
+
+  it("throws when the first family is unquoted", () => {
+    const body = "--font-mono: ui-monospace, monospace;";
+    expect(() => customFamilyForVar(body, "--font-mono")).toThrow();
+  });
+
+  it("throws when opening and closing quotes disagree", () => {
+    const body = "--font-display: \"Mismatch', sans-serif;";
+    expect(() => customFamilyForVar(body, "--font-display")).toThrow();
+  });
+
+  it("throws when the var is absent", () => {
+    expect(() =>
+      customFamilyForVar("--color-bg: #000;", "--font-mono"),
+    ).toThrow(/missing the --font-mono/);
+  });
+
+  it("throws when style.css has no @theme block", () => {
+    expect(() => themeBlockBodies(":root { --font-mono: 'X'; }")).toThrow(
+      /no @theme block/,
+    );
+  });
+});
+
 describe("theme wiring", () => {
-  it("imports the self-hosted font stylesheet so the faces load", () => {
-    const index = readFileSync(THEME_INDEX_PATH, "utf8");
-    expect(index).toContain('"./fonts.css"');
+  it("imports the self-hosted font stylesheet as a live (non-comment) import", () => {
+    // Comment-stripped, so an `import "./fonts.css"` left commented out fails here
+    // instead of passing a bare substring check while the faces never load.
+    expect(
+      themeStylesheetImports(),
+      "theme/index.ts must import ./fonts.css",
+    ).toContain(FONTS_STYLESHEET_IMPORT);
   });
 });
 
@@ -175,15 +318,19 @@ describe("self-hosted font preloads", () => {
     attributes,
   ]);
 
-  it("preloads exactly one latin subset per family", () => {
-    // Check per-family coverage, not just the count: two preloads of the same
-    // family (with the other dropped) must not pass.
+  it("preloads exactly one latin subset per family with no duplicates", () => {
+    // Compare the real, non-deduped preload families against the derived set: a
+    // duplicate preload of one family (with the other dropped) fails this equality
+    // where a Set comparison would pass. The length check is redundant with it but
+    // kept for a clearer failure message when the counts differ.
+    const families = expectedFamilies();
+    expect(preloads, "one font preload per family").toHaveLength(
+      families.length,
+    );
     const preloadedFamilies = preloads.map((attributes) =>
       familyByUrl.get(attributes.href),
     );
-    expect([...new Set(preloadedFamilies)].sort()).toEqual(
-      [...EXPECTED_FAMILIES].sort(),
-    );
+    expect([...preloadedFamilies].sort()).toEqual([...families].sort());
   });
 
   it.each(preloadRows)(
