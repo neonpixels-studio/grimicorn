@@ -9,19 +9,20 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 ## npm scripts
 
-| Script                | Command                                   | What it does                                                                                                                                       |
-| --------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`         | `vitepress dev`                           | Local dev server with HMR. Note: build-time hooks do **not** run here (see below).                                                                 |
-| `npm run build`       | `vitepress build`                         | Production build into `.vitepress/dist`. Runs the `buildEnd` hooks that write `_headers` and scan the output for disallowed origins.               |
-| `npm run preview`     | `vitepress preview`                       | Serves the built `.vitepress/dist` locally. Use this (not `dev`) to verify the CSP, the hero preload, and other build-only output.                 |
-| `npm run test`        | `vitest`                                  | Unit/snapshot tests in watch mode.                                                                                                                 |
-| `npm run test:ci`     | `vitest run`                              | Single-shot test run used by CI and the Netlify build.                                                                                             |
-| `npm run test:e2e`    | `vitepress build && playwright test`      | Builds the site, then runs the Playwright real-browser smoke tests against the production output.                                                  |
-| `npm run typecheck`   | `vue-tsc --noEmit`                        | Type-checks the theme (Vue SFCs) and the `.vitepress` TypeScript.                                                                                  |
-| `npm run lint`        | `prettier --check . && eslint .`          | Formatting + lint check (no writes).                                                                                                               |
-| `npm run lint:fix`    | `prettier --write . && eslint . --fix`    | Auto-fix formatting and lint issues.                                                                                                               |
-| `npm run generate:og` | `node scripts/generate-og-banner.mjs`     | Regenerates the Open Graph banner (`public/assets/grimicorn-og.png`) from `og-banner-spec.mjs`. Run and commit the result when the banner changes. |
-| `npm run audit`       | `npm audit --omit=dev --audit-level=high` | Fails on high/critical advisories in **production** deps only (dev-only advisories in vitepress/vite/esbuild never ship to the static site).       |
+| Script                | Command                                          | What it does                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`         | `vitepress dev`                                  | Local dev server with HMR. Note: build-time hooks do **not** run here (see below).                                                                                            |
+| `npm run build`       | `vitepress build`                                | Production build into `.vitepress/dist`. Runs the `buildEnd` hooks that write `_headers` and scan the output for disallowed origins.                                          |
+| `npm run preview`     | `vitepress preview`                              | Serves the built `.vitepress/dist` locally. Use this (not `dev`) to verify the CSP, the hero preload, and other build-only output.                                            |
+| `npm run test`        | `vitest`                                         | Unit/snapshot tests in watch mode.                                                                                                                                            |
+| `npm run test:ci`     | `vitest run`                                     | Single-shot test run used by CI and the Netlify build.                                                                                                                        |
+| `npm run test:e2e`    | `vitepress build && playwright test`             | Builds the site and runs the Playwright real-browser smoke tests against the production output.                                                                               |
+| `npm run typecheck`   | `vue-tsc --noEmit`                               | Type-checks the theme (Vue SFCs) and the `.vitepress` TypeScript.                                                                                                             |
+| `npm run lint`        | `prettier --check . && eslint .`                 | Formatting + lint check (no writes).                                                                                                                                          |
+| `npm run lint:fix`    | `prettier --write . && eslint . --fix`           | Auto-fix formatting and lint issues.                                                                                                                                          |
+| `npm run generate:og` | `node scripts/generate-og-banner.mjs`            | Regenerates the Open Graph banner (`public/assets/grimicorn-og.png`) from `og-banner-spec.mjs`. Run and commit the result when the banner changes.                            |
+| `npm run lock:assets` | `node scripts/regenerate-asset-version-lock.mjs` | Rewrites `.vitepress/asset-version-lock.json` from the current asset bytes and the live `ASSET_CACHE_BUST` token. Run after bumping the token when a versioned asset changes. |
+| `npm run audit`       | `npm audit --omit=dev --audit-level=high`        | Fails on high/critical advisories in **production** deps only (dev-only advisories in vitepress/vite/esbuild never ship to the static site).                                  |
 
 ### Dev vs. build
 
