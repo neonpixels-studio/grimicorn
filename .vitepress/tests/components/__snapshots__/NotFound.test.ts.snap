@@ -4,7 +4,7 @@ exports[`NotFound > renders correctly 1`] = `
 "<div class="bg-bg text-fg relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-16 font-mono sm:px-8">
   <!-- ambient glow -->
   <div class="pointer-events-none absolute top-[-200px] right-[-160px] h-[680px] w-[680px] blur-[24px]" style="background: radial-gradient(circle, rgba(168, 85, 247, 0.2), rgba(34, 211, 238, 0.09) 45%, transparent 70%);"></div>
-  <div class="relative w-full max-w-[680px] text-center">
+  <main id="main-content" tabindex="-1" class="relative w-full max-w-[680px] text-center">
     <!-- crumb -->
     <div class="text-purple mb-6 flex items-center justify-center gap-3 text-xs tracking-[0.16em] uppercase"><span class="bg-purple inline-block h-px w-6"></span> error 404 — page not found <span class="bg-purple inline-block h-px w-6"></span></div><!-- big rainbow 404 -->
     <h1 class="font-display animate-rainbow-pan m-0 bg-clip-text font-bold tracking-[-0.04em] text-transparent select-none" style="line-height: 0.9; background-image: var(--gx-rainbow);"> 404 </h1><!-- headline -->
@@ -19,6 +19,6 @@ exports[`NotFound > renders correctly 1`] = `
         <div><span class="text-lime">grimicorn</span><span class="text-[#737b8a]">@</span><span class="text-cyan">dev</span><span class="text-[#737b8a]"> ~ %</span><span class="animate-blink ml-1 inline-block h-[15px] w-[9px] bg-[#d4d4d8] align-[-2px]"></span></div>
       </div>
     </div>
-  </div>
+  </main>
 </div>"
 `;

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { shallowMount, type VueWrapper } from "@vue/test-utils";
 import GrimicornPage from "@components/GrimicornPage.vue";
+import { MAIN_CONTENT_ID } from "@theme/constants";
 
 // Matches any absolute URL (has a scheme, e.g. "https:", "mailto:") or a
 // protocol-relative URL ("//host/..."). Matching by scheme presence rather
@@ -650,6 +651,37 @@ describe("GrimicornPage", () => {
           `<section id="${id}"> for nav anchor #${id} is nested inside another <section>`,
         ).toBeNull();
       });
+
+      wrapper.unmount();
+    });
+  });
+
+  describe("main landmark", () => {
+    it("wraps the hero and terminal content in a single focusable <main> landmark carrying the shared id", async () => {
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const mains = wrapper.findAll("main");
+      expect(mains).toHaveLength(1);
+
+      const main = mains[0];
+      expect(main.attributes("id")).toBe(MAIN_CONTENT_ID);
+      // tabindex="-1" lets the skip link move focus here without adding the
+      // landmark to the tab order.
+      expect(main.attributes("tabindex")).toBe("-1");
+
+      // The primary content lives inside the landmark...
+      expect(main.find("#about").exists()).toBe(true);
+      expect(main.find("#status").exists()).toBe(true);
+
+      // ...while the nav and footer stay out of it, so the landmark marks only
+      // the primary content and the skip link genuinely bypasses the nav.
+      const nav = wrapper.find("nav");
+      const footer = wrapper.find("footer");
+      expect(nav.exists()).toBe(true);
+      expect(footer.exists()).toBe(true);
+      expect(nav.element.closest("main")).toBeNull();
+      expect(footer.element.closest("main")).toBeNull();
 
       wrapper.unmount();
     });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { shallowMount } from "@vue/test-utils";
 import NotFound from "@components/NotFound.vue";
+import { MAIN_CONTENT_ID } from "@theme/constants";
 
 // Matches any absolute URL (has a scheme, e.g. "https:", "mailto:") or a
 // protocol-relative URL ("//host/..."). Matching by scheme presence rather
@@ -78,6 +79,23 @@ describe("NotFound", () => {
     internalLinks.forEach((internalLink) => {
       expect(internalLink.attributes("target")).toBeUndefined();
     });
+    wrapper.unmount();
+  });
+
+  it("wraps its content in a single focusable <main> landmark carrying the shared id", async () => {
+    const wrapper = shallowMount(NotFound);
+    await wrapper.vm.$nextTick();
+
+    const mains = wrapper.findAll("main");
+    expect(mains).toHaveLength(1);
+    expect(mains[0].attributes("id")).toBe(MAIN_CONTENT_ID);
+    // tabindex="-1" lets the skip link move focus here without adding the
+    // landmark to the tab order.
+    expect(mains[0].attributes("tabindex")).toBe("-1");
+    // The 404 heading is the primary content, so it must sit inside the
+    // landmark rather than beside it.
+    expect(mains[0].find("h1").exists()).toBe(true);
+
     wrapper.unmount();
   });
 });
