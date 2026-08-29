@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { shallowMount, mount } from "@vue/test-utils";
+import { shallowMount, mount, enableAutoUnmount } from "@vue/test-utils";
 
 const pageState = vi.hoisted(() => ({ isNotFound: false }));
 
@@ -16,12 +16,12 @@ import AppLayout from "@theme/AppLayout.vue";
 import SkipLink from "@components/SkipLink.vue";
 
 describe("AppLayout", () => {
-  // The `attachTo: document.body` cases below leak their <main> landmark if an
-  // assertion throws before unmount(); a stale #main-content would then make the
-  // next parametrized case focus the wrong node and fail for an unrelated reason.
-  // Reset shared state here so each case starts from a clean body regardless.
+  // Auto-unmount every mounted wrapper after each case, even when an assertion
+  // throws first. Hand-clearing document.body would detach the node but leave the
+  // Vue app mounted, so GrimicornPage's onMounted timers/listeners would keep
+  // firing into later cases; enableAutoUnmount runs onUnmounted so they stop.
+  enableAutoUnmount(afterEach);
   afterEach(() => {
-    document.body.innerHTML = "";
     pageState.isNotFound = false;
   });
 

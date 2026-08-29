@@ -126,7 +126,7 @@ describe("skip link focus reveal", () => {
     "white-space:normal",
   ];
 
-  it("undoes every sr-only property on focus", () => {
+  it("undoes every sr-only property that affects visibility on focus", () => {
     const rule = css.match(/(?:^|\})\s*\.skip-link:focus\s*\{([^}]*)\}/m);
     expect(rule, ".skip-link:focus rule not found").not.toBeNull();
 
@@ -138,12 +138,13 @@ describe("skip link focus reveal", () => {
 
   it("keeps the reveal rule outside any @layer so it outranks Tailwind's utilities layer", () => {
     // An @layer wrapping .skip-link:focus would drop it below Tailwind's
-    // `sr-only` in the utilities layer. Test enclosure via brace depth at the
-    // rule's offset rather than counting `@layer` occurrences, so a closed,
-    // unrelated @layer block elsewhere in the file doesn't false-fail this.
-    const index = css.indexOf(".skip-link:focus");
-    expect(index, ".skip-link:focus rule not found").toBeGreaterThan(-1);
-    const beforeRule = css.slice(0, index);
+    // `sr-only` in the utilities layer. Anchor on the real rule (same regex the
+    // sibling test uses, so a mention in a comment can't move the offset) and
+    // strip comments before counting braces, so their braces can't skew the
+    // depth. Enclosure via brace depth is immune to closed sibling @layer blocks.
+    const ruleStart = css.search(/(?:^|\})\s*\.skip-link:focus\s*\{/m);
+    expect(ruleStart, ".skip-link:focus rule not found").toBeGreaterThan(-1);
+    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
     const openBraceDepth =
       countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
     expect(
