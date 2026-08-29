@@ -8,6 +8,7 @@
     "build": "vitepress build",
     "preview": "vitepress preview",
     "generate:og": "node scripts/generate-og-banner.mjs",
+    "lock:assets": "node scripts/regenerate-asset-version-lock.mjs",
     "test": "vitest",
     "test:ci": "vitest run",
     "test:e2e": "vitepress build && playwright test",
