@@ -55,6 +55,24 @@ describe("SkipLink", () => {
     wrapper.unmount();
   });
 
+  it.each(["metaKey", "ctrlKey", "shiftKey", "altKey"])(
+    "leaves %s-modified clicks to the browser instead of moving focus",
+    async (modifier) => {
+      const main = addMainLandmark();
+      const wrapper = mount(SkipLink, { attachTo: document.body });
+      const link = wrapper.get("a");
+      link.element.focus();
+
+      // Modified clicks are open-elsewhere gestures; the handler must bail so the
+      // browser keeps them rather than hijacking focus into the landmark.
+      await link.trigger("click", { [modifier]: true });
+
+      expect(document.activeElement).not.toBe(main);
+
+      wrapper.unmount();
+    },
+  );
+
   it("leaves focus where it was when the landmark is absent", async () => {
     const wrapper = mount(SkipLink, { attachTo: document.body });
     const link = wrapper.get("a");

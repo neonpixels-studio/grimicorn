@@ -112,7 +112,9 @@ describe("skip link focus reveal", () => {
   const css = readStyleCss();
 
   // Each Tailwind `sr-only` property the reveal must undo to become visible on
-  // focus; dropping any one leaves the link clipped.
+  // focus; dropping any one leaves the link clipped. Mirrors Tailwind's `sr-only`
+  // definition (including `clip-path`, which newer variants use instead of the
+  // legacy `clip`), so re-check this list on Tailwind major upgrades.
   const SR_ONLY_OVERRIDES = [
     "position:fixed",
     "width:auto",
@@ -120,6 +122,7 @@ describe("skip link focus reveal", () => {
     "margin:0",
     "overflow:visible",
     "clip:auto",
+    "clip-path:none",
     "white-space:normal",
   ];
 
@@ -134,13 +137,18 @@ describe("skip link focus reveal", () => {
   });
 
   it("keeps the reveal rule outside any @layer so it outranks Tailwind's utilities layer", () => {
-    // Scoped to the cascade before the rule: an @layer wrapping .skip-link:focus
-    // would drop it below Tailwind's `sr-only` in the utilities layer. Unrelated
-    // layers added later elsewhere must not fail this.
-    const beforeRule = css.slice(0, css.indexOf(".skip-link:focus"));
+    // An @layer wrapping .skip-link:focus would drop it below Tailwind's
+    // `sr-only` in the utilities layer. Test enclosure via brace depth at the
+    // rule's offset rather than counting `@layer` occurrences, so a closed,
+    // unrelated @layer block elsewhere in the file doesn't false-fail this.
+    const index = css.indexOf(".skip-link:focus");
+    expect(index, ".skip-link:focus rule not found").toBeGreaterThan(-1);
+    const beforeRule = css.slice(0, index);
+    const openBraceDepth =
+      countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
     expect(
-      countOccurrences(beforeRule, "@layer"),
-      ".skip-link:focus sits inside an @layer",
+      openBraceDepth,
+      ".skip-link:focus sits inside a nested at-rule",
     ).toBe(0);
   });
 
