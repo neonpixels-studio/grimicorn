@@ -142,8 +142,11 @@ describe("skip link focus reveal", () => {
     // sibling test uses, so a mention in a comment can't move the offset) and
     // strip comments before counting braces, so their braces can't skew the
     // depth. Enclosure via brace depth is immune to closed sibling @layer blocks.
-    const ruleStart = css.search(/(?:^|\})\s*\.skip-link:focus\s*\{/m);
-    expect(ruleStart, ".skip-link:focus rule not found").toBeGreaterThan(-1);
+    const anchor = css.match(/(?:^|\})\s*\.skip-link:focus\s*\{/m);
+    expect(anchor, ".skip-link:focus rule not found").not.toBeNull();
+    // Land on the selector itself, not the matched prefix: the `\}` branch would
+    // otherwise put the offset before a closing brace and undercount depth by one.
+    const ruleStart = anchor!.index! + anchor![0].indexOf(".skip-link");
     const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
     const openBraceDepth =
       countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
