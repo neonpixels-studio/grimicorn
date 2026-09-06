@@ -6,6 +6,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 - Node `24.16.0` (pinned in `.nvmrc`; Netlify builds on `NODE_VERSION = 24`). The build relies on `Dirent.parentPath` (Node 20.12+), so older Node will break `write-headers.ts` / `scan-origins.ts`.
 - npm (the repo ships a `package-lock.json`; CI runs `npm ci`).
+- For `npm run test:e2e` only: a local Chromium binary for Playwright — run `npx playwright install chromium` after `npm install`, and again whenever `@playwright/test` is upgraded (the browser build is pinned per package version). On Debian/Ubuntu, `npx playwright install --with-deps chromium` also installs the system libraries Chromium needs (this is what the `e2e` job in `ci.yml` runs on `ubuntu-latest`); it invokes `sudo` itself for the apt step, so don't prefix the whole command with `sudo` yourself or the browser download lands in root's cache where `playwright test` won't find it. `--with-deps` only supports Debian/Ubuntu, so on other distros run the plain `chromium` install and add any libraries Chromium reports missing via your own package manager.
 
 ## npm scripts
 
@@ -16,7 +17,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 | `npm run preview`     | `vitepress preview`                              | Serves the built `.vitepress/dist` locally. Use this (not `dev`) to verify the CSP, the hero preload, and other build-only output.                                            |
 | `npm run test`        | `vitest`                                         | Unit/snapshot tests in watch mode.                                                                                                                                            |
 | `npm run test:ci`     | `vitest run`                                     | Single-shot test run used by CI and the Netlify build.                                                                                                                        |
-| `npm run test:e2e`    | `vitepress build && playwright test`             | Builds the site, then runs the Playwright real-browser smoke test against the built production output.                                                                        |
+| `npm run test:e2e`    | `vitepress build && playwright test`             | Builds the site, then runs the Playwright real-browser smoke test against the built production output. Requires `npx playwright install chromium` first (see Requirements).   |
 | `npm run typecheck`   | `vue-tsc --noEmit`                               | Type-checks the theme (Vue SFCs) and the `.vitepress` TypeScript.                                                                                                             |
 | `npm run lint`        | `prettier --check . && eslint .`                 | Formatting + lint check (no writes).                                                                                                                                          |
 | `npm run lint:fix`    | `prettier --write . && eslint . --fix`           | Auto-fix formatting and lint issues.                                                                                                                                          |
@@ -34,10 +35,10 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 ## CI
 
-- **`ci.yml`** runs `lint`, `typecheck`, `test:ci`, and `build` on pushes/PRs to `main`.
+- **`ci.yml`** runs two jobs on pushes/PRs to `main`: a `ci` job (`lint`, `typecheck`, `test:ci`, `build`) and an `e2e` job that installs Chromium and runs `test:e2e`, uploading `test-results/` on failure.
 - **`security.yml`** runs a gitleaks secret scan and an `npm audit` gate (production deps, high/critical).
 
-Run `npm run lint && npm run typecheck && npm run test:ci && npm run build` locally before pushing to match CI.
+Run `npm run lint && npm run typecheck && npm run test:ci && npm run test:e2e` locally before pushing to match CI (`test:e2e` builds the site itself, and needs the Chromium install from Requirements).
 
 ## Non-obvious invariants
 
