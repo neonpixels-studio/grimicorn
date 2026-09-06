@@ -6,7 +6,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 - Node `24.16.0` (pinned in `.nvmrc`; Netlify builds on `NODE_VERSION = 24`). The build relies on `Dirent.parentPath` (Node 20.12+), so older Node will break `write-headers.ts` / `scan-origins.ts`.
 - npm (the repo ships a `package-lock.json`; CI runs `npm ci`).
-- For `npm run test:e2e` only: a local Chromium binary for Playwright — run `npx playwright install chromium` after `npm install`, and again whenever `@playwright/test` is upgraded (the browser build is pinned per package version). On Linux, use `npx playwright install --with-deps chromium` instead, so the system libraries Chromium needs are installed too; that's what the `e2e` job in `ci.yml` runs.
+- For `npm run test:e2e` only: a local Chromium binary for Playwright — run `npx playwright install chromium` after `npm install`, and again whenever `@playwright/test` is upgraded (the browser build is pinned per package version). On Debian/Ubuntu, `sudo npx playwright install --with-deps chromium` also installs the system libraries Chromium needs (this is what the `e2e` job in `ci.yml` runs on `ubuntu-latest`); `--with-deps` only supports Debian/Ubuntu, so on other distros run the plain `chromium` install and add any libraries Chromium reports missing via your own package manager.
 
 ## npm scripts
 
@@ -38,7 +38,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 - **`ci.yml`** runs two jobs on pushes/PRs to `main`: a `ci` job (`lint`, `typecheck`, `test:ci`, `build`) and an `e2e` job that installs Chromium and runs `test:e2e`, uploading `test-results/` on failure.
 - **`security.yml`** runs a gitleaks secret scan and an `npm audit` gate (production deps, high/critical).
 
-Run `npm run lint && npm run typecheck && npm run test:ci && npm run build && npm run test:e2e` locally before pushing to match CI (the last command needs the Chromium install from Requirements).
+Run `npm run lint && npm run typecheck && npm run test:ci && npm run test:e2e` locally before pushing to match CI (`test:e2e` builds the site itself, and needs the Chromium install from Requirements).
 
 ## Non-obvious invariants
 
