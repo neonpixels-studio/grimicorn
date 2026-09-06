@@ -69,6 +69,9 @@ const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
 const MAX_LOG_COUNT = 8;
 
+// How long the rave-mode toast stays visible before showToast() auto-hides it.
+const TOAST_VISIBLE_DURATION_MS = 2600;
+
 // The scale here isn't part of the cursor-linked motion — it's a constant
 // slight overzoom so the translate/rotate wobble never reveals an edge past
 // the image's rounded, overflow-hidden container. It has to be preserved at
@@ -144,6 +147,17 @@ let parallaxActive = false;
 let contentTimersActive = false;
 
 const currentTagline = computed(() => TAGLINES[tagIndex.value]);
+
+// The visible toast fades via opacity/transform rather than being removed
+// from the DOM, so it never leaves the accessibility tree on its own — a
+// screen-reader user navigating by rotor/virtual cursor could land on it
+// minutes later and hear a stale "rave mode" message with nothing on screen
+// to match. This mirrors it into a separate sr-only live region (matching
+// pause-focus-announcement below) that reads the same text while the toast
+// is visible and empties the instant it hides.
+const toastAnnouncement = computed(() =>
+  toastVisible.value ? toastText.value : "",
+);
 
 const pageStyle = computed(() => ({
   filter: pageFilter.value,
@@ -378,7 +392,7 @@ function showToast(msg: string) {
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => {
     toastVisible.value = false;
-  }, 2600);
+  }, TOAST_VISIBLE_DURATION_MS);
 }
 
 function toggleRave() {
@@ -883,10 +897,11 @@ onUnmounted(() => {
       </footer>
     </div>
 
-    <!-- Rave toast: a plain visual div carries no accessible feedback when
-       RAVE MODE toggles, so it mirrors the pause-focus-announcement live
-       region above (role="status" aria-live="polite") to be perceivable
-       non-visually too. pointer-events-none stays — the toast is still
+    <!-- Rave toast: purely visual (fades via opacity/transform, never leaves
+       the DOM), so it's aria-hidden and paired with a visually-hidden live
+       region below that carries the same message to assistive tech — mirrors
+       the pause-focus-announcement pattern above (role="status"
+       aria-live="polite"). pointer-events-none stays — the toast is still
        purely informational, never interactive. -->
     <div
       class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white"
@@ -895,8 +910,7 @@ onUnmounted(() => {
           ? 'translate-y-0 opacity-100'
           : 'translate-y-[10px] opacity-0'
       "
-      role="status"
-      aria-live="polite"
+      aria-hidden="true"
       style="
         box-shadow: 0 0 40px rgba(168, 85, 247, 0.6);
         transition:
@@ -906,5 +920,12 @@ onUnmounted(() => {
     >
       {{ toastText }}
     </div>
+
+    <!-- Visually-hidden live region: announces the rave-mode toast message,
+       emptying as soon as the visual toast hides so a screen-reader user
+       navigating by rotor afterward never lands on a stale announcement. -->
+    <p class="toast-announcement sr-only" role="status" aria-live="polite">
+      {{ toastAnnouncement }}
+    </p>
   </div>
 </template>

@@ -96,6 +96,10 @@ function findFocusAnnouncement(wrapper: GrimicornWrapper) {
   return wrapper.find(".pause-focus-announcement");
 }
 
+function findToastAnnouncement(wrapper: GrimicornWrapper) {
+  return wrapper.find(".toast-announcement");
+}
+
 function getTagline(wrapper: GrimicornWrapper) {
   return wrapper.find(".text-fg-muted span:last-child").text();
 }
@@ -114,6 +118,9 @@ const TAGLINE_ROTATION_INTERVAL_MS = 2800;
 const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
 const MAX_LOG_COUNT = 8;
+// Mirrors TOAST_VISIBLE_DURATION_MS in the component: how long showToast()
+// keeps the toast (and its live-region mirror) visible before auto-hiding it.
+const TOAST_VISIBLE_DURATION_MS = 2600;
 
 type ReducedMotionChangeListener = (_event: { matches: boolean }) => void;
 type AnimationFrameCallback = (_time: number) => void;
@@ -351,16 +358,45 @@ describe("GrimicornPage", () => {
     wrapper.unmount();
   });
 
-  it("exposes the rave toast to assistive tech via a polite status live region", async () => {
+  it("hides the visual toast from assistive tech and mirrors it through a polite status live region instead", async () => {
     const wrapper = shallowMount(GrimicornPage);
     await wrapper.vm.$nextTick();
 
-    const toast = findToast(wrapper);
-    // Mirrors the pause-focus-announcement live-region contract elsewhere in
-    // this file: role="status" + aria-live="polite" is what lets a screen
-    // reader announce the toast text without requiring visual focus.
-    expect(toast?.attributes("role")).toBe("status");
-    expect(toast?.attributes("aria-live")).toBe("polite");
+    // The visual toast fades via opacity rather than leaving the DOM, so it
+    // must be aria-hidden rather than carrying its own live-region role —
+    // otherwise a screen reader would expose it as a status region that never
+    // clears once faded.
+    expect(findToast(wrapper)?.attributes("aria-hidden")).toBe("true");
+
+    // The sr-only mirror carries the live-region contract instead, matching
+    // pause-focus-announcement elsewhere in this file: role="status" +
+    // aria-live="polite" is what lets a screen reader announce the toast text
+    // without requiring visual focus.
+    const announcement = findToastAnnouncement(wrapper);
+    expect(announcement.attributes("role")).toBe("status");
+    expect(announcement.attributes("aria-live")).toBe("polite");
+    expect(announcement.classes()).toContain("sr-only");
+    expect(announcement.text()).toBe("");
+
+    wrapper.unmount();
+  });
+
+  it("announces the rave toast message through the live region while visible, then clears it once the toast auto-hides", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    await findRaveButton(wrapper).trigger("click");
+
+    const announcement = findToastAnnouncement(wrapper);
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(TOAST_VISIBLE_DURATION_MS);
+    await wrapper.vm.$nextTick();
+
+    // Cleared the instant the toast auto-hides, so a screen-reader user who
+    // navigates to this region afterward never hears a stale announcement.
+    expect(announcement.text()).toBe("");
+    expect(findToast(wrapper)?.classes()).toContain("opacity-0");
 
     wrapper.unmount();
   });
