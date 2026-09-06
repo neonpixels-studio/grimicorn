@@ -134,8 +134,13 @@ exports[`GrimicornPage > renders correctly 1`] = `
       </section>
     </main><!-- page footer -->
     <footer class="text-fg-dim flex justify-between border-t border-white/[0.07] py-7 text-[11px]"><span>grimicorn.dev — © 2026</span><span>built dark · shipped <button class="colorful-btn" aria-pressed="false"> colorful </button></span></footer>
-  </div><!-- rave toast -->
-  <div class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white translate-y-[10px] opacity-0" style="box-shadow: 0 0 40px rgba(168, 85, 247, 0.6); transition: opacity 0.35s ease,
+  </div>
+  <!-- Rave toast: a plain visual div carries no accessible feedback when
+       RAVE MODE toggles, so it mirrors the pause-focus-announcement live
+       region above (role="status" aria-live="polite") to be perceivable
+       non-visually too. pointer-events-none stays — the toast is still
+       purely informational, never interactive. -->
+  <div class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white translate-y-[10px] opacity-0" role="status" aria-live="polite" style="box-shadow: 0 0 40px rgba(168, 85, 247, 0.6); transition: opacity 0.35s ease,
           transform 0.35s ease;"></div>
 </div>"
 `;

@@ -351,6 +351,20 @@ describe("GrimicornPage", () => {
     wrapper.unmount();
   });
 
+  it("exposes the rave toast to assistive tech via a polite status live region", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    const toast = findToast(wrapper);
+    // Mirrors the pause-focus-announcement live-region contract elsewhere in
+    // this file: role="status" + aria-live="polite" is what lets a screen
+    // reader announce the toast text without requiring visual focus.
+    expect(toast?.attributes("role")).toBe("status");
+    expect(toast?.attributes("aria-live")).toBe("polite");
+
+    wrapper.unmount();
+  });
+
   it("opens every external link rendered in this template safely in a new tab", async () => {
     const wrapper = shallowMount(GrimicornPage);
     await wrapper.vm.$nextTick();

@@ -883,7 +883,11 @@ onUnmounted(() => {
       </footer>
     </div>
 
-    <!-- rave toast -->
+    <!-- Rave toast: a plain visual div carries no accessible feedback when
+       RAVE MODE toggles, so it mirrors the pause-focus-announcement live
+       region above (role="status" aria-live="polite") to be perceivable
+       non-visually too. pointer-events-none stays — the toast is still
+       purely informational, never interactive. -->
     <div
       class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white"
       :class="
@@ -891,6 +895,8 @@ onUnmounted(() => {
           ? 'translate-y-0 opacity-100'
           : 'translate-y-[10px] opacity-0'
       "
+      role="status"
+      aria-live="polite"
       style="
         box-shadow: 0 0 40px rgba(168, 85, 247, 0.6);
         transition:
