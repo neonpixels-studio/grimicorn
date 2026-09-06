@@ -6,6 +6,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 - Node `24.16.0` (pinned in `.nvmrc`; Netlify builds on `NODE_VERSION = 24`). The build relies on `Dirent.parentPath` (Node 20.12+), so older Node will break `write-headers.ts` / `scan-origins.ts`.
 - npm (the repo ships a `package-lock.json`; CI runs `npm ci`).
+- For `npm run test:e2e` only: a local Chromium binary for Playwright — run `npx playwright install chromium` once after `npm install` (CI does the equivalent via `npx playwright install --with-deps chromium` in `ci.yml`).
 
 ## npm scripts
 
@@ -16,7 +17,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 | `npm run preview`     | `vitepress preview`                              | Serves the built `.vitepress/dist` locally. Use this (not `dev`) to verify the CSP, the hero preload, and other build-only output.                                            |
 | `npm run test`        | `vitest`                                         | Unit/snapshot tests in watch mode.                                                                                                                                            |
 | `npm run test:ci`     | `vitest run`                                     | Single-shot test run used by CI and the Netlify build.                                                                                                                        |
-| `npm run test:e2e`    | `vitepress build && playwright test`             | Builds the site, then runs the Playwright real-browser smoke test against the built production output.                                                                        |
+| `npm run test:e2e`    | `vitepress build && playwright test`             | Builds the site, then runs the Playwright real-browser smoke test against the built production output. Requires `npx playwright install chromium` first (see Requirements).   |
 | `npm run typecheck`   | `vue-tsc --noEmit`                               | Type-checks the theme (Vue SFCs) and the `.vitepress` TypeScript.                                                                                                             |
 | `npm run lint`        | `prettier --check . && eslint .`                 | Formatting + lint check (no writes).                                                                                                                                          |
 | `npm run lint:fix`    | `prettier --write . && eslint . --fix`           | Auto-fix formatting and lint issues.                                                                                                                                          |
