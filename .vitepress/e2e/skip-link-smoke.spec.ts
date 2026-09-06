@@ -3,38 +3,40 @@ import { MAIN_CONTENT_ID } from "../theme/constants";
 
 // One real-browser smoke test for the skip-link reveal/focus behavior
 // (SkipLink.vue + the `.skip-link:focus` rule in style.css). The happy-dom unit
-// suite (SkipLink.test.ts) mounts the component in isolation with no stylesheet,
-// so it can assert the click handler moves focus but can't see whether the link
-// is actually `sr-only`-hidden until it receives real keyboard focus — that's a
-// CSS cascade fact only a real browser layout engine can confirm.
+// suite (SkipLink.test.ts) can assert the click handler moves focus but, with no
+// real stylesheet loaded, can't see whether the link is actually `sr-only`-hidden
+// until it receives real keyboard focus.
 
 // Tailwind's sr-only clips the link to a 1x1px box rather than display:none, so
 // Playwright's toBeVisible (which only checks for a non-empty box) would report
 // it visible even while hidden from sighted users. Asserting the actual box size
 // is what proves it starts — and, once focus moves away, ends up — clipped.
 const HIDDEN_BOX_SIZE = { width: 1, height: 1 };
+const TO_PASS_TIMEOUT_MS = 5_000;
 
-// Throws rather than returning a nullable box: an absent layout box is a
-// distinct, louder failure than "wrong size". Every caller reads this inside an
-// expect(...).toPass() block (not expect.poll, which does not retry a thrown
-// error) so a brief post-navigation layout wobble retries instead of flaking.
-async function readBoxSize(locator: Locator) {
-  const box = await locator.boundingBox();
-  if (!box) {
-    throw new Error("Expected the skip link to have a layout box");
-  }
-  return { width: box.width, height: box.height };
-}
-
-// Both the computed width and style are needed: outline-width's computed value
-// is the specified length regardless of outline-style, so a regression to
-// `outline-style: none` alone would still report a non-zero width.
-function readOutline(locator: Locator) {
+// One evaluate() so the box and the outline come from a single snapshot — two
+// separate reads (a boundingBox() call plus a getComputedStyle() round trip)
+// could straddle a frame and pass on values that never held simultaneously.
+// Throws rather than returning nulls/NaN: a missing layout box or a
+// non-numeric outline-width are distinct, louder failures than "wrong size".
+// Every caller reads this inside expect(...).toPass() (not expect.poll, which
+// does not retry a thrown error) so a brief post-navigation layout wobble
+// retries instead of flaking.
+function readRevealState(locator: Locator) {
   return locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
     const outlineStyle = getComputedStyle(element);
+    const outlineWidth = parseFloat(outlineStyle.outlineWidth);
+    if (Number.isNaN(outlineWidth)) {
+      throw new Error(
+        `Unrecognized outline-width: "${outlineStyle.outlineWidth}"`,
+      );
+    }
     return {
-      width: parseFloat(outlineStyle.outlineWidth),
-      style: outlineStyle.outlineStyle,
+      width: rect.width,
+      height: rect.height,
+      outlineWidth,
+      outlineHasStyle: outlineStyle.outlineStyle !== "none",
     };
   });
 }
@@ -47,8 +49,9 @@ test("tabbing to the skip link reveals it, activating focuses main content, and 
   const skipLink = page.getByRole("link", { name: "skip to content" });
 
   await expect(async () => {
-    expect(await readBoxSize(skipLink)).toMatchObject(HIDDEN_BOX_SIZE);
-  }).toPass();
+    const state = await readRevealState(skipLink);
+    expect(state).toEqual(expect.objectContaining(HIDDEN_BOX_SIZE));
+  }).toPass({ timeout: TO_PASS_TIMEOUT_MS });
 
   // The skip link is the first element AppLayout.vue renders (before the nav
   // and page content), so a single Tab from a fresh load lands on it.
@@ -56,18 +59,14 @@ test("tabbing to the skip link reveals it, activating focuses main content, and 
   await expect(skipLink).toBeFocused();
 
   // `.skip-link:focus` overrides the `sr-only` clip with a real width/height
-  // and a visible outline, so the reveal only shows up as a real, hit-testable
-  // box with a focus ring once focus lands — this is what a regression to that
-  // rule would break. All three facts are read from one snapshot so the test
-  // can't pass on values that never held simultaneously.
+  // and a visible outline — this is what a regression to that rule would break.
   await expect(async () => {
-    const { width, height } = await readBoxSize(skipLink);
-    expect(width).toBeGreaterThan(1);
-    expect(height).toBeGreaterThan(1);
-    const outline = await readOutline(skipLink);
-    expect(outline.style).not.toBe("none");
-    expect(outline.width).toBeGreaterThan(0);
-  }).toPass();
+    const state = await readRevealState(skipLink);
+    expect(state.width).toBeGreaterThan(1);
+    expect(state.height).toBeGreaterThan(1);
+    expect(state.outlineHasStyle).toBe(true);
+    expect(state.outlineWidth).toBeGreaterThan(0);
+  }).toPass({ timeout: TO_PASS_TIMEOUT_MS });
 
   // VitePress's capture-phase anchor handler cancels the native fragment
   // navigation, so only the component's own click handler moves focus.
@@ -81,11 +80,12 @@ test("tabbing to the skip link reveals it, activating focuses main content, and 
   const mainContent = page.locator(`[id="${MAIN_CONTENT_ID}"]`);
   await expect(mainContent).toBeFocused();
 
-  // Focus has moved off the skip link onto the main landmark, so the reveal
-  // rule (which only matches :focus) must have released it back to its
-  // clipped size — proving the reveal is focus-gated in both directions, not
-  // a one-way class that gets stuck on.
+  // Focus has moved off the skip link, so the reveal rule (which only matches
+  // :focus) must have released it back to its clipped size — proving the
+  // reveal is focus-gated in both directions, not a one-way class that gets
+  // stuck on.
   await expect(async () => {
-    expect(await readBoxSize(skipLink)).toMatchObject(HIDDEN_BOX_SIZE);
-  }).toPass();
+    const state = await readRevealState(skipLink);
+    expect(state).toEqual(expect.objectContaining(HIDDEN_BOX_SIZE));
+  }).toPass({ timeout: TO_PASS_TIMEOUT_MS });
 });
