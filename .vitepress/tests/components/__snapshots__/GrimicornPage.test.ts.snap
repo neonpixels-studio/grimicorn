@@ -134,11 +134,9 @@ exports[`GrimicornPage > renders correctly 1`] = `
       </section>
     </main><!-- page footer -->
     <footer class="text-fg-dim flex justify-between border-t border-white/[0.07] py-7 text-[11px]"><span>grimicorn.dev — © 2026</span><span>built dark · shipped <button class="colorful-btn" aria-pressed="false"> colorful </button></span></footer>
-  </div>
-  <!-- Rave toast: visual only, announced via .toast-announcement below
-       (see the toastAnnouncement computed for why). -->
+  </div><!-- Rave toast: visual only, announced via toastAnnouncement below. -->
   <div class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white translate-y-[10px] opacity-0" aria-hidden="true" style="box-shadow: 0 0 40px rgba(168, 85, 247, 0.6); transition: opacity 0.35s ease,
-          transform 0.35s ease;"></div><!-- sr-only mirror of the rave toast — see toastAnnouncement. -->
+          transform 0.35s ease;"></div>
   <p class="toast-announcement sr-only" role="status" aria-live="polite"></p>
 </div>"
 `;

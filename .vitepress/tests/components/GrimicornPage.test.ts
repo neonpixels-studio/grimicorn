@@ -119,8 +119,11 @@ const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
 const MAX_LOG_COUNT = 8;
 // Mirrors TOAST_VISIBLE_DURATION_MS in the component: how long showToast()
-// keeps the toast (and its live-region mirror) visible before auto-hiding it.
+// keeps the toast visible before auto-hiding it.
 const TOAST_VISIBLE_DURATION_MS = 2600;
+// Mirrors TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS in the component: how long the
+// sr-only live-region text survives after the visual toast has hidden.
+const TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS = TOAST_VISIBLE_DURATION_MS + 8000;
 
 type ReducedMotionChangeListener = (_event: { matches: boolean }) => void;
 type AnimationFrameCallback = (_time: number) => void;
@@ -363,15 +366,11 @@ describe("GrimicornPage", () => {
     await wrapper.vm.$nextTick();
 
     // The visual toast fades via opacity rather than leaving the DOM, so it
-    // must be aria-hidden rather than carrying its own live-region role —
-    // otherwise a screen reader would expose it as a status region that never
-    // clears once faded.
+    // must be aria-hidden rather than carrying its own live-region role — see
+    // the toastAnnouncement declaration in the component for the full
+    // rationale for the sr-only mirror below.
     expect(findToast(wrapper)?.attributes("aria-hidden")).toBe("true");
 
-    // The sr-only mirror carries the live-region contract instead, matching
-    // pause-focus-announcement elsewhere in this file: role="status" +
-    // aria-live="polite" is what lets a screen reader announce the toast text
-    // without requiring visual focus.
     const announcement = findToastAnnouncement(wrapper);
     expect(announcement.attributes("role")).toBe("status");
     expect(announcement.attributes("aria-live")).toBe("polite");
@@ -381,7 +380,7 @@ describe("GrimicornPage", () => {
     wrapper.unmount();
   });
 
-  it("announces the rave toast message through the live region while visible, then clears it once the toast auto-hides", async () => {
+  it("keeps announcing the toast message in the live region after the visual toast auto-hides, only clearing it after the longer announcement-clear delay", async () => {
     const wrapper = shallowMount(GrimicornPage);
     await wrapper.vm.$nextTick();
 
@@ -393,10 +392,23 @@ describe("GrimicornPage", () => {
     await vi.advanceTimersByTimeAsync(TOAST_VISIBLE_DURATION_MS);
     await wrapper.vm.$nextTick();
 
-    // Cleared the instant the toast auto-hides, so a screen-reader user who
-    // navigates to this region afterward never hears a stale announcement.
-    expect(announcement.text()).toBe("");
+    // The visual toast has faded, but the announcement text must survive past
+    // that point: aria-live="polite" queues speech until the screen reader is
+    // idle, so clearing on the same short timer as the visual hide risks
+    // emptying the region before a busy visitor's screen reader ever gets to
+    // read the queued announcement.
     expect(findToast(wrapper)?.classes()).toContain("opacity-0");
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(
+      TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS - TOAST_VISIBLE_DURATION_MS,
+    );
+    await wrapper.vm.$nextTick();
+
+    // Cleared once the full announcement-clear delay has elapsed, so a
+    // screen-reader user who navigates to this region much later never hears
+    // a stale announcement.
+    expect(announcement.text()).toBe("");
 
     wrapper.unmount();
   });
@@ -410,6 +422,26 @@ describe("GrimicornPage", () => {
 
     await raveButton.trigger("click");
     expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_OFF_TOAST_MESSAGE);
+
+    wrapper.unmount();
+  });
+
+  it("announces a fresh toast in the live region even after a prior announcement has fully cleared", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    const raveButton = findRaveButton(wrapper);
+    const announcement = findToastAnnouncement(wrapper);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS);
+    await wrapper.vm.$nextTick();
+    expect(announcement.text()).toBe("");
 
     await raveButton.trigger("click");
     expect(announcement.text()).toBe(RAVE_OFF_TOAST_MESSAGE);
