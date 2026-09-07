@@ -37,6 +37,16 @@ function countOccurrences(haystack: string, needle: string) {
   return haystack.split(needle).length - 1;
 }
 
+// Checks a static `class="..."` attribute for an exact class token. A plain
+// substring match on the tag (e.g. `tag.includes('class="colorful-btn')`)
+// would false-positive on a hyphenated class like `colorful-btn-sm`, or on a
+// Vue binding like `:class="{ 'colorful-btn': isVisible }"` that never
+// renders the class unconditionally.
+function hasStaticClass(tag: string, className: string) {
+  const classAttribute = tag.match(/\sclass="([^"]*)"/);
+  return classAttribute?.[1].split(/\s+/).includes(className) ?? false;
+}
+
 describe("brand background token", () => {
   const css = readStyleCss();
 
@@ -215,7 +225,7 @@ describe("colorful button focus ring", () => {
       /<button\b[^>]*(?:@|v-on:)click="[^"]*\btoggleRave\b[^"]*"[^>]*>/,
     );
     expect(raveToggleTag, "footer rave toggle button not found").not.toBeNull();
-    expect(raveToggleTag![0]).toMatch(/class="[^"]*\bcolorful-btn\b/);
+    expect(hasStaticClass(raveToggleTag![0], "colorful-btn")).toBe(true);
   });
 
   // Mirrors the rave-toggle guard above for the other .colorful-btn consumer:
@@ -227,6 +237,6 @@ describe("colorful button focus ring", () => {
       /<button\b[^>]*(?:@|v-on:)click="[^"]*\btoggleContentPaused\b[^"]*"[^>]*>/,
     );
     expect(pauseToggleTag, "pause toggle button not found").not.toBeNull();
-    expect(pauseToggleTag![0]).toMatch(/class="[^"]*\bcolorful-btn\b/);
+    expect(hasStaticClass(pauseToggleTag![0], "colorful-btn")).toBe(true);
   });
 });
