@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
@@ -14,6 +21,8 @@ import {
   hashAssetBytes,
   readAssetCacheBustToken,
   readAssetVersionLock,
+  syncManifestIconTokens,
+  syncWebManifestIconTokensOnDisk,
 } from "../../asset-version-manifest.mjs";
 
 // Assets under /assets/* and /images/* are served immutable for a year (netlify.toml),
@@ -206,5 +215,91 @@ describe("assertTokenBumpedForChangedAssets", () => {
     expect(() => {
       assertTokenBumpedForChangedAssets(null, previousLock.token, fingerprint);
     }).not.toThrow();
+  });
+});
+
+describe("syncManifestIconTokens", () => {
+  const NEW_TOKEN = "?v=20990101";
+
+  it("rewrites every dated ?v= token in the manifest source to the new token", () => {
+    const manifestSource = JSON.stringify({
+      icons: [
+        { src: "/images/web-app-manifest-192x192.png?v=20260101" },
+        { src: "/images/web-app-manifest-512x512.png?v=20260101" },
+      ],
+    });
+    const synced = syncManifestIconTokens(manifestSource, NEW_TOKEN);
+    expect(synced).not.toContain("?v=20260101");
+    expect(synced.match(/\?v=20990101/g)?.length).toBe(2);
+  });
+
+  it("leaves unrelated manifest content untouched", () => {
+    const manifestSource =
+      '{"name":"Grimicorn Agent","icons":[{"src":"/images/icon.png?v=20260101"}]}';
+    expect(syncManifestIconTokens(manifestSource, NEW_TOKEN)).toBe(
+      '{"name":"Grimicorn Agent","icons":[{"src":"/images/icon.png?v=20990101"}]}',
+    );
+  });
+
+  it("is a no-op (returns an identical string) when every token already matches", () => {
+    const manifestSource = `{"src":"/images/icon.png${NEW_TOKEN}"}`;
+    expect(syncManifestIconTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+});
+
+describe("syncWebManifestIconTokensOnDisk", () => {
+  const NEW_TOKEN = "?v=20990101";
+
+  // Exercises the real file I/O against a throwaway fixture, never the committed
+  // site.webmanifest, so a test run can't leave the working tree dirty.
+  function withTempManifest(contents: string, run: (_path: string) => void) {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "manifest-sync-"));
+    const manifestPath = resolve(tempDir, "site.webmanifest");
+    writeFileSync(manifestPath, contents);
+    try {
+      run(manifestPath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  it("writes the synced manifest back to disk when a token changed", () => {
+    withTempManifest(
+      '{"icons":[{"src":"/images/icon.png?v=20260101"}]}',
+      (manifestPath) => {
+        syncWebManifestIconTokensOnDisk(NEW_TOKEN, manifestPath);
+        expect(readFileSync(manifestPath, "utf8")).toBe(
+          `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
+        );
+      },
+    );
+  });
+
+  it("leaves the file's content unchanged when the token is already synced", () => {
+    const original = `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`;
+    withTempManifest(original, (manifestPath) => {
+      syncWebManifestIconTokensOnDisk(NEW_TOKEN, manifestPath);
+      expect(readFileSync(manifestPath, "utf8")).toBe(original);
+    });
+  });
+
+  it("defaults to the real project manifest path, already in sync with the live token", () => {
+    // No manifestPath override: proves the default resolves to the committed
+    // public/images/site.webmanifest. It is already synced with ASSET_CACHE_BUST, so
+    // this is a genuine no-op — it must not write to the real file during a test run.
+    expect(() => {
+      syncWebManifestIconTokensOnDisk(readAssetCacheBustToken());
+    }).not.toThrow();
+    const manifest = JSON.parse(
+      readFileSync(
+        resolve(PROJECT_ROOT, "public/images/site.webmanifest"),
+        "utf8",
+      ),
+    );
+    for (const icon of manifest.icons) {
+      expect(icon.src.endsWith(ASSET_CACHE_BUST), icon.src).toBe(true);
+    }
   });
 });
