@@ -71,15 +71,12 @@ const MAX_LOG_COUNT = 8;
 
 // How long the rave-mode toast stays visible before showToast() auto-hides it.
 const TOAST_VISIBLE_DURATION_MS = 2600;
-// The sr-only announcement clears well after the visual toast hides, rather
-// than the instant it does: aria-live="polite" queues the utterance until the
-// screen reader is idle, so a visitor mid-interaction when the toast fires can
-// still be waiting past TOAST_VISIBLE_DURATION_MS. Clearing the announcement
-// text on the same short timer risks emptying the region before that queued
-// speech is ever read. The extra buffer only delays when the *next*
-// announcement can start from an empty region — the visual toast's own
-// timing is unaffected.
-const TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS = TOAST_VISIBLE_DURATION_MS + 8000;
+// Extra time the sr-only announcement survives after the visual toast hides,
+// so a screen reader still draining its queued "polite" speech isn't racing
+// the clear against the visual fade's own short timer.
+const TOAST_ANNOUNCEMENT_QUEUE_BUFFER_MS = 8000;
+const TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS =
+  TOAST_VISIBLE_DURATION_MS + TOAST_ANNOUNCEMENT_QUEUE_BUFFER_MS;
 
 // The scale here isn't part of the cursor-linked motion — it's a constant
 // slight overzoom so the translate/rotate wobble never reveals an edge past

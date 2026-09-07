@@ -400,9 +400,17 @@ describe("GrimicornPage", () => {
     expect(findToast(wrapper)?.classes()).toContain("opacity-0");
     expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
 
+    // Straddle the clear-delay boundary (one tick before, then the tick that
+    // crosses it) rather than jumping straight to the full delay, so a
+    // regression that shortens TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS back toward
+    // TOAST_VISIBLE_DURATION_MS fails here instead of passing vacuously.
     await vi.advanceTimersByTimeAsync(
-      TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS - TOAST_VISIBLE_DURATION_MS,
+      TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS - TOAST_VISIBLE_DURATION_MS - 1,
     );
+    await wrapper.vm.$nextTick();
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(1);
     await wrapper.vm.$nextTick();
 
     // Cleared once the full announcement-clear delay has elapsed, so a
@@ -447,6 +455,24 @@ describe("GrimicornPage", () => {
     expect(announcement.text()).toBe(RAVE_OFF_TOAST_MESSAGE);
 
     wrapper.unmount();
+  });
+
+  it("clears both the toast-hide and announcement-clear timers on unmount", async () => {
+    mockPrefersReducedMotion(true);
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    await findRaveButton(wrapper).trigger("click");
+
+    // Reduced motion suppresses the tagline/log intervals, so the only two
+    // pending timers here are showToast()'s own toastTimer and
+    // toastAnnouncementClearTimer — leaving either uncleared on unmount would
+    // write to a ref after teardown once it eventually fires.
+    expect(vi.getTimerCount()).toBe(2);
+
+    wrapper.unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("opens every external link rendered in this template safely in a new tab", async () => {
