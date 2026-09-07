@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -119,11 +119,16 @@ export function regenerateLock({
 // Only run as a side effect when invoked directly (`node scripts/regenerate-asset-
 // version-lock.mjs` / `npm run lock:assets`), not when imported — so the test suite
 // can import regenerateLock() without triggering a real run against the repo.
-function isMainModule() {
-  return (
-    process.argv[1] != null &&
-    import.meta.url === pathToFileURL(process.argv[1]).href
-  );
+// argv1 defaults to process.argv[1] but is overridable for tests. Node resolves
+// symlinks when computing import.meta.url for the entry point, so argv1 must be
+// realpath'd too — otherwise invoking through any symlinked path (a `/tmp` that is
+// itself a symlink, as on macOS; a linked package bin) makes the two URLs disagree,
+// isMainModule() returns false, and the script exits 0 having silently done nothing.
+export function isMainModule(argv1 = process.argv[1]) {
+  if (argv1 == null) {
+    return false;
+  }
+  return import.meta.url === pathToFileURL(realpathSync(argv1)).href;
 }
 
 if (isMainModule()) {

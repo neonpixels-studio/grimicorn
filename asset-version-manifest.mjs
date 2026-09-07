@@ -42,16 +42,19 @@ const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8})"/m;
 // existing invariant in asset-cache-bust.test.ts. Used to reject a corrupted committed
 // token (e.g. "" or "?v=9") that would otherwise silently disable the monotonic guard.
 const TOKEN_VALUE_PATTERN = /^\?v=\d{8}$/;
-// Matches a dated ?v= query immediately following an image-asset extension — an icon
-// src (current usage), or a future manifest image member (a screenshot, a shortcut
-// icon) that carries the same cache-bust convention. Deliberately does NOT match a
-// bare "?v=..." elsewhere in the manifest (e.g. a "start_url" or "scope" version
-// marker unrelated to asset caching), so the sync can never rewrite a URL query that
-// isn't an asset cache-bust. Captures the extension so the replacement can restore it
-// (group 1) ahead of the new token. Matches a run of one or more digits (not a fixed
-// \d{8}) so a malformed committed token (an extra or missing digit) gets normalized
-// to the valid live token instead of partially overwritten and left corrupt.
-const MANIFEST_TOKEN_PATTERN = /(\.(?:png|jpe?g|svg|ico|webp|avif))\?v=\d+/g;
+// Matches a JSON "src" value that ends in an image-asset extension, with an optional
+// existing ?v= query — an icon src (current usage), or a future manifest image
+// member (a screenshot, a shortcut icon) that carries the same cache-bust
+// convention. Scoped to the "src" key specifically (not any string in the file) so
+// the sync can never rewrite an unrelated URL query, e.g. a "start_url" or "scope"
+// version marker. The query is optional (`(?:\?v=\d+)?`) so a newly added icon with
+// no ?v= at all gets one appended, not just an existing one rewritten. Captures
+// through the extension (group 1) so the replacement can restore everything up to
+// that point ahead of the new token and the closing quote. Matches a run of one or
+// more digits (not a fixed \d{8}) so a malformed existing token (an extra or missing
+// digit) gets normalized to the valid live token instead of partially overwritten.
+const MANIFEST_TOKEN_PATTERN =
+  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=\d+)?"/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -93,20 +96,20 @@ export function readAssetCacheBustToken() {
   return match[1];
 }
 
-// Rewrites every dated ?v= query in manifest JSON source to the live token. Pure
-// string logic (no file I/O) so the regen script and its test exercise identical
-// rewrite behaviour regardless of how the result gets persisted. This is the only
-// code path that writes into a committed asset on a caller-supplied token, so it
-// validates the token against the same grammar the lock format enforces elsewhere
-// (TOKEN_VALUE_PATTERN) rather than trusting the caller — an empty or malformed
-// token would otherwise strip or corrupt every ?v= in the file.
+// Rewrites (or adds) the ?v= query on every image "src" in manifest JSON source to
+// the live token. Pure string logic (no file I/O) so the regen script and its test
+// exercise identical rewrite behaviour regardless of how the result gets persisted.
+// This is the only code path that writes into a committed asset on a caller-supplied
+// token, so it validates the token against the same grammar the lock format enforces
+// elsewhere (TOKEN_VALUE_PATTERN) rather than trusting the caller — an empty or
+// malformed token would otherwise strip or corrupt every icon src in the file.
 export function syncManifestCacheBustTokens(manifestSource, token) {
   if (!TOKEN_VALUE_PATTERN.test(token)) {
     throw new Error(
       `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
     );
   }
-  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}`);
+  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
 }
 
 // Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when

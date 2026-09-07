@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,10 @@ import {
   syncManifestCacheBustTokens,
   syncWebManifestCacheBustTokensOnDisk,
 } from "../../asset-version-manifest.mjs";
-import { regenerateLock } from "../../scripts/regenerate-asset-version-lock.mjs";
+import {
+  isMainModule,
+  regenerateLock,
+} from "../../scripts/regenerate-asset-version-lock.mjs";
 
 // Assets under /assets/* and /images/* are served immutable for a year (netlify.toml),
 // so the only thing that forces returning visitors to refetch a changed byte is the
@@ -271,14 +275,22 @@ describe("syncManifestCacheBustTokens", () => {
     }
   });
 
-  it("does not rewrite a ?v= query that isn't attached to an image-asset extension", () => {
+  it("does not rewrite a ?v= query on a non-src field", () => {
     // A webmanifest's start_url/scope can legitimately carry their own unrelated
-    // query string; only an icon-style src (ending in an image extension) is an
-    // asset cache-bust this function owns.
+    // query string; only a "src" value is an asset cache-bust this function owns.
     const manifestSource =
       '{"start_url":"/?v=1","icons":[{"src":"/images/icon.png?v=20260101"}]}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       `{"start_url":"/?v=1","icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
+    );
+  });
+
+  it("appends the live token to a src that has none yet", () => {
+    // A newly added icon (e.g. pasted from a favicon generator's output) may not
+    // carry a ?v= at all — the sync must add one, not require one to already exist.
+    const manifestSource = '{"icons":[{"src":"/images/icon-96x96.png"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      `{"icons":[{"src":"/images/icon-96x96.png${NEW_TOKEN}"}]}`,
     );
   });
 
@@ -441,5 +453,34 @@ describe("regenerateLock", () => {
       expect(readFileSync(manifestPath, "utf8")).toBe(STALE_MANIFEST);
       expect(existsSync(lockPath)).toBe(false);
     });
+  });
+});
+
+describe("isMainModule", () => {
+  it("returns false when there is no argv[1]", () => {
+    expect(isMainModule(undefined)).toBe(false);
+  });
+
+  it("returns false for an unrelated script path", () => {
+    expect(isMainModule(resolve(PROJECT_ROOT, "package.json"))).toBe(false);
+  });
+
+  it("resolves a symlinked argv[1] to the same real script (the /tmp-is-a-symlink case on macOS)", () => {
+    // Node resolves symlinks when it computes import.meta.url for the entry point,
+    // so isMainModule() must realpath argv[1] too, or invoking the script through
+    // any symlinked path — a symlinked /tmp, a linked package bin — would make the
+    // two URLs disagree and the script would silently do nothing.
+    const tempDir = mkdtempSync(resolve(tmpdir(), "is-main-module-"));
+    const symlinkPath = resolve(tempDir, "regenerate-asset-version-lock.mjs");
+    const realScriptPath = resolve(
+      PROJECT_ROOT,
+      "scripts/regenerate-asset-version-lock.mjs",
+    );
+    try {
+      symlinkSync(realScriptPath, symlinkPath);
+      expect(isMainModule(symlinkPath)).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
