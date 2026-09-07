@@ -33,7 +33,7 @@ export const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
 // The manifest is the one versioned asset whose ?v= tokens live inside the file's own
 // bytes rather than being appended by withAssetCacheBust() at render time (it is
 // static JSON, not code), so nothing rewrites its icon srcs when the shared token
-// bumps unless something does it explicitly. See syncManifestIconTokens() below.
+// bumps unless something does it explicitly. See syncManifestCacheBustTokens() below.
 export const SITE_WEBMANIFEST_FILE = "public/images/site.webmanifest";
 
 const HASH_ALGORITHM = "sha256";
@@ -42,9 +42,13 @@ const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8})"/m;
 // existing invariant in asset-cache-bust.test.ts. Used to reject a corrupted committed
 // token (e.g. "" or "?v=9") that would otherwise silently disable the monotonic guard.
 const TOKEN_VALUE_PATTERN = /^\?v=\d{8}$/;
-// Matches every dated ?v= query embedded in the manifest source (one per icon), so a
-// sync doesn't need to know how many icons exist or parse the JSON to find them.
-const MANIFEST_ICON_TOKEN_PATTERN = /\?v=\d{8}/g;
+// Matches every dated ?v= query anywhere in the manifest source — not just icon srcs,
+// since a future manifest member (a screenshot, a shortcut icon) could carry one too
+// — so a sync doesn't need to parse the JSON to find every occurrence. Matches a run
+// of one or more digits (not a fixed \d{8}) so a malformed committed token (an extra
+// or missing digit) gets normalized to the valid live token instead of partially
+// overwritten and left corrupt.
+const MANIFEST_TOKEN_PATTERN = /\?v=\d+/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -88,23 +92,32 @@ export function readAssetCacheBustToken() {
 
 // Rewrites every dated ?v= query in manifest JSON source to the live token. Pure
 // string logic (no file I/O) so the regen script and its test exercise identical
-// rewrite behaviour regardless of how the result gets persisted.
-export function syncManifestIconTokens(manifestSource, token) {
-  return manifestSource.replace(MANIFEST_ICON_TOKEN_PATTERN, token);
+// rewrite behaviour regardless of how the result gets persisted. This is the only
+// code path that writes into a committed asset on a caller-supplied token, so it
+// validates the token against the same grammar the lock format enforces elsewhere
+// (TOKEN_VALUE_PATTERN) rather than trusting the caller — an empty or malformed
+// token would otherwise strip or corrupt every ?v= in the file.
+export function syncManifestCacheBustTokens(manifestSource, token) {
+  if (!TOKEN_VALUE_PATTERN.test(token)) {
+    throw new Error(
+      `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
+    );
+  }
+  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, token);
 }
 
-// Applies syncManifestIconTokens() to the manifest on disk, writing back only when
+// Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when
 // the token actually moved. Called before fingerprintAssets() so a token bump alone
 // (without hand-editing the JSON) keeps the manifest's icon srcs — and the hash the
 // lockfile records for them — in sync with every other versioned asset reference.
 // manifestPath defaults to the real project file; tests pass a fixture path instead
 // so exercising the write doesn't touch the committed manifest.
-export function syncWebManifestIconTokensOnDisk(
+export function syncWebManifestCacheBustTokensOnDisk(
   token,
   manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE),
 ) {
   const original = readFileSync(manifestPath, "utf8");
-  const synced = syncManifestIconTokens(original, token);
+  const synced = syncManifestCacheBustTokens(original, token);
   if (synced === original) {
     return;
   }

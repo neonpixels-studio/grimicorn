@@ -1,15 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   ASSET_VERSION_LOCK_FILE,
   PROJECT_ROOT,
+  SITE_WEBMANIFEST_FILE,
   assertTokenBumpedForChangedAssets,
   fingerprintAssets,
   parseAssetVersionLock,
   readAssetCacheBustToken,
   readAssetVersionLock,
-  syncWebManifestIconTokensOnDisk,
+  syncWebManifestCacheBustTokensOnDisk,
 } from "../asset-version-manifest.mjs";
 
 // Rewrites .vitepress/asset-version-lock.json from the current asset bytes and the
@@ -64,20 +65,30 @@ function baselineLock() {
 
 function regenerateLock() {
   const token = readAssetCacheBustToken();
-  // Sync the manifest's icon ?v= tokens to the live token before fingerprinting, so
-  // the hash recorded for site.webmanifest reflects synced bytes, not a JSON file a
-  // contributor forgot to hand-edit after bumping ASSET_CACHE_BUST.
-  syncWebManifestIconTokensOnDisk(token);
-  const fingerprint = fingerprintAssets();
-  assertTokenBumpedForChangedAssets(baselineLock(), token, fingerprint);
-  const lock = {
-    description: LOCK_DESCRIPTION,
-    token,
-    assets: fingerprint,
-  };
-  const lockPath = resolve(PROJECT_ROOT, ASSET_VERSION_LOCK_FILE);
-  writeFileSync(lockPath, `${JSON.stringify(lock, null, JSON_INDENT)}\n`);
-  console.log(`Wrote ${ASSET_VERSION_LOCK_FILE} for token ${token}.`);
+  const manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE);
+  const manifestBeforeSync = readFileSync(manifestPath, "utf8");
+  // Sync the manifest's ?v= tokens to the live token before fingerprinting, so the
+  // hash recorded for site.webmanifest reflects synced bytes, not a JSON file a
+  // contributor forgot to hand-edit after bumping ASSET_CACHE_BUST. The sync writes
+  // to disk immediately, but assertTokenBumpedForChangedAssets below can still
+  // reject the run (e.g. a reverted token bump) — restore the pre-sync manifest on
+  // any failure so a rejected regen never leaves the tracked file half-updated.
+  syncWebManifestCacheBustTokensOnDisk(token, manifestPath);
+  try {
+    const fingerprint = fingerprintAssets();
+    assertTokenBumpedForChangedAssets(baselineLock(), token, fingerprint);
+    const lock = {
+      description: LOCK_DESCRIPTION,
+      token,
+      assets: fingerprint,
+    };
+    const lockPath = resolve(PROJECT_ROOT, ASSET_VERSION_LOCK_FILE);
+    writeFileSync(lockPath, `${JSON.stringify(lock, null, JSON_INDENT)}\n`);
+    console.log(`Wrote ${ASSET_VERSION_LOCK_FILE} for token ${token}.`);
+  } catch (error) {
+    writeFileSync(manifestPath, manifestBeforeSync);
+    throw error;
+  }
 }
 
 try {

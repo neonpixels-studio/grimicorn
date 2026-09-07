@@ -21,8 +21,8 @@ import {
   hashAssetBytes,
   readAssetCacheBustToken,
   readAssetVersionLock,
-  syncManifestIconTokens,
-  syncWebManifestIconTokensOnDisk,
+  syncManifestCacheBustTokens,
+  syncWebManifestCacheBustTokensOnDisk,
 } from "../../asset-version-manifest.mjs";
 
 // Assets under /assets/* and /images/* are served immutable for a year (netlify.toml),
@@ -218,7 +218,7 @@ describe("assertTokenBumpedForChangedAssets", () => {
   });
 });
 
-describe("syncManifestIconTokens", () => {
+describe("syncManifestCacheBustTokens", () => {
   const NEW_TOKEN = "?v=20990101";
 
   it("rewrites every dated ?v= token in the manifest source to the new token", () => {
@@ -228,7 +228,7 @@ describe("syncManifestIconTokens", () => {
         { src: "/images/web-app-manifest-512x512.png?v=20260101" },
       ],
     });
-    const synced = syncManifestIconTokens(manifestSource, NEW_TOKEN);
+    const synced = syncManifestCacheBustTokens(manifestSource, NEW_TOKEN);
     expect(synced).not.toContain("?v=20260101");
     expect(synced.match(/\?v=20990101/g)?.length).toBe(2);
   });
@@ -236,20 +236,40 @@ describe("syncManifestIconTokens", () => {
   it("leaves unrelated manifest content untouched", () => {
     const manifestSource =
       '{"name":"Grimicorn Agent","icons":[{"src":"/images/icon.png?v=20260101"}]}';
-    expect(syncManifestIconTokens(manifestSource, NEW_TOKEN)).toBe(
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       '{"name":"Grimicorn Agent","icons":[{"src":"/images/icon.png?v=20990101"}]}',
     );
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {
     const manifestSource = `{"src":"/images/icon.png${NEW_TOKEN}"}`;
-    expect(syncManifestIconTokens(manifestSource, NEW_TOKEN)).toBe(
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       manifestSource,
     );
   });
+
+  it("normalizes a malformed (wrong-length) committed token instead of partially overwriting it", () => {
+    // A hand-edit typo (an extra digit) must not survive as a stray trailing digit —
+    // the whole run of digits is replaced, not just the first 8.
+    const manifestSource = '{"src":"/images/icon.png?v=202601011"}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      `{"src":"/images/icon.png${NEW_TOKEN}"}`,
+    );
+  });
+
+  it("refuses to sync with a malformed target token", () => {
+    for (const malformedToken of ["", "v=1", "?v=1", "?v=209901011"]) {
+      expect(() => {
+        syncManifestCacheBustTokens(
+          '{"src":"/images/icon.png?v=20260101"}',
+          malformedToken,
+        );
+      }).toThrow(/malformed token/);
+    }
+  });
 });
 
-describe("syncWebManifestIconTokensOnDisk", () => {
+describe("syncWebManifestCacheBustTokensOnDisk", () => {
   const NEW_TOKEN = "?v=20990101";
 
   // Exercises the real file I/O against a throwaway fixture, never the committed
@@ -269,7 +289,7 @@ describe("syncWebManifestIconTokensOnDisk", () => {
     withTempManifest(
       '{"icons":[{"src":"/images/icon.png?v=20260101"}]}',
       (manifestPath) => {
-        syncWebManifestIconTokensOnDisk(NEW_TOKEN, manifestPath);
+        syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath);
         expect(readFileSync(manifestPath, "utf8")).toBe(
           `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
         );
@@ -280,26 +300,47 @@ describe("syncWebManifestIconTokensOnDisk", () => {
   it("leaves the file's content unchanged when the token is already synced", () => {
     const original = `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`;
     withTempManifest(original, (manifestPath) => {
-      syncWebManifestIconTokensOnDisk(NEW_TOKEN, manifestPath);
+      syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath);
       expect(readFileSync(manifestPath, "utf8")).toBe(original);
     });
   });
 
-  it("defaults to the real project manifest path, already in sync with the live token", () => {
-    // No manifestPath override: proves the default resolves to the committed
-    // public/images/site.webmanifest. It is already synced with ASSET_CACHE_BUST, so
-    // this is a genuine no-op — it must not write to the real file during a test run.
-    expect(() => {
-      syncWebManifestIconTokensOnDisk(readAssetCacheBustToken());
-    }).not.toThrow();
-    const manifest = JSON.parse(
-      readFileSync(
-        resolve(PROJECT_ROOT, "public/images/site.webmanifest"),
-        "utf8",
-      ),
+  it("defaults to the real project manifest path", () => {
+    // Proves the default parameter resolves to the committed
+    // public/images/site.webmanifest — without exercising the write, so a test run
+    // can never mutate the tracked file (unlike the fixture-based tests above, which
+    // use an explicit throwaway path).
+    const manifestPath = resolve(
+      PROJECT_ROOT,
+      "public/images/site.webmanifest",
     );
-    for (const icon of manifest.icons) {
-      expect(icon.src.endsWith(ASSET_CACHE_BUST), icon.src).toBe(true);
-    }
+    const original = readFileSync(manifestPath, "utf8");
+    expect(
+      syncManifestCacheBustTokens(original, readAssetCacheBustToken()),
+    ).toBe(original);
+  });
+});
+
+describe("regenerateLock's sync-before-fingerprint ordering", () => {
+  const STALE_TOKEN = "?v=20260101";
+  const LIVE_TOKEN = "?v=20990101";
+
+  // regenerateLock() must sync the manifest's tokens to the live value before
+  // hashing it, or the lockfile records a stale hash that never notices the icon
+  // srcs drifted from ASSET_CACHE_BUST. Proven directly against the two primitives
+  // regenerateLock() composes (sync, then hash) rather than against the real
+  // project manifest, so the test can't mutate a tracked file.
+  it("hashes the synced manifest, not the pre-sync bytes", () => {
+    const staleManifest = `{"icons":[{"src":"/images/icon.png${STALE_TOKEN}"}]}`;
+    const hashBeforeSync = hashAssetBytes(Buffer.from(staleManifest));
+
+    const syncedManifest = syncManifestCacheBustTokens(
+      staleManifest,
+      LIVE_TOKEN,
+    );
+    const hashAfterSync = hashAssetBytes(Buffer.from(syncedManifest));
+
+    expect(syncedManifest).not.toBe(staleManifest);
+    expect(hashAfterSync).not.toBe(hashBeforeSync);
   });
 });
