@@ -183,4 +183,16 @@ describe("colorful button focus ring", () => {
     expect(declarations).toContain("outline:2pxsolidvar(--color-fg-muted)");
     expect(declarations).toContain("outline-offset:2px");
   });
+
+  // The CSS rule alone doesn't guard against the actual reported bug: the
+  // footer rave toggle regains no focus ring if it stops carrying
+  // `colorful-btn` (e.g. renamed to a class the shared rule no longer
+  // matches). Pinning the markup here means a rename shows up as a failing
+  // test instead of a silent WCAG 2.4.7 regression.
+  it("keeps the footer rave toggle on the shared .colorful-btn class", () => {
+    const strippedGrimicornPage = stripWhitespace(
+      readFileSync(GRIMICORN_PAGE_PATH, "utf8"),
+    );
+    expect(strippedGrimicornPage).toContain('<buttonclass="colorful-btn"');
+  });
 });
