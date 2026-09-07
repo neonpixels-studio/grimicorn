@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   ASSET_VERSION_LOCK_FILE,
   PROJECT_ROOT,
@@ -63,39 +64,75 @@ function baselineLock() {
   return readCommittedLockOrNull() ?? readWorkingTreeLockOrNull();
 }
 
-function regenerateLock() {
-  const token = readAssetCacheBustToken();
-  const manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE);
-  const manifestBeforeSync = readFileSync(manifestPath, "utf8");
+// Runs `action`, restoring `manifestPath` to `previousManifestContents` if it throws.
+// The manifest sync in regenerateLock() below writes to disk immediately, but
+// validation can still reject the run (e.g. a reverted token bump) — without this,
+// a rejected regen would leave the tracked manifest half-updated. A failure to
+// restore is logged, not swallowed, so the *original* error is still what surfaces.
+function withManifestRollback(manifestPath, previousManifestContents, action) {
+  try {
+    return action();
+  } catch (error) {
+    try {
+      writeFileSync(manifestPath, previousManifestContents);
+    } catch (restoreError) {
+      console.error(
+        `Failed to restore ${SITE_WEBMANIFEST_FILE} after a failed regen: ${restoreError.message}`,
+      );
+    }
+    throw error;
+  }
+}
+
+// token, manifestPath, lockPath, loadBaselineLock, and computeFingerprint default to
+// the live ASSET_CACHE_BUST token, the real project files, and the real fingerprint
+// sweep; tests override them to prove the sync-then-fingerprint ordering and the
+// rollback path against throwaway fixtures instead of the committed manifest and
+// lockfile.
+export function regenerateLock({
+  token = readAssetCacheBustToken(),
+  manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE),
+  lockPath = resolve(PROJECT_ROOT, ASSET_VERSION_LOCK_FILE),
+  loadBaselineLock = baselineLock,
+  computeFingerprint = fingerprintAssets,
+} = {}) {
   // Sync the manifest's ?v= tokens to the live token before fingerprinting, so the
   // hash recorded for site.webmanifest reflects synced bytes, not a JSON file a
-  // contributor forgot to hand-edit after bumping ASSET_CACHE_BUST. The sync writes
-  // to disk immediately, but assertTokenBumpedForChangedAssets below can still
-  // reject the run (e.g. a reverted token bump) — restore the pre-sync manifest on
-  // any failure so a rejected regen never leaves the tracked file half-updated.
-  syncWebManifestCacheBustTokensOnDisk(token, manifestPath);
-  try {
-    const fingerprint = fingerprintAssets();
-    assertTokenBumpedForChangedAssets(baselineLock(), token, fingerprint);
+  // contributor forgot to hand-edit after bumping ASSET_CACHE_BUST.
+  const manifestBeforeSync = syncWebManifestCacheBustTokensOnDisk(
+    token,
+    manifestPath,
+  );
+  withManifestRollback(manifestPath, manifestBeforeSync, () => {
+    const fingerprint = computeFingerprint();
+    assertTokenBumpedForChangedAssets(loadBaselineLock(), token, fingerprint);
     const lock = {
       description: LOCK_DESCRIPTION,
       token,
       assets: fingerprint,
     };
-    const lockPath = resolve(PROJECT_ROOT, ASSET_VERSION_LOCK_FILE);
     writeFileSync(lockPath, `${JSON.stringify(lock, null, JSON_INDENT)}\n`);
     console.log(`Wrote ${ASSET_VERSION_LOCK_FILE} for token ${token}.`);
-  } catch (error) {
-    writeFileSync(manifestPath, manifestBeforeSync);
-    throw error;
-  }
+  });
 }
 
-try {
-  regenerateLock();
-} catch (error) {
-  console.error(
-    error instanceof Error ? (error.stack ?? error.message) : error,
+// Only run as a side effect when invoked directly (`node scripts/regenerate-asset-
+// version-lock.mjs` / `npm run lock:assets`), not when imported — so the test suite
+// can import regenerateLock() without triggering a real run against the repo.
+function isMainModule() {
+  return (
+    process.argv[1] != null &&
+    import.meta.url === pathToFileURL(process.argv[1]).href
   );
-  process.exit(1);
+}
+
+if (isMainModule()) {
+  try {
+    regenerateLock();
+  } catch (error) {
+    console.error(
+      error instanceof Error ? (error.stack ?? error.message) : error,
+    );
+    process.exit(1);
+  }
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -14,6 +15,7 @@ import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
 import { OG_IMAGE_FILENAME } from "../../og-banner-spec.mjs";
 import {
   PROJECT_ROOT,
+  SITE_WEBMANIFEST_FILE,
   VERSIONED_ASSET_FILES,
   assertTokenBumpedForChangedAssets,
   changedAssetPaths,
@@ -24,6 +26,7 @@ import {
   syncManifestCacheBustTokens,
   syncWebManifestCacheBustTokensOnDisk,
 } from "../../asset-version-manifest.mjs";
+import { regenerateLock } from "../../scripts/regenerate-asset-version-lock.mjs";
 
 // Assets under /assets/* and /images/* are served immutable for a year (netlify.toml),
 // so the only thing that forces returning visitors to refetch a changed byte is the
@@ -267,6 +270,27 @@ describe("syncManifestCacheBustTokens", () => {
       }).toThrow(/malformed token/);
     }
   });
+
+  it("does not rewrite a ?v= query that isn't attached to an image-asset extension", () => {
+    // A webmanifest's start_url/scope can legitimately carry their own unrelated
+    // query string; only an icon-style src (ending in an image extension) is an
+    // asset cache-bust this function owns.
+    const manifestSource =
+      '{"start_url":"/?v=1","icons":[{"src":"/images/icon.png?v=20260101"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      `{"start_url":"/?v=1","icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
+    );
+  });
+
+  it("the committed manifest's tokens already match the live ASSET_CACHE_BUST", () => {
+    // Proves the committed public/images/site.webmanifest is in sync without
+    // exercising any write, so a test run can never mutate the tracked file.
+    const manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE);
+    const original = readFileSync(manifestPath, "utf8");
+    expect(
+      syncManifestCacheBustTokens(original, readAssetCacheBustToken()),
+    ).toBe(original);
+  });
 });
 
 describe("syncWebManifestCacheBustTokensOnDisk", () => {
@@ -305,42 +329,117 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
     });
   });
 
-  it("defaults to the real project manifest path", () => {
-    // Proves the default parameter resolves to the committed
-    // public/images/site.webmanifest — without exercising the write, so a test run
-    // can never mutate the tracked file (unlike the fixture-based tests above, which
-    // use an explicit throwaway path).
-    const manifestPath = resolve(
-      PROJECT_ROOT,
-      "public/images/site.webmanifest",
-    );
-    const original = readFileSync(manifestPath, "utf8");
-    expect(
-      syncManifestCacheBustTokens(original, readAssetCacheBustToken()),
-    ).toBe(original);
+  it("returns the pre-sync bytes whether or not a write happened", () => {
+    const staleManifest = '{"icons":[{"src":"/images/icon.png?v=20260101"}]}';
+    withTempManifest(staleManifest, (manifestPath) => {
+      expect(
+        syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath),
+      ).toBe(staleManifest);
+    });
+    const alreadySynced = `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`;
+    withTempManifest(alreadySynced, (manifestPath) => {
+      expect(
+        syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath),
+      ).toBe(alreadySynced);
+    });
+  });
+
+  it("throws a descriptive error when the manifest file is missing", () => {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "manifest-sync-"));
+    try {
+      const missingPath = resolve(tempDir, "does-not-exist.webmanifest");
+      expect(() => {
+        syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, missingPath);
+      }).toThrow(/Web app manifest is missing/);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
-describe("regenerateLock's sync-before-fingerprint ordering", () => {
+describe("regenerateLock", () => {
   const STALE_TOKEN = "?v=20260101";
   const LIVE_TOKEN = "?v=20990101";
+  const STALE_MANIFEST = `{"icons":[{"src":"/images/icon.png${STALE_TOKEN}"}]}`;
 
-  // regenerateLock() must sync the manifest's tokens to the live value before
-  // hashing it, or the lockfile records a stale hash that never notices the icon
-  // srcs drifted from ASSET_CACHE_BUST. Proven directly against the two primitives
-  // regenerateLock() composes (sync, then hash) rather than against the real
-  // project manifest, so the test can't mutate a tracked file.
+  // Exercises the real function against throwaway manifest/lock fixtures, with an
+  // explicit `token: LIVE_TOKEN` override so the test never depends on (or mutates)
+  // the real asset-cache-bust.ts, manifest, or lockfile.
+  function withRegenerateLockFixture(
+    manifestSource: string,
+    run: (_paths: { manifestPath: string; lockPath: string }) => void,
+  ) {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "regenerate-lock-"));
+    const manifestPath = resolve(tempDir, "site.webmanifest");
+    const lockPath = resolve(tempDir, "asset-version-lock.json");
+    writeFileSync(manifestPath, manifestSource);
+    try {
+      run({ manifestPath, lockPath });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  // The whole point of this feature: regenerateLock() must sync the manifest's
+  // tokens to the live value *before* hashing it, or the lockfile records a stale
+  // hash that never notices the icon srcs drifted from ASSET_CACHE_BUST. Proven by
+  // capturing the manifest's on-disk bytes at the moment computeFingerprint runs —
+  // reordering the sync after the fingerprint in the implementation would make this
+  // assertion see the stale bytes and fail.
   it("hashes the synced manifest, not the pre-sync bytes", () => {
-    const staleManifest = `{"icons":[{"src":"/images/icon.png${STALE_TOKEN}"}]}`;
-    const hashBeforeSync = hashAssetBytes(Buffer.from(staleManifest));
+    withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
+      let manifestBytesAtFingerprintTime = "";
+      regenerateLock({
+        token: LIVE_TOKEN,
+        manifestPath,
+        lockPath,
+        loadBaselineLock: () => null,
+        computeFingerprint: () => {
+          manifestBytesAtFingerprintTime = readFileSync(manifestPath, "utf8");
+          return { [SITE_WEBMANIFEST_FILE]: "fake-hash" };
+        },
+      });
+      expect(manifestBytesAtFingerprintTime).toContain(LIVE_TOKEN);
+      expect(manifestBytesAtFingerprintTime).not.toContain(STALE_TOKEN);
+    });
+  });
 
-    const syncedManifest = syncManifestCacheBustTokens(
-      staleManifest,
-      LIVE_TOKEN,
-    );
-    const hashAfterSync = hashAssetBytes(Buffer.from(syncedManifest));
+  it("writes the lock with the live token and the computed fingerprint", () => {
+    withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
+      regenerateLock({
+        token: LIVE_TOKEN,
+        manifestPath,
+        lockPath,
+        loadBaselineLock: () => null,
+        computeFingerprint: () => ({ [SITE_WEBMANIFEST_FILE]: "fake-hash" }),
+      });
+      const lock = JSON.parse(readFileSync(lockPath, "utf8"));
+      expect(lock.token).toBe(LIVE_TOKEN);
+      expect(lock.assets).toEqual({ [SITE_WEBMANIFEST_FILE]: "fake-hash" });
+    });
+  });
 
-    expect(syncedManifest).not.toBe(staleManifest);
-    expect(hashAfterSync).not.toBe(hashBeforeSync);
+  // Proves the rollback path: when validation rejects the run, the manifest must be
+  // restored to its exact pre-sync bytes rather than left holding the live token
+  // with no corresponding lock update.
+  it("restores the manifest to its pre-sync bytes when the fingerprint guard rejects the run", () => {
+    withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
+      expect(() => {
+        regenerateLock({
+          token: LIVE_TOKEN,
+          manifestPath,
+          lockPath,
+          loadBaselineLock: () => ({
+            token: LIVE_TOKEN,
+            assets: { [SITE_WEBMANIFEST_FILE]: "a-different-hash" },
+          }),
+          computeFingerprint: () => ({
+            [SITE_WEBMANIFEST_FILE]: "fake-hash",
+          }),
+        });
+      }).toThrow(/not newer/);
+      expect(readFileSync(manifestPath, "utf8")).toBe(STALE_MANIFEST);
+      expect(existsSync(lockPath)).toBe(false);
+    });
   });
 });

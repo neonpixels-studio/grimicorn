@@ -42,13 +42,16 @@ const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8})"/m;
 // existing invariant in asset-cache-bust.test.ts. Used to reject a corrupted committed
 // token (e.g. "" or "?v=9") that would otherwise silently disable the monotonic guard.
 const TOKEN_VALUE_PATTERN = /^\?v=\d{8}$/;
-// Matches every dated ?v= query anywhere in the manifest source — not just icon srcs,
-// since a future manifest member (a screenshot, a shortcut icon) could carry one too
-// — so a sync doesn't need to parse the JSON to find every occurrence. Matches a run
-// of one or more digits (not a fixed \d{8}) so a malformed committed token (an extra
-// or missing digit) gets normalized to the valid live token instead of partially
-// overwritten and left corrupt.
-const MANIFEST_TOKEN_PATTERN = /\?v=\d+/g;
+// Matches a dated ?v= query immediately following an image-asset extension — an icon
+// src (current usage), or a future manifest image member (a screenshot, a shortcut
+// icon) that carries the same cache-bust convention. Deliberately does NOT match a
+// bare "?v=..." elsewhere in the manifest (e.g. a "start_url" or "scope" version
+// marker unrelated to asset caching), so the sync can never rewrite a URL query that
+// isn't an asset cache-bust. Captures the extension so the replacement can restore it
+// (group 1) ahead of the new token. Matches a run of one or more digits (not a fixed
+// \d{8}) so a malformed committed token (an extra or missing digit) gets normalized
+// to the valid live token instead of partially overwritten and left corrupt.
+const MANIFEST_TOKEN_PATTERN = /(\.(?:png|jpe?g|svg|ico|webp|avif))\?v=\d+/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -103,7 +106,7 @@ export function syncManifestCacheBustTokens(manifestSource, token) {
       `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
     );
   }
-  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, token);
+  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}`);
 }
 
 // Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when
@@ -111,17 +114,23 @@ export function syncManifestCacheBustTokens(manifestSource, token) {
 // (without hand-editing the JSON) keeps the manifest's icon srcs — and the hash the
 // lockfile records for them — in sync with every other versioned asset reference.
 // manifestPath defaults to the real project file; tests pass a fixture path instead
-// so exercising the write doesn't touch the committed manifest.
+// so exercising the write doesn't touch the committed manifest. Returns the pre-sync
+// bytes (whether or not a write happened) so a caller that wants to roll back a
+// failed regen can use this return value as its snapshot instead of reading the file
+// a second time.
 export function syncWebManifestCacheBustTokensOnDisk(
   token,
   manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE),
 ) {
+  if (!existsSync(manifestPath)) {
+    throw new Error(`Web app manifest is missing: ${manifestPath}.`);
+  }
   const original = readFileSync(manifestPath, "utf8");
   const synced = syncManifestCacheBustTokens(original, token);
-  if (synced === original) {
-    return;
+  if (synced !== original) {
+    writeFileSync(manifestPath, synced);
   }
-  writeFileSync(manifestPath, synced);
+  return original;
 }
 
 // Parse and shape-check raw lock JSON. Shared so both the working-tree read and the
