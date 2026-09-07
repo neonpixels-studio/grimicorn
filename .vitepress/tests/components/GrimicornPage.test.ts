@@ -401,6 +401,22 @@ describe("GrimicornPage", () => {
     wrapper.unmount();
   });
 
+  it("announces the rave-off message through the live region when toggled off before the prior toast auto-hides", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    const raveButton = findRaveButton(wrapper);
+    const announcement = findToastAnnouncement(wrapper);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_OFF_TOAST_MESSAGE);
+
+    wrapper.unmount();
+  });
+
   it("opens every external link rendered in this template safely in a new tab", async () => {
     const wrapper = shallowMount(GrimicornPage);
     await wrapper.vm.$nextTick();

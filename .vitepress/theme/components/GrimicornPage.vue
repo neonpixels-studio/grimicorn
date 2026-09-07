@@ -897,12 +897,8 @@ onUnmounted(() => {
       </footer>
     </div>
 
-    <!-- Rave toast: purely visual (fades via opacity/transform, never leaves
-       the DOM), so it's aria-hidden and paired with a visually-hidden live
-       region below that carries the same message to assistive tech — mirrors
-       the pause-focus-announcement pattern above (role="status"
-       aria-live="polite"). pointer-events-none stays — the toast is still
-       purely informational, never interactive. -->
+    <!-- Rave toast: visual only, announced via .toast-announcement below
+       (see the toastAnnouncement computed for why). -->
     <div
       class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white"
       :class="
@@ -921,9 +917,7 @@ onUnmounted(() => {
       {{ toastText }}
     </div>
 
-    <!-- Visually-hidden live region: announces the rave-mode toast message,
-       emptying as soon as the visual toast hides so a screen-reader user
-       navigating by rotor afterward never lands on a stale announcement. -->
+    <!-- sr-only mirror of the rave toast — see toastAnnouncement. -->
     <p class="toast-announcement sr-only" role="status" aria-live="polite">
       {{ toastAnnouncement }}
     </p>
