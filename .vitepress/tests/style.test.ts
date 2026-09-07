@@ -164,3 +164,23 @@ describe("skip link focus reveal", () => {
     expect(stripWhitespace(rule![1])).toContain("outline:none");
   });
 });
+
+// .colorful-btn resets the UA button outline (border:none, padding:0), so
+// without an explicit rule every colorful button — including the footer's
+// bare rave toggle, which carries no other class — shows no keyboard focus
+// indicator (WCAG 2.4.7). Guards the shared rule so it can't regress back to
+// only covering .pause-toggle.
+describe("colorful button focus ring", () => {
+  const css = readStyleCss();
+
+  it("restores a visible focus-visible outline shared by every .colorful-btn", () => {
+    const rule = css.match(
+      /(?:^|\})\s*\.colorful-btn:focus-visible\s*\{([^}]*)\}/m,
+    );
+    expect(rule, ".colorful-btn:focus-visible rule not found").not.toBeNull();
+
+    const declarations = stripWhitespace(rule![1]);
+    expect(declarations).toContain("outline:2pxsolidvar(--color-fg-muted)");
+    expect(declarations).toContain("outline-offset:2px");
+  });
+});
