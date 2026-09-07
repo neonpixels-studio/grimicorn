@@ -184,15 +184,36 @@ describe("colorful button focus ring", () => {
     expect(declarations).toContain("outline-offset:2px");
   });
 
+  // Same enclosure hazard the `.skip-link:focus` test above guards against:
+  // the `m`-flag regex treats any indented line start as a match anchor, so
+  // wrapping the rule in `@media` or `@layer` would still satisfy the
+  // rule-exists check above while the focus ring silently stops applying.
+  it("keeps the .colorful-btn:focus-visible rule outside any nested at-rule", () => {
+    const anchor = css.match(/(?:^|\})\s*\.colorful-btn:focus-visible\s*\{/m);
+    expect(anchor, ".colorful-btn:focus-visible rule not found").not.toBeNull();
+    const ruleStart = anchor!.index! + anchor![0].indexOf(".colorful-btn");
+    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
+    const openBraceDepth =
+      countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
+    expect(
+      openBraceDepth,
+      ".colorful-btn:focus-visible sits inside a nested at-rule",
+    ).toBe(0);
+  });
+
   // The CSS rule alone doesn't guard against the actual reported bug: the
   // footer rave toggle regains no focus ring if it stops carrying
   // `colorful-btn` (e.g. renamed to a class the shared rule no longer
-  // matches). Pinning the markup here means a rename shows up as a failing
-  // test instead of a silent WCAG 2.4.7 regression.
+  // matches). Anchor on the toggle's unique `@click="toggleRave"` handler
+  // (GrimicornPage.vue) rather than a bare class match, so this can't be
+  // fooled by some other button in the file that happens to open with
+  // `class="colorful-btn"`, and can't false-fail on an unrelated class or
+  // attribute reorder.
   it("keeps the footer rave toggle on the shared .colorful-btn class", () => {
-    const strippedGrimicornPage = stripWhitespace(
-      readFileSync(GRIMICORN_PAGE_PATH, "utf8"),
+    const raveToggleTag = readFileSync(GRIMICORN_PAGE_PATH, "utf8").match(
+      /<button\b[^>]*@click="toggleRave"[^>]*>/,
     );
-    expect(strippedGrimicornPage).toContain('<buttonclass="colorful-btn"');
+    expect(raveToggleTag, "footer rave toggle button not found").not.toBeNull();
+    expect(raveToggleTag![0]).toMatch(/class="[^"]*\bcolorful-btn\b/);
   });
 });
