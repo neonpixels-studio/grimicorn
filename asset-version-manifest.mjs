@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,11 @@ export const VERSIONED_ASSET_FILES = [
 
 export const ASSET_VERSION_LOCK_FILE = ".vitepress/asset-version-lock.json";
 export const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
+// The manifest is the one versioned asset whose ?v= tokens live inside the file's own
+// bytes rather than being appended by withAssetCacheBust() at render time (it is
+// static JSON, not code), so nothing rewrites its icon srcs when the shared token
+// bumps unless something does it explicitly. See syncManifestCacheBustTokens() below.
+export const SITE_WEBMANIFEST_FILE = "public/images/site.webmanifest";
 
 const HASH_ALGORITHM = "sha256";
 const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8})"/m;
@@ -37,6 +42,19 @@ const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8})"/m;
 // existing invariant in asset-cache-bust.test.ts. Used to reject a corrupted committed
 // token (e.g. "" or "?v=9") that would otherwise silently disable the monotonic guard.
 const TOKEN_VALUE_PATTERN = /^\?v=\d{8}$/;
+// Matches a JSON "src" value that ends in an image-asset extension, with an optional
+// existing ?v= query — an icon src (current usage), or a future manifest image
+// member (a screenshot, a shortcut icon) that carries the same cache-bust
+// convention. Scoped to the "src" key specifically (not any string in the file) so
+// the sync can never rewrite an unrelated URL query, e.g. a "start_url" or "scope"
+// version marker. The query is optional (`(?:\?v=\d+)?`) so a newly added icon with
+// no ?v= at all gets one appended, not just an existing one rewritten. Captures
+// through the extension (group 1) so the replacement can restore everything up to
+// that point ahead of the new token and the closing quote. Matches a run of one or
+// more digits (not a fixed \d{8}) so a malformed existing token (an extra or missing
+// digit) gets normalized to the valid live token instead of partially overwritten.
+const MANIFEST_TOKEN_PATTERN =
+  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=\d+)?"/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -76,6 +94,46 @@ export function readAssetCacheBustToken() {
     );
   }
   return match[1];
+}
+
+// Rewrites (or adds) the ?v= query on every image "src" in manifest JSON source to
+// the live token. Pure string logic (no file I/O) so the regen script and its test
+// exercise identical rewrite behaviour regardless of how the result gets persisted.
+// This is the only code path that writes into a committed asset on a caller-supplied
+// token, so it validates the token against the same grammar the lock format enforces
+// elsewhere (TOKEN_VALUE_PATTERN) rather than trusting the caller — an empty or
+// malformed token would otherwise strip or corrupt every icon src in the file.
+export function syncManifestCacheBustTokens(manifestSource, token) {
+  if (!TOKEN_VALUE_PATTERN.test(token)) {
+    throw new Error(
+      `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
+    );
+  }
+  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
+}
+
+// Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when
+// the token actually moved. Called before fingerprintAssets() so a token bump alone
+// (without hand-editing the JSON) keeps the manifest's icon srcs — and the hash the
+// lockfile records for them — in sync with every other versioned asset reference.
+// manifestPath defaults to the real project file; tests pass a fixture path instead
+// so exercising the write doesn't touch the committed manifest. Returns the pre-sync
+// bytes (whether or not a write happened) so a caller that wants to roll back a
+// failed regen can use this return value as its snapshot instead of reading the file
+// a second time.
+export function syncWebManifestCacheBustTokensOnDisk(
+  token,
+  manifestPath = resolve(PROJECT_ROOT, SITE_WEBMANIFEST_FILE),
+) {
+  if (!existsSync(manifestPath)) {
+    throw new Error(`Web app manifest is missing: ${manifestPath}.`);
+  }
+  const original = readFileSync(manifestPath, "utf8");
+  const synced = syncManifestCacheBustTokens(original, token);
+  if (synced !== original) {
+    writeFileSync(manifestPath, synced);
+  }
+  return original;
 }
 
 // Parse and shape-check raw lock JSON. Shared so both the working-tree read and the
