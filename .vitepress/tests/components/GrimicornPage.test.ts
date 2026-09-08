@@ -96,6 +96,10 @@ function findFocusAnnouncement(wrapper: GrimicornWrapper) {
   return wrapper.find(".pause-focus-announcement");
 }
 
+function findToastAnnouncement(wrapper: GrimicornWrapper) {
+  return wrapper.find(".toast-announcement");
+}
+
 function getTagline(wrapper: GrimicornWrapper) {
   return wrapper.find(".text-fg-muted span:last-child").text();
 }
@@ -114,6 +118,12 @@ const TAGLINE_ROTATION_INTERVAL_MS = 2800;
 const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
 const MAX_LOG_COUNT = 8;
+// Mirrors TOAST_VISIBLE_DURATION_MS in the component: how long showToast()
+// keeps the toast visible before auto-hiding it.
+const TOAST_VISIBLE_DURATION_MS = 2600;
+// Mirrors TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS in the component: how long the
+// sr-only live-region text survives after the visual toast has hidden.
+const TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS = TOAST_VISIBLE_DURATION_MS + 8000;
 
 type ReducedMotionChangeListener = (_event: { matches: boolean }) => void;
 type AnimationFrameCallback = (_time: number) => void;
@@ -349,6 +359,120 @@ describe("GrimicornPage", () => {
       .find((el) => el.classes().some((c) => c.includes("rounded-full")));
     expect(toast?.classes()).toContain("opacity-0");
     wrapper.unmount();
+  });
+
+  it("hides the visual toast from assistive tech and mirrors it through a polite status live region instead", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    // The visual toast fades via opacity rather than leaving the DOM, so it
+    // must be aria-hidden rather than carrying its own live-region role — see
+    // the toastAnnouncement declaration in the component for the full
+    // rationale for the sr-only mirror below.
+    expect(findToast(wrapper)?.attributes("aria-hidden")).toBe("true");
+
+    const announcement = findToastAnnouncement(wrapper);
+    expect(announcement.attributes("role")).toBe("status");
+    expect(announcement.attributes("aria-live")).toBe("polite");
+    expect(announcement.classes()).toContain("sr-only");
+    expect(announcement.text()).toBe("");
+
+    wrapper.unmount();
+  });
+
+  it("keeps announcing the toast message in the live region after the visual toast auto-hides, only clearing it after the longer announcement-clear delay", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    await findRaveButton(wrapper).trigger("click");
+
+    const announcement = findToastAnnouncement(wrapper);
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(TOAST_VISIBLE_DURATION_MS);
+    await wrapper.vm.$nextTick();
+
+    // The visual toast has faded, but the announcement text must survive past
+    // that point: aria-live="polite" queues speech until the screen reader is
+    // idle, so clearing on the same short timer as the visual hide risks
+    // emptying the region before a busy visitor's screen reader ever gets to
+    // read the queued announcement.
+    expect(findToast(wrapper)?.classes()).toContain("opacity-0");
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    // Straddle the clear-delay boundary (one tick before, then the tick that
+    // crosses it) rather than jumping straight to the full delay, so a
+    // regression that shortens TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS back toward
+    // TOAST_VISIBLE_DURATION_MS fails here instead of passing vacuously.
+    await vi.advanceTimersByTimeAsync(
+      TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS - TOAST_VISIBLE_DURATION_MS - 1,
+    );
+    await wrapper.vm.$nextTick();
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await wrapper.vm.$nextTick();
+
+    // Cleared once the full announcement-clear delay has elapsed, so a
+    // screen-reader user who navigates to this region much later never hears
+    // a stale announcement.
+    expect(announcement.text()).toBe("");
+
+    wrapper.unmount();
+  });
+
+  it("announces the rave-off message through the live region when toggled off before the prior toast auto-hides", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    const raveButton = findRaveButton(wrapper);
+    const announcement = findToastAnnouncement(wrapper);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_OFF_TOAST_MESSAGE);
+
+    wrapper.unmount();
+  });
+
+  it("announces a fresh toast in the live region even after a prior announcement has fully cleared", async () => {
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    const raveButton = findRaveButton(wrapper);
+    const announcement = findToastAnnouncement(wrapper);
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_ON_TOAST_MESSAGE);
+
+    await vi.advanceTimersByTimeAsync(TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS);
+    await wrapper.vm.$nextTick();
+    expect(announcement.text()).toBe("");
+
+    await raveButton.trigger("click");
+    expect(announcement.text()).toBe(RAVE_OFF_TOAST_MESSAGE);
+
+    wrapper.unmount();
+  });
+
+  it("clears both the toast-hide and announcement-clear timers on unmount", async () => {
+    mockPrefersReducedMotion(true);
+    const wrapper = shallowMount(GrimicornPage);
+    await wrapper.vm.$nextTick();
+
+    await findRaveButton(wrapper).trigger("click");
+
+    // Reduced motion suppresses the tagline/log intervals, so the only two
+    // pending timers here are showToast()'s own toastTimer and
+    // toastAnnouncementClearTimer — leaving either uncleared on unmount would
+    // write to a ref after teardown once it eventually fires.
+    expect(vi.getTimerCount()).toBe(2);
+
+    wrapper.unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("opens every external link rendered in this template safely in a new tab", async () => {

@@ -69,6 +69,15 @@ const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
 const MAX_LOG_COUNT = 8;
 
+// How long the rave-mode toast stays visible before showToast() auto-hides it.
+const TOAST_VISIBLE_DURATION_MS = 2600;
+// Extra time the sr-only announcement survives after the visual toast hides,
+// so a screen reader still draining its queued "polite" speech isn't racing
+// the clear against the visual fade's own short timer.
+const TOAST_ANNOUNCEMENT_QUEUE_BUFFER_MS = 8000;
+const TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS =
+  TOAST_VISIBLE_DURATION_MS + TOAST_ANNOUNCEMENT_QUEUE_BUFFER_MS;
+
 // The scale here isn't part of the cursor-linked motion — it's a constant
 // slight overzoom so the translate/rotate wobble never reveals an edge past
 // the image's rounded, overflow-hidden container. It has to be preserved at
@@ -137,6 +146,7 @@ const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 let tagTimer = 0;
 let logTimer = 0;
 let toastTimer = 0;
+let toastAnnouncementClearTimer = 0;
 let rafId = 0;
 let konamiPos = 0;
 let reducedMotionQuery: MediaQueryList | null = null;
@@ -144,6 +154,18 @@ let parallaxActive = false;
 let contentTimersActive = false;
 
 const currentTagline = computed(() => TAGLINES[tagIndex.value]);
+
+// The visible toast fades via opacity/transform rather than being removed
+// from the DOM, so it never leaves the accessibility tree on its own — a
+// screen-reader user navigating by rotor/virtual cursor could land on it
+// minutes later and hear a stale "rave mode" message with nothing on screen
+// to match. This mirrors it into a separate sr-only live region (matching
+// pause-focus-announcement below): set in showToast() alongside the visible
+// text, but cleared on its own longer delay (see
+// TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS) rather than derived from toastVisible,
+// so clearing it can't race a screen reader still speaking the queued
+// announcement.
+const toastAnnouncement = ref("");
 
 const pageStyle = computed(() => ({
   filter: pageFilter.value,
@@ -375,10 +397,15 @@ function onKeyDown(e: KeyboardEvent) {
 function showToast(msg: string) {
   toastText.value = msg;
   toastVisible.value = true;
+  toastAnnouncement.value = msg;
   clearTimeout(toastTimer);
+  clearTimeout(toastAnnouncementClearTimer);
   toastTimer = window.setTimeout(() => {
     toastVisible.value = false;
-  }, 2600);
+  }, TOAST_VISIBLE_DURATION_MS);
+  toastAnnouncementClearTimer = window.setTimeout(() => {
+    toastAnnouncement.value = "";
+  }, TOAST_ANNOUNCEMENT_CLEAR_DELAY_MS);
 }
 
 function toggleRave() {
@@ -432,6 +459,7 @@ onMounted(() => {
 onUnmounted(() => {
   stopContentTimers();
   clearTimeout(toastTimer);
+  clearTimeout(toastAnnouncementClearTimer);
   window.removeEventListener("keydown", onKeyDown);
   reducedMotionQuery?.removeEventListener("change", handleReducedMotionChange);
   stopParallax();
@@ -883,7 +911,7 @@ onUnmounted(() => {
       </footer>
     </div>
 
-    <!-- rave toast -->
+    <!-- Rave toast: visual only, announced via toastAnnouncement below. -->
     <div
       class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white"
       :class="
@@ -891,6 +919,7 @@ onUnmounted(() => {
           ? 'translate-y-0 opacity-100'
           : 'translate-y-[10px] opacity-0'
       "
+      aria-hidden="true"
       style="
         box-shadow: 0 0 40px rgba(168, 85, 247, 0.6);
         transition:
@@ -900,5 +929,9 @@ onUnmounted(() => {
     >
       {{ toastText }}
     </div>
+
+    <p class="toast-announcement sr-only" role="status" aria-live="polite">
+      {{ toastAnnouncement }}
+    </p>
   </div>
 </template>
