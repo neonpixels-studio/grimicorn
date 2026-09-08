@@ -233,9 +233,12 @@ main[tabindex="-1"]:focus {
   text-decoration: underline;
 }
 
-/* The reset properties strip the button's default affordances, so restore an
-   explicit keyboard focus indicator rather than leaning on the UA default. */
-.pause-toggle:focus-visible {
+/* The reset properties strip the button's default affordances (border, native
+   focus ring), so restore an explicit keyboard focus indicator here rather
+   than leaning on the UA default. Shared across every .colorful-btn — the
+   footer's bare rave toggle included, not just .pause-toggle — so none of
+   them fail WCAG 2.4.7 when tabbed to. */
+.colorful-btn:focus-visible {
   outline: 2px solid var(--color-fg-muted);
   outline-offset: 2px;
 }

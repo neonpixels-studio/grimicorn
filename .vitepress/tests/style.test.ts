@@ -37,6 +37,16 @@ function countOccurrences(haystack: string, needle: string) {
   return haystack.split(needle).length - 1;
 }
 
+// Checks a static `class="..."` attribute for an exact class token. A plain
+// substring match on the tag (e.g. `tag.includes('class="colorful-btn')`)
+// would false-positive on a hyphenated class like `colorful-btn-sm`, or on a
+// Vue binding like `:class="{ 'colorful-btn': isVisible }"` that never
+// renders the class unconditionally.
+function hasStaticClass(tag: string, className: string) {
+  const classAttribute = tag.match(/\sclass="([^"]*)"/);
+  return classAttribute?.[1].split(/\s+/).includes(className) ?? false;
+}
+
 describe("brand background token", () => {
   const css = readStyleCss();
 
@@ -162,5 +172,71 @@ describe("skip link focus reveal", () => {
     );
     expect(rule, 'main[tabindex="-1"]:focus rule not found').not.toBeNull();
     expect(stripWhitespace(rule![1])).toContain("outline:none");
+  });
+});
+
+// .colorful-btn resets the UA button outline (border:none, padding:0), so
+// without an explicit rule every colorful button — including the footer's
+// bare rave toggle, which carries no other class — shows no keyboard focus
+// indicator (WCAG 2.4.7). Guards the shared rule so it can't regress back to
+// only covering .pause-toggle.
+describe("colorful button focus ring", () => {
+  const css = readStyleCss();
+
+  it("restores a visible focus-visible outline shared by every .colorful-btn", () => {
+    const rule = css.match(
+      /(?:^|\})\s*\.colorful-btn:focus-visible\s*\{([^}]*)\}/m,
+    );
+    expect(rule, ".colorful-btn:focus-visible rule not found").not.toBeNull();
+
+    const declarations = stripWhitespace(rule![1]);
+    expect(declarations).toContain("outline:2pxsolidvar(--color-fg-muted)");
+    expect(declarations).toContain("outline-offset:2px");
+  });
+
+  // Same enclosure hazard the `.skip-link:focus` test above guards against:
+  // the `m`-flag regex treats any indented line start as a match anchor, so
+  // wrapping the rule in `@media` or `@layer` would still satisfy the
+  // rule-exists check above while the focus ring silently stops applying.
+  it("keeps the .colorful-btn:focus-visible rule outside any nested at-rule", () => {
+    const anchor = css.match(/(?:^|\})\s*\.colorful-btn:focus-visible\s*\{/m);
+    expect(anchor, ".colorful-btn:focus-visible rule not found").not.toBeNull();
+    const ruleStart = anchor!.index! + anchor![0].indexOf(".colorful-btn");
+    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
+    const openBraceDepth =
+      countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
+    expect(
+      openBraceDepth,
+      ".colorful-btn:focus-visible sits inside a nested at-rule",
+    ).toBe(0);
+  });
+
+  // The CSS rule alone doesn't guard against the actual reported bug: the
+  // footer rave toggle regains no focus ring if it stops carrying
+  // `colorful-btn` (e.g. renamed to a class the shared rule no longer
+  // matches). Anchor on the toggle's unique `toggleRave` click handler
+  // (GrimicornPage.vue) rather than a bare class match, so this can't be
+  // fooled by some other button in the file that happens to open with
+  // `class="colorful-btn"`, and can't false-fail on an unrelated class or
+  // attribute reorder. The handler match tolerates `@click`/`v-on:click` and
+  // a call-with-parens so a harmless template refactor doesn't trip it.
+  it("keeps the footer rave toggle on the shared .colorful-btn class", () => {
+    const raveToggleTag = readFileSync(GRIMICORN_PAGE_PATH, "utf8").match(
+      /<button\b[^>]*(?:@|v-on:)click="[^"]*\btoggleRave\b[^"]*"[^>]*>/,
+    );
+    expect(raveToggleTag, "footer rave toggle button not found").not.toBeNull();
+    expect(hasStaticClass(raveToggleTag![0], "colorful-btn")).toBe(true);
+  });
+
+  // Mirrors the rave-toggle guard above for the other .colorful-btn consumer:
+  // this diff replaced .pause-toggle's own dedicated focus-visible rule with
+  // the shared one, so the pause control's WCAG 2.4.7 coverage now depends
+  // entirely on it keeping the `colorful-btn` class alongside `pause-toggle`.
+  it("keeps the pause toggle on the shared .colorful-btn class", () => {
+    const pauseToggleTag = readFileSync(GRIMICORN_PAGE_PATH, "utf8").match(
+      /<button\b[^>]*(?:@|v-on:)click="[^"]*\btoggleContentPaused\b[^"]*"[^>]*>/,
+    );
+    expect(pauseToggleTag, "pause toggle button not found").not.toBeNull();
+    expect(hasStaticClass(pauseToggleTag![0], "colorful-btn")).toBe(true);
   });
 });
