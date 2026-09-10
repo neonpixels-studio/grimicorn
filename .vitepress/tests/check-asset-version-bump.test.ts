@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   checkAssetVersionBump,
   isLockAbsentAtRefError,
+  readLockTextAtRef,
   resolveBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
 
@@ -70,13 +71,36 @@ describe("checkAssetVersionBump", () => {
     expect(run()).toEqual({ skipped: false, comparedRef: MERGE_BASE_SHA });
   });
 
-  it("passes when the base branch has no committed lock yet (first lock)", () => {
+  it("passes when the base branch has no committed lock yet (first lock), even with an unbumped token", () => {
+    // token is deliberately left at baseLock.token (not bumped): the only reason
+    // this must pass is the missing baseLock short-circuiting the guard, not an
+    // incidental token bump masking the same result.
     const run = withFixture({
-      token: "?v=20260817",
+      token: baseLock.token,
       fingerprint: { "public/assets/grimicorn-hero.png": "hash-new" },
       readLock: () => null,
     });
     expect(run).not.toThrow();
+    expect(run()).toEqual({ skipped: false, comparedRef: MERGE_BASE_SHA });
+  });
+
+  it("propagates a findMergeBase failure (e.g. an unfetched base ref) without reading the lock", () => {
+    let readLockCalled = false;
+    const run = () =>
+      checkAssetVersionBump({
+        baseRef: BASE_REF,
+        findMergeBase: () => {
+          throw new Error(
+            "fatal: Not a valid object name origin/nonexistent-branch",
+          );
+        },
+        readLock: () => {
+          readLockCalled = true;
+          return baseLock;
+        },
+      });
+    expect(run).toThrow(/Not a valid object name/);
+    expect(readLockCalled).toBe(false);
   });
 
   it("skips without reading the lock when there is no base ref (not a pull request)", () => {
@@ -128,6 +152,41 @@ describe("resolveBaseRef", () => {
 
   it("returns null for an empty GITHUB_BASE_REF", () => {
     expect(resolveBaseRef({ GITHUB_BASE_REF: "" })).toBe(null);
+  });
+});
+
+describe("readLockTextAtRef", () => {
+  const REF = "origin/main";
+
+  function fakeGitFailure(stderrText: string): () => never {
+    return () => {
+      const error = new Error(`Command failed`) as Error & { stderr: string };
+      error.stderr = stderrText;
+      throw error;
+    };
+  }
+
+  it("returns null when the lock is absent at the ref, without rethrowing", () => {
+    const runGitCommand = fakeGitFailure(
+      "fatal: path '.vitepress/asset-version-lock.json' does not exist in 'origin/main'",
+    );
+    expect(readLockTextAtRef(REF, runGitCommand)).toBe(null);
+  });
+
+  it("rethrows a real git failure instead of treating it as a missing lock", () => {
+    const runGitCommand = fakeGitFailure(
+      "fatal: ambiguous argument 'origin/main': unknown revision or path not in the working tree.",
+    );
+    expect(() => readLockTextAtRef(REF, runGitCommand)).toThrow(
+      /Could not read .*asset-version-lock\.json at origin\/main/,
+    );
+  });
+
+  it("returns the raw text on success", () => {
+    const runGitCommand = () => '{"token":"?v=20260816","assets":{}}';
+    expect(readLockTextAtRef(REF, runGitCommand)).toBe(
+      '{"token":"?v=20260816","assets":{}}',
+    );
   });
 });
 

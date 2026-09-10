@@ -33,12 +33,17 @@ import {
 
 // A base ref with no committed lock (a brand-new repo, or a base branch that predates
 // the lock file) has nothing to diff against — the same "first lock" allowance
-// scripts/regenerate-asset-version-lock.mjs grants for a missing HEAD copy. Anchored
-// to git's actual "path at ref" message shape (not a loose substring match) so an
-// unrelated failure that happens to contain "does not exist" — most importantly a ref
-// that was never fetched ("unknown revision or path not in the working tree", e.g.
-// fetch-depth: 0 got dropped from ci.yml) — is never mistaken for "no lock yet" and
-// silently passed. That failure must surface as a hard error instead.
+// scripts/regenerate-asset-version-lock.mjs grants for a missing HEAD copy at
+// ABSENT_FROM_HEAD_PATTERN there. The two patterns deliberately disagree on "unknown
+// revision": that script reads git's local HEAD, which always resolves once a repo has
+// a commit, so treating it as "no lock" there is a harmless, purely defensive
+// fallback. This script reads a fetched remote ref instead, where "unknown revision"
+// means the base branch was never fetched at all (e.g. fetch-depth: 0 got dropped from
+// ci.yml, or findMergeBaseUsingGit's own `git merge-base` failed for the same reason,
+// which surfaces even earlier than this classifier does) — a broken check, not "no
+// lock yet". Anchored to git's actual "path at ref" message shape (not a loose
+// substring match) so an unrelated failure that happens to contain "does not exist" is
+// never misclassified either way.
 const ABSENT_AT_REF_PATTERN =
   /^fatal: path '.+' (?:does not exist in|exists on disk, but not in) '.+'/m;
 
@@ -60,9 +65,12 @@ export function isLockAbsentAtRefError(stderrText) {
 // Runs `git show <ref>:<lock path>`, returning the raw text, null when the lock is
 // absent at that ref, or throwing for any other git failure. Isolated from the JSON
 // parse below so readLockAtRefUsingGit's only remaining job is "text in, lock out".
-function readLockTextAtRef(ref) {
+// `runGitCommand` is its own seam (defaulting to the real `runGit`) so both branches
+// of the catch — "absent, return null" and "real failure, rethrow" — are directly
+// unit-testable without invoking git.
+export function readLockTextAtRef(ref, runGitCommand = runGit) {
   try {
-    return runGit(["show", `${ref}:${ASSET_VERSION_LOCK_FILE}`]);
+    return runGitCommand(["show", `${ref}:${ASSET_VERSION_LOCK_FILE}`]);
   } catch (error) {
     const stderr = String(error.stderr ?? "");
     if (isLockAbsentAtRefError(stderr)) {
