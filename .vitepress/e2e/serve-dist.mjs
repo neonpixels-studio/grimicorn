@@ -3,12 +3,16 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-// Minimal static server for the built VitePress site, used only by the Playwright
-// smoke test. Its one job that `vitepress preview` can't do: apply the per-build
-// Content-Security-Policy from the generated dist/_headers file, so the smoke test
-// exercises the site under the exact CSP Netlify serves in production. A hash
+// Minimal static server for the built VitePress site, used by the Playwright smoke
+// test and by Lighthouse CI (.github/workflows/lighthouse.yml, lighthouserc.json).
+// Its one job that `vitepress preview` can't do: apply the per-build
+// Content-Security-Policy from the generated dist/_headers file, so both consumers
+// exercise the site under the exact CSP Netlify serves in production. A hash
 // mismatch that blocks VitePress's inline bootstrap (and therefore hydration and
 // every interactive behavior) then fails the test instead of shipping silently.
+// It applies only that CSP header — not netlify.toml's other static headers
+// (Cache-Control, X-Frame-Options, HSTS, etc.) or Netlify's response compression —
+// so neither consumer can catch a regression in those.
 //
 // candidateFiles and parseGlobalContentSecurityPolicy are pure (no filesystem, no
 // import.meta.url) and exported so the traversal guard and the _headers parser get
