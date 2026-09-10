@@ -2,20 +2,10 @@ name: Lighthouse
 
 # Standalone perf/a11y/SEO budget gate, separate from ci.yml (which owns
 # lint/typecheck/test/build) so this can iterate on thresholds independently.
-# Runs Lighthouse CI against the real production build, served via the same
-# .vitepress/e2e/serve-dist.mjs the Playwright smoke test uses, so the audit
-# sees the real generated Content-Security-Policy and a regression in the
-# hand-built LCP pipeline (hero preload, avif-first srcset, self-hosted fonts)
-# fails here instead of shipping silently. Note: serve-dist.mjs applies only
-# the generated CSP, not netlify.toml's static headers (Cache-Control,
-# X-Frame-Options, HSTS, etc.) or Netlify's gzip/brotli compression — this gate
-# cannot catch a regression in those, and resource-size budgets in
-# lighthouserc.json are measured against uncompressed bytes (a real Netlify
-# response is smaller). The `canonical` audit is skipped in lighthouserc.json:
-# .vitepress/config.ts hardcodes the canonical URL to https://grimicorn.dev,
-# which never matches the loopback host this workflow serves from, so it would
-# fail every run for a reason that isn't a real regression. See
-# lighthouserc.json for budgets.
+# Runs Lighthouse CI against the production build served by
+# .vitepress/e2e/serve-dist.mjs. Coverage limits (what this gate can and can't
+# catch) and budget rationale: the "CI" section of README.md and
+# lighthouserc.json.
 
 on:
   push:
