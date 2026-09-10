@@ -41,11 +41,17 @@ module.exports = {
         // cutting real interactivity or switching to a desktop formFactor —
         // which would stop testing the mobile experience this gate exists to
         // protect. 3200ms leaves real headroom over the measured ~3000ms local
-        // median for cross-runner variance, while still failing on serve-dist.mjs
-        // losing its gzip step (see its COMPRESSIBLE_EXTENSIONS) or on a
-        // materially heavier hero/hydration bundle — this budget can only see
-        // what this gate's own server serves, not Netlify's real compression.
+        // median for cross-runner variance, while still failing on a materially
+        // heavier hero/hydration bundle. It is NOT what catches serve-dist.mjs
+        // losing its gzip step — that regression is asserted directly below via
+        // uses-text-compression, since an LCP budget alone could pass by luck
+        // (lhci checks the best of numberOfRuns) even with compression broken.
         "largest-contentful-paint": ["error", { maxNumericValue: 3200 }],
+        // Direct regression guard for the gzip step in serve-dist.mjs (see
+        // COMPRESSIBLE_EXTENSIONS there): if compression is ever dropped, this
+        // fails on every run, unlike the LCP budget above which only fails if the
+        // resulting slowdown is large enough and consistent across runs.
+        "uses-text-compression": ["error", { minScore: 1 }],
         "resource-summary:total:size": ["warn", { maxNumericValue: 512000 }],
         "resource-summary:font:size": ["warn", { maxNumericValue: 150000 }],
         "resource-summary:image:size": ["warn", { maxNumericValue: 300000 }],

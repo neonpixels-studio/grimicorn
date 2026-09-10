@@ -155,6 +155,18 @@ describe("clientAcceptsGzip", () => {
   it("tolerates whitespace around the q= parameter", () => {
     expect(clientAcceptsGzip("gzip ; q=0")).toBe(false);
   });
+
+  it("rejects a zero weight spelled with extra precision", () => {
+    expect(clientAcceptsGzip("gzip;q=0.000")).toBe(false);
+  });
+
+  it("rejects a negative weight rather than treating it as positive", () => {
+    expect(clientAcceptsGzip("gzip;q=-1")).toBe(false);
+  });
+
+  it("finds q= after another parameter", () => {
+    expect(clientAcceptsGzip("gzip;foo=bar;q=0")).toBe(false);
+  });
 });
 
 describe("compressIfEligible", () => {
