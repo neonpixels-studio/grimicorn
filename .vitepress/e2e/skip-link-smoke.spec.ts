@@ -43,7 +43,18 @@ function readRevealState(locator: Locator) {
 
 test("tabbing to the skip link reveals it, activating focuses main content, and it re-hides", async ({
   page,
+  browserName,
 }) => {
+  // Real Safari (and Playwright's macOS WebKit build, which mirrors it) excludes
+  // links from the Tab order unless the OS "Press Tab to highlight each item on a
+  // webpage" preference is on — off by default. Playwright's Linux WebKit build
+  // (what CI runs) has no such restriction, so this assertion stays covered there;
+  // skip it locally on macOS instead of green-washing a known engine/OS quirk.
+  test.skip(
+    browserName === "webkit" && process.platform === "darwin",
+    "WebKit on macOS doesn't Tab-focus links unless a system preference is enabled; covered by CI's Linux WebKit instead.",
+  );
+
   await page.goto("/");
 
   const skipLink = page.getByRole("link", { name: "skip to content" });
