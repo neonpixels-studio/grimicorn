@@ -214,6 +214,22 @@ describe("readAssetCacheBustToken", () => {
       }).toThrow(/Could not find an ASSET_CACHE_BUST/);
     });
   });
+
+  it("throws the precise malformed-token error when the export holds a bad value", () => {
+    // TOKEN_PATTERN itself matches loosely (any quoted string), so this proves the
+    // grammar is actually enforced via parseAssetCacheBustToken() rather than the bad
+    // value silently passing through as the "live" token.
+    for (const contents of [
+      'export const ASSET_CACHE_BUST = "?v=20260823-1";\n',
+      'export const ASSET_CACHE_BUST = "";\n',
+    ]) {
+      withTempSourceModule(contents, (sourcePath) => {
+        expect(() => {
+          readAssetCacheBustToken(sourcePath);
+        }).toThrow(/Malformed asset cache-bust token/);
+      });
+    }
+  });
 });
 
 describe("parseAssetVersionLock", () => {
@@ -400,11 +416,10 @@ describe("parseAssetCacheBustToken", () => {
     });
   });
 
-  it("parses a multi-digit revision starting with 2-9 as a single number, not a truncated single digit", () => {
-    // Guards TOKEN_REVISION_PATTERN_SOURCE's branch order: if the single-digit
-    // "[2-9]" branch were tried before the multi-digit branch, "-20" would still parse
-    // (via backtracking) today, but a future simplification that drops the ordering
-    // guarantee could silently truncate it to revision 2.
+  it("parses a multi-digit revision as a whole number, not a truncated single digit", () => {
+    // Guards the multi-digit branch of TOKEN_REVISION_PATTERN_SOURCE directly: if it
+    // were ever dropped (leaving only the single-digit "[2-9]" branch), "-20" would
+    // fail to match at all instead of parsing as revision 20.
     expect(parseAssetCacheBustToken("?v=20260823-20")).toEqual({
       date: "20260823",
       revision: 20,
@@ -517,12 +532,23 @@ describe("syncManifestCacheBustTokens", () => {
 
   it("replaces a broken dangling-dash token instead of silently leaving it in place", () => {
     // A "-" with no digits after it (e.g. a botched hand-edit) doesn't match the
-    // strict token grammar, but MANIFEST_TOKEN_PATTERN matches any run of non-quote
-    // characters after "?v=" specifically so a malformed existing value still gets
-    // replaced wholesale rather than skipped over.
+    // strict token grammar, but MANIFEST_TOKEN_PATTERN matches any run of
+    // non-quote/non-"&"/non-"#" characters after "?v=" specifically so a malformed
+    // existing value still gets replaced wholesale rather than skipped over.
     const manifestSource = '{"src":"/images/icon.png?v=20260823-"}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       `{"src":"/images/icon.png${NEW_TOKEN}"}`,
+    );
+  });
+
+  it("leaves a src with an unrelated trailing query param untouched, rather than swallowing it", () => {
+    // MANIFEST_TOKEN_PATTERN's replacement scope stops at "&"/"#" so a real (if
+    // unusual) extra param on an icon src can't be silently deleted along with the
+    // cache-bust token — same as the pre-change behavior, which never matched such a
+    // src at all and so never touched it either.
+    const manifestSource = '{"src":"/images/icon.png?v=20260101&size=2x"}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
     );
   });
 
@@ -543,7 +569,14 @@ describe("syncManifestCacheBustTokens", () => {
   });
 
   it("refuses to sync with a malformed target token", () => {
-    for (const malformedToken of ["", "v=1", "?v=1", "?v=209901011"]) {
+    for (const malformedToken of [
+      "",
+      "v=1",
+      "?v=1",
+      "?v=209901011",
+      "?v=20260823-1",
+      "?v=20260823-",
+    ]) {
       expect(() => {
         syncManifestCacheBustTokens(
           '{"src":"/images/icon.png?v=20260101"}',

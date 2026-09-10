@@ -45,48 +45,46 @@ const HASH_ALGORITHM = "sha256";
 // bad value silently fail to match, producing a misleading "could not find a token"
 // error that points at a healthy export.
 const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"([^"]*)"/m;
-// The canonical token grammar, built once from shared fragments so the two patterns
-// below (standalone validation, date+revision parse) can never drift apart — a change
-// to the date or revision shape only has one place to edit.
+// The canonical token grammar, built once from shared fragments so there is exactly
+// one pattern (below) that both validates a token and parses its date/revision — a
+// change to the date or revision shape only has one place to edit.
 const TOKEN_DATE_PATTERN_SOURCE = String.raw`\d{8}`;
 // A same-day revision suffix: 2-9 as a single digit, or a leading-nonzero multi-digit
-// number (10, 11, ...). Order matters: the multi-digit branch is tried first so a
-// value like "-20" is captured whole rather than matched by "[2-9]" alone and left
-// with a dangling "0" that fails the pattern. The day's first revision is the bare
-// token with no suffix at all, so 0 and 1 are excluded — otherwise "?v=20260823",
-// "?v=20260823-1" and "?v=20260823-01" would all mean the same revision with three
-// valid spellings, and a stray leading zero (e.g. "-02" vs the locked "-2") would
-// parse as a no-op bump and get rejected by assertTokenBumpedForChangedAssets with a
-// confusing "not newer".
-const TOKEN_REVISION_PATTERN_SOURCE = String.raw`[1-9]\d+|[2-9]`;
-const TOKEN_GRAMMAR_SOURCE = `\\?v=${TOKEN_DATE_PATTERN_SOURCE}(?:-(?:${TOKEN_REVISION_PATTERN_SOURCE}))?`;
-// Validates a standalone token string (e.g. "" or "?v=9" or "?v=20260823-01"). Used to
-// reject a corrupted committed token that would otherwise silently disable the
-// monotonic guard.
-const TOKEN_VALUE_PATTERN = new RegExp(`^${TOKEN_GRAMMAR_SOURCE}$`);
-// Splits a valid token into its date and revision, capturing the same two grammar
-// fragments TOKEN_VALUE_PATTERN validates against. A bare date (no suffix) is the
-// day's implicit first revision, so DEFAULT_TOKEN_REVISION fills in when the suffix
-// is absent.
+// number (10, 11, ...). Both branches are anchored by the pattern's trailing "$", so
+// which is tried first doesn't change what matches — this is a plain alternation, not
+// an ordering-sensitive one. The day's first revision is the bare token with no
+// suffix at all, so 0 and 1 are excluded — otherwise "?v=20260823", "?v=20260823-1"
+// and "?v=20260823-01" would all mean the same revision with three valid spellings,
+// and a stray leading zero (e.g. "-02" vs the locked "-2") would parse as a no-op
+// bump and get rejected by assertTokenBumpedForChangedAssets with a confusing
+// "not newer".
+const TOKEN_REVISION_PATTERN_SOURCE = String.raw`[2-9]|[1-9]\d+`;
+// Splits a token into its date and revision, and — via .test() — validates a
+// standalone token string (e.g. "" or "?v=9" or "?v=20260823-01"). One pattern serves
+// both jobs so a tightened grammar can't validate a token that then fails to parse
+// (or vice versa). A bare date (no suffix) is the day's implicit first revision, so
+// DEFAULT_TOKEN_REVISION fills in when the suffix is absent.
 const TOKEN_DATE_AND_REVISION_PATTERN = new RegExp(
   `^\\?v=(${TOKEN_DATE_PATTERN_SOURCE})(?:-(${TOKEN_REVISION_PATTERN_SOURCE}))?$`,
 );
 const DEFAULT_TOKEN_REVISION = 1;
 // Matches a JSON "src" value that ends in an image-asset extension, with an optional
-// existing ?v= query of any shape — an icon src (current usage), or a future manifest
-// image member (a screenshot, a shortcut icon) that carries the same cache-bust
+// existing ?v= query — an icon src (current usage), or a future manifest image
+// member (a screenshot, a shortcut icon) that carries the same cache-bust
 // convention. Scoped to the "src" key specifically (not any string in the file) so
 // the sync can never rewrite an unrelated URL query, e.g. a "start_url" or "scope"
-// version marker. The query is optional (`(?:\?v=[^"]*)?`) so a newly added icon with
-// no ?v= at all gets one appended, not just an existing one rewritten. Captures
+// version marker. The query is optional (`(?:\?v=[^"&#]*)?`) so a newly added icon
+// with no ?v= at all gets one appended, not just an existing one rewritten. Captures
 // through the extension (group 1) so the replacement can restore everything up to
 // that point ahead of the new token and the closing quote. Matches any run of
-// non-quote characters after "?v=" (not the token grammar itself) so ANY malformed
-// existing token — a wrong digit count, a dangling "-" with no revision, stray
-// letters — gets replaced wholesale with the valid live token instead of partially
-// overwritten or silently left in place.
+// characters after "?v=" up to the next "&", "#", or the closing quote (not the
+// token grammar itself) so a malformed existing token — a wrong digit count, a
+// dangling "-" with no revision, stray letters — gets replaced wholesale with the
+// valid live token instead of partially overwritten or silently left in place. The
+// "&"/"#" boundary keeps this from swallowing an unrelated trailing query param
+// (e.g. "?v=20260101&size=2x") that isn't part of the cache-bust token at all.
 const MANIFEST_TOKEN_PATTERN =
-  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"]*)?"/g;
+  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"&#]*)?"/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -139,12 +137,12 @@ export function readAssetCacheBustToken(
 // exercise identical rewrite behaviour regardless of how the result gets persisted.
 // This is the only code path that writes into a committed asset on a caller-supplied
 // token, so it validates the token against the same grammar the lock format enforces
-// elsewhere (TOKEN_VALUE_PATTERN) rather than trusting the caller — an empty or
-// malformed token would otherwise strip or corrupt every icon src in the file.
+// elsewhere (TOKEN_DATE_AND_REVISION_PATTERN) rather than trusting the caller — an
+// empty or malformed token would otherwise strip or corrupt every icon src in the file.
 export function syncManifestCacheBustTokens(manifestSource, token) {
-  if (!TOKEN_VALUE_PATTERN.test(token)) {
+  if (!TOKEN_DATE_AND_REVISION_PATTERN.test(token)) {
     throw new Error(
-      `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
+      `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_DATE_AND_REVISION_PATTERN}.`,
     );
   }
   return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
@@ -191,12 +189,12 @@ export function parseAssetVersionLock(raw, sourceLabel) {
   const hasToken =
     isObject &&
     typeof lock.token === "string" &&
-    TOKEN_VALUE_PATTERN.test(lock.token);
+    TOKEN_DATE_AND_REVISION_PATTERN.test(lock.token);
   const hasAssets =
     isObject && typeof lock.assets === "object" && lock.assets !== null;
   if (!hasToken || !hasAssets) {
     throw new Error(
-      `${sourceLabel} is missing a valid "token" (${TOKEN_VALUE_PATTERN}) or "assets". Regenerate with \`npm run lock:assets\`.`,
+      `${sourceLabel} is missing a valid "token" (${TOKEN_DATE_AND_REVISION_PATTERN}) or "assets". Regenerate with \`npm run lock:assets\`.`,
     );
   }
   return lock;
@@ -230,12 +228,12 @@ export function changedAssetPaths(previousAssets, nextAssets) {
 // "-1" (or "-0") is rejected as malformed, since TOKEN_REVISION_PATTERN_SOURCE starts
 // at 2 — the bare token is the only valid spelling of the first revision. Throws on a
 // malformed token rather than comparing garbage, mirroring the other
-// TOKEN_VALUE_PATTERN guards in this module.
+// TOKEN_DATE_AND_REVISION_PATTERN guards in this module.
 export function parseAssetCacheBustToken(token) {
   const match = TOKEN_DATE_AND_REVISION_PATTERN.exec(token);
   if (!match) {
     throw new Error(
-      `Malformed asset cache-bust token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
+      `Malformed asset cache-bust token: ${JSON.stringify(token)}. Expected ${TOKEN_DATE_AND_REVISION_PATTERN}.`,
     );
   }
   const [, date, revisionSuffix] = match;
