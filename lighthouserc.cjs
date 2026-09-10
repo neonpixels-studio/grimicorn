@@ -5,6 +5,7 @@
 // than .js) forces CommonJS regardless of this package's "type": "module" in
 // package.json, since Node/lhci resolve plain .js as ESM there and `module.exports`
 // would fail to load.
+
 // Single source of truth for the port serve-dist.mjs listens on, referenced by
 // both `url` and `startServerCommand` below so they can't drift apart.
 const SERVER_PORT = 4319;
@@ -40,9 +41,10 @@ module.exports = {
         // cutting real interactivity or switching to a desktop formFactor —
         // which would stop testing the mobile experience this gate exists to
         // protect. 3200ms leaves real headroom over the measured ~3000ms local
-        // median for cross-runner variance, while still failing on a regression
-        // back to uncompressed responses or a materially heavier hero/hydration
-        // bundle.
+        // median for cross-runner variance, while still failing on serve-dist.mjs
+        // losing its gzip step (see its COMPRESSIBLE_EXTENSIONS) or on a
+        // materially heavier hero/hydration bundle — this budget can only see
+        // what this gate's own server serves, not Netlify's real compression.
         "largest-contentful-paint": ["error", { maxNumericValue: 3200 }],
         "resource-summary:total:size": ["warn", { maxNumericValue: 512000 }],
         "resource-summary:font:size": ["warn", { maxNumericValue: 150000 }],

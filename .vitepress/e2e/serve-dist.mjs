@@ -95,18 +95,22 @@ const ENCODING_QUALITY_PREFIX = "q=";
 const DEFAULT_ENCODING_QUALITY = 1;
 
 // One "gzip" or "gzip;q=0.5"-shaped Accept-Encoding token, lowercased so the
-// case-insensitive coding (RFC 9110) and q= parameter compare reliably. An
-// unparseable quality (missing, or not a number) is treated as the default 1
-// rather than propagating NaN, so a malformed q= can't accidentally disable
-// compression for the whole request.
+// case-insensitive coding compares reliably (this server only ever matches the
+// literal "gzip" coding, not the "*"/"x-gzip" forms RFC 9110 also allows — this
+// harness only ever sees real Chrome via Lighthouse/Playwright, which sends
+// "gzip" explicitly, so that narrower match is intentional, not an oversight).
+// An unparseable quality (missing, empty, or not a number — Number.parseFloat
+// returns NaN for all three, unlike the bare Number() constructor, which treats
+// "" as 0) is treated as the default 1 rather than propagating NaN, so a
+// malformed q= can't accidentally disable compression for the whole request.
 function parseEncodingToken(rawToken) {
   const [coding, ...parameters] = rawToken.trim().toLowerCase().split(";");
   const qualityParameter = parameters
     .map((parameter) => parameter.trim())
     .find((parameter) => parameter.startsWith(ENCODING_QUALITY_PREFIX));
-  const parsedQuality = qualityParameter
-    ? Number(qualityParameter.slice(ENCODING_QUALITY_PREFIX.length))
-    : NaN;
+  const parsedQuality = Number.parseFloat(
+    qualityParameter?.slice(ENCODING_QUALITY_PREFIX.length) ?? "",
+  );
   const quality = Number.isNaN(parsedQuality)
     ? DEFAULT_ENCODING_QUALITY
     : parsedQuality;
@@ -243,8 +247,30 @@ export async function compressIfEligible(
   }
   return {
     bytes: await gzipAsync(body),
-    contentEncoding: "gzip",
+    contentEncoding: GZIP_CODING,
     variesByEncoding: true,
+  };
+}
+
+// Pure so the Content-Encoding/Vary logic (easy to silently break — dropping
+// Content-Encoding would serve garbled gzip bytes as if they were plain text;
+// dropping Vary would fail nothing visibly, just let a cache reuse the wrong
+// variant) gets direct unit coverage without a real HTTP round trip.
+export function buildResponseHeaders(
+  fileToServe,
+  contentSecurityPolicy,
+  { contentEncoding, variesByEncoding },
+) {
+  return {
+    "Content-Type": contentTypeFor(fileToServe),
+    [CSP_HEADER_NAME]: contentSecurityPolicy,
+    ...(contentEncoding ? { "Content-Encoding": contentEncoding } : {}),
+    // Tells any cache in front of this response (and Lighthouse/Playwright, which
+    // both run against it directly) that the body depends on this header, so a
+    // response fetched under one Accept-Encoding is never reused for a client
+    // that asked for something different — whether or not this particular
+    // response happened to be compressed.
+    ...(variesByEncoding ? { Vary: "Accept-Encoding" } : {}),
   };
 }
 
@@ -260,22 +286,13 @@ async function serveFile(request, response, paths, contentSecurityPolicy) {
     request.headers["accept-encoding"],
   );
 
-  const headers = {
-    "Content-Type": contentTypeFor(fileToServe),
-    [CSP_HEADER_NAME]: contentSecurityPolicy,
-  };
-  if (contentEncoding) {
-    headers["Content-Encoding"] = contentEncoding;
-  }
-  if (variesByEncoding) {
-    // Tells any cache in front of this response (and Lighthouse/Playwright, which
-    // both run against it directly) that the body depends on this header, so a
-    // response fetched under one Accept-Encoding is never reused for a client
-    // that asked for something different — whether or not this particular
-    // response happened to be compressed.
-    headers.Vary = "Accept-Encoding";
-  }
-  response.writeHead(status, headers);
+  response.writeHead(
+    status,
+    buildResponseHeaders(fileToServe, contentSecurityPolicy, {
+      contentEncoding,
+      variesByEncoding,
+    }),
+  );
   response.end(bytes);
 }
 

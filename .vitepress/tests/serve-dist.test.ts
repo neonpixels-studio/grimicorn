@@ -7,6 +7,7 @@ import {
   isCompressibleFile,
   clientAcceptsGzip,
   compressIfEligible,
+  buildResponseHeaders,
 } from "../e2e/serve-dist.mjs";
 
 // Unit coverage for the security-relevant pure logic in the e2e static server: the
@@ -141,6 +142,19 @@ describe("clientAcceptsGzip", () => {
   it("rejects an empty header", () => {
     expect(clientAcceptsGzip("")).toBe(false);
   });
+
+  it("accepts a non-zero fractional weight", () => {
+    expect(clientAcceptsGzip("br;q=1.0, gzip;q=0.5")).toBe(true);
+  });
+
+  it("treats a malformed or empty weight as the default rather than rejecting", () => {
+    expect(clientAcceptsGzip("gzip;q=abc")).toBe(true);
+    expect(clientAcceptsGzip("gzip;q=")).toBe(true);
+  });
+
+  it("tolerates whitespace around the q= parameter", () => {
+    expect(clientAcceptsGzip("gzip ; q=0")).toBe(false);
+  });
 });
 
 describe("compressIfEligible", () => {
@@ -174,5 +188,41 @@ describe("compressIfEligible", () => {
     expect(result.contentEncoding).toBeUndefined();
     expect(result.variesByEncoding).toBe(false);
     expect(result.bytes).toEqual(body);
+  });
+});
+
+describe("buildResponseHeaders", () => {
+  const HTML_PATH = join(DIST, "index.html");
+  const FONT_PATH = join(DIST, "fonts/space-grotesk.woff2");
+  const CSP = "default-src 'self'";
+
+  it("sets Content-Encoding and Vary for a compressed response", () => {
+    const headers = buildResponseHeaders(HTML_PATH, CSP, {
+      contentEncoding: "gzip",
+      variesByEncoding: true,
+    });
+    expect(headers["Content-Encoding"]).toBe("gzip");
+    expect(headers.Vary).toBe("Accept-Encoding");
+    expect(headers["Content-Type"]).toBe("text/html; charset=utf-8");
+    expect(headers["Content-Security-Policy"]).toBe(CSP);
+  });
+
+  it("sets Vary but not Content-Encoding for an uncompressed-but-compressible response", () => {
+    const headers = buildResponseHeaders(HTML_PATH, CSP, {
+      contentEncoding: undefined,
+      variesByEncoding: true,
+    });
+    expect(headers["Content-Encoding"]).toBeUndefined();
+    expect(headers.Vary).toBe("Accept-Encoding");
+  });
+
+  it("sets neither header for a format that never varies by encoding", () => {
+    const headers = buildResponseHeaders(FONT_PATH, CSP, {
+      contentEncoding: undefined,
+      variesByEncoding: false,
+    });
+    expect(headers["Content-Encoding"]).toBeUndefined();
+    expect(headers.Vary).toBeUndefined();
+    expect(headers["Content-Type"]).toBe("font/woff2");
   });
 });
