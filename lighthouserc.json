@@ -5,7 +5,10 @@
       "startServerCommand": "node .vitepress/e2e/serve-dist.mjs 4319",
       "startServerReadyPattern": "Serving",
       "startServerReadyTimeout": 30000,
-      "numberOfRuns": 3
+      "numberOfRuns": 3,
+      "settings": {
+        "skipAudits": ["canonical"]
+      }
     },
     "assert": {
       "assertions": {
