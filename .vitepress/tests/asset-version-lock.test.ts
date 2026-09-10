@@ -24,6 +24,7 @@ import {
   fingerprintAssets,
   hashAssetBytes,
   parseAssetCacheBustToken,
+  parseAssetVersionLock,
   readAssetCacheBustToken,
   readAssetVersionLock,
   syncManifestCacheBustTokens,
@@ -166,6 +167,71 @@ describe("changedAssetPaths", () => {
     const previous = { "a.png": "hash-a" };
     const next = { "a.png": "hash-a", "new.png": "hash-new" };
     expect(changedAssetPaths(previous, next)).toEqual([]);
+  });
+});
+
+describe("readAssetCacheBustToken", () => {
+  // Exercises the real file read against a throwaway fixture (never the committed
+  // asset-cache-bust.ts), proving TOKEN_PATTERN itself extracts a same-day revision
+  // suffix — a regression here wouldn't otherwise be caught, since the live token
+  // committed in the repo has no suffix today.
+  function withTempSourceModule(
+    contents: string,
+    run: (_path: string) => void,
+  ) {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "asset-cache-bust-source-"));
+    const sourcePath = resolve(tempDir, "asset-cache-bust.ts");
+    writeFileSync(sourcePath, contents);
+    try {
+      run(sourcePath);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  it("extracts a bare dated token from the source module", () => {
+    withTempSourceModule(
+      'export const ASSET_CACHE_BUST = "?v=20260823";\n',
+      (sourcePath) => {
+        expect(readAssetCacheBustToken(sourcePath)).toBe("?v=20260823");
+      },
+    );
+  });
+
+  it("extracts a token carrying a same-day revision suffix from the source module", () => {
+    withTempSourceModule(
+      'export const ASSET_CACHE_BUST = "?v=20260823-2";\n',
+      (sourcePath) => {
+        expect(readAssetCacheBustToken(sourcePath)).toBe("?v=20260823-2");
+      },
+    );
+  });
+
+  it("throws a descriptive error when no token is found", () => {
+    withTempSourceModule("export const SOMETHING_ELSE = 1;\n", (sourcePath) => {
+      expect(() => {
+        readAssetCacheBustToken(sourcePath);
+      }).toThrow(/Could not find an ASSET_CACHE_BUST/);
+    });
+  });
+});
+
+describe("parseAssetVersionLock", () => {
+  it("accepts a lock whose token carries a same-day revision suffix", () => {
+    const lock = parseAssetVersionLock(
+      JSON.stringify({ token: "?v=20260823-2", assets: { "a.png": "hash-a" } }),
+      "fixture",
+    );
+    expect(lock.token).toBe("?v=20260823-2");
+  });
+
+  it("rejects a lock whose token carries a malformed revision suffix", () => {
+    expect(() => {
+      parseAssetVersionLock(
+        JSON.stringify({ token: "?v=20260823-", assets: {} }),
+        "fixture",
+      );
+    }).toThrow(/missing a valid "token"/);
   });
 });
 
@@ -334,14 +400,30 @@ describe("parseAssetCacheBustToken", () => {
     });
   });
 
-  it("treats a bare token and an explicit -1 suffix as equivalent", () => {
-    expect(parseAssetCacheBustToken("?v=20260823-1")).toEqual(
-      parseAssetCacheBustToken("?v=20260823"),
-    );
+  it("rejects an explicit -1 or -0 suffix, since the bare token is the only valid spelling of the first revision", () => {
+    // Allowing "-1" (or "-0") as an alternate spelling of the implicit first revision
+    // would let a stray leading-zero variant like "-01" parse as a same-day no-op
+    // bump instead of a clear malformed-token error.
+    for (const redundantToken of ["?v=20260823-0", "?v=20260823-1"]) {
+      expect(() => {
+        parseAssetCacheBustToken(redundantToken);
+      }).toThrow(/Malformed asset cache-bust token/);
+    }
   });
 
   it("throws a descriptive error for a malformed token", () => {
-    for (const malformedToken of ["", "?v=1", "?v=20260823-", "20260823"]) {
+    for (const malformedToken of [
+      "",
+      "?v=1",
+      "?v=20260823-",
+      "20260823",
+      "?v=202608231",
+      "?v=20260823-2x",
+      "?v=20260823--2",
+      "?v=20260823-abc",
+      "?v=20260823-02",
+      " ?v=20260823",
+    ]) {
       expect(() => {
         parseAssetCacheBustToken(malformedToken);
       }).toThrow(/Malformed asset cache-bust token/);
@@ -350,8 +432,11 @@ describe("parseAssetCacheBustToken", () => {
 });
 
 describe("compareAssetCacheBustTokens", () => {
-  it("returns 0 for two tokens on the same date and revision", () => {
-    expect(compareAssetCacheBustTokens("?v=20260823", "?v=20260823-1")).toBe(0);
+  it("returns 0 for two tokens with an identical date and revision", () => {
+    expect(compareAssetCacheBustTokens("?v=20260823", "?v=20260823")).toBe(0);
+    expect(compareAssetCacheBustTokens("?v=20260823-2", "?v=20260823-2")).toBe(
+      0,
+    );
   });
 
   it("orders by date first, regardless of revision", () => {
@@ -403,8 +488,8 @@ describe("syncManifestCacheBustTokens", () => {
   });
 
   it("rewrites an existing same-day revision suffix to the new token wholesale", () => {
-    // Proves MANIFEST_TOKEN_PATTERN's own (?:-\d+)? matches and fully replaces a
-    // prior "-N" suffix, rather than leaving it dangling after the new date.
+    // Proves MANIFEST_TOKEN_PATTERN matches and fully replaces a prior "-N" suffix,
+    // rather than leaving it dangling after the new date.
     const manifestSource = '{"src":"/images/icon.png?v=20260101-3"}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       `{"src":"/images/icon.png${NEW_TOKEN}"}`,
@@ -416,6 +501,17 @@ describe("syncManifestCacheBustTokens", () => {
     const suffixedToken = "?v=20260101-2";
     expect(syncManifestCacheBustTokens(manifestSource, suffixedToken)).toBe(
       `{"src":"/images/icon.png${suffixedToken}"}`,
+    );
+  });
+
+  it("replaces a broken dangling-dash token instead of silently leaving it in place", () => {
+    // A "-" with no digits after it (e.g. a botched hand-edit) doesn't match the
+    // strict token grammar, but MANIFEST_TOKEN_PATTERN matches any run of non-quote
+    // characters after "?v=" specifically so a malformed existing value still gets
+    // replaced wholesale rather than skipped over.
+    const manifestSource = '{"src":"/images/icon.png?v=20260823-"}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      `{"src":"/images/icon.png${NEW_TOKEN}"}`,
     );
   });
 

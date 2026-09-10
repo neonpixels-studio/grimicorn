@@ -37,36 +37,49 @@ export const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
 export const SITE_WEBMANIFEST_FILE = "public/images/site.webmanifest";
 
 const HASH_ALGORITHM = "sha256";
-const TOKEN_PATTERN =
-  /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8}(?:-\d+)?)"/m;
-// The canonical token grammar: ?v= plus a YYYYMMDD date, and an optional -N revision
-// suffix for a second (or later) bump on the same calendar day. Kept in sync with the
-// existing invariant in asset-cache-bust.test.ts. Used to reject a corrupted committed
-// token (e.g. "" or "?v=9" or "?v=20260823-") that would otherwise silently disable the
-// monotonic guard.
-const TOKEN_VALUE_PATTERN = /^\?v=\d{8}(?:-\d+)?$/;
-// Splits a valid token into its date and optional revision suffix. A bare date (no
-// suffix) is the day's implicit first revision, so DEFAULT_TOKEN_REVISION fills in
-// when the suffix is absent — that keeps "?v=20260823" and "?v=20260823-1" equivalent
-// for comparison purposes without requiring every first-of-day token to spell out -1.
-const TOKEN_DATE_AND_REVISION_PATTERN = /^\?v=(\d{8})(?:-(\d+))?$/;
+// The canonical token grammar, built once from shared fragments so the three patterns
+// below (source-file match, standalone validation, date+revision parse) can never
+// drift apart — a change to the date or revision shape only has one place to edit.
+const TOKEN_DATE_PATTERN_SOURCE = String.raw`\d{8}`;
+// A same-day revision suffix: 2-9 as a single digit, or a leading-nonzero multi-digit
+// number (10, 11, ...). The day's first revision is the bare token with no suffix at
+// all, so 0 and 1 are excluded — otherwise "?v=20260823", "?v=20260823-1" and
+// "?v=20260823-01" would all mean the same revision with three valid spellings, and a
+// stray leading zero (e.g. "-02" vs the locked "-2") would parse as a no-op bump and
+// get rejected by assertTokenBumpedForChangedAssets with a confusing "not newer".
+const TOKEN_REVISION_PATTERN_SOURCE = String.raw`[2-9]|[1-9]\d+`;
+const TOKEN_GRAMMAR_SOURCE = `\\?v=${TOKEN_DATE_PATTERN_SOURCE}(?:-(?:${TOKEN_REVISION_PATTERN_SOURCE}))?`;
+const TOKEN_PATTERN = new RegExp(
+  `^export const ASSET_CACHE_BUST\\s*=\\s*"(${TOKEN_GRAMMAR_SOURCE})"`,
+  "m",
+);
+// Validates a standalone token string (e.g. "" or "?v=9" or "?v=20260823-01") against
+// the same grammar TOKEN_PATTERN extracts from the source file. Used to reject a
+// corrupted committed token that would otherwise silently disable the monotonic guard.
+const TOKEN_VALUE_PATTERN = new RegExp(`^${TOKEN_GRAMMAR_SOURCE}$`);
+// Splits a valid token into its date and revision, capturing the same two grammar
+// fragments TOKEN_VALUE_PATTERN validates against. A bare date (no suffix) is the
+// day's implicit first revision, so DEFAULT_TOKEN_REVISION fills in when the suffix
+// is absent.
+const TOKEN_DATE_AND_REVISION_PATTERN = new RegExp(
+  `^\\?v=(${TOKEN_DATE_PATTERN_SOURCE})(?:-(${TOKEN_REVISION_PATTERN_SOURCE}))?$`,
+);
 const DEFAULT_TOKEN_REVISION = 1;
 // Matches a JSON "src" value that ends in an image-asset extension, with an optional
-// existing ?v= query — an icon src (current usage), or a future manifest image
-// member (a screenshot, a shortcut icon) that carries the same cache-bust
+// existing ?v= query of any shape — an icon src (current usage), or a future manifest
+// image member (a screenshot, a shortcut icon) that carries the same cache-bust
 // convention. Scoped to the "src" key specifically (not any string in the file) so
 // the sync can never rewrite an unrelated URL query, e.g. a "start_url" or "scope"
-// version marker. The query is optional (`(?:\?v=\d+)?`) so a newly added icon with
+// version marker. The query is optional (`(?:\?v=[^"]*)?`) so a newly added icon with
 // no ?v= at all gets one appended, not just an existing one rewritten. Captures
 // through the extension (group 1) so the replacement can restore everything up to
-// that point ahead of the new token and the closing quote. Matches a run of one or
-// more digits (not a fixed \d{8}) so a malformed existing token (an extra or missing
-// digit) gets normalized to the valid live token instead of partially overwritten.
-// The trailing (?:-\d+)? mirrors TOKEN_VALUE_PATTERN's optional same-day revision
-// suffix so an existing "-N" token is replaced wholesale, not left with a stray
-// suffix from a prior revision dangling after the new date.
+// that point ahead of the new token and the closing quote. Matches any run of
+// non-quote characters after "?v=" (not the token grammar itself) so ANY malformed
+// existing token — a wrong digit count, a dangling "-" with no revision, stray
+// letters — gets replaced wholesale with the valid live token instead of partially
+// overwritten or silently left in place.
 const MANIFEST_TOKEN_PATTERN =
-  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=\d+(?:-\d+)?)?"/g;
+  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"]*)?"/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -93,12 +106,14 @@ export function fingerprintAssets() {
 }
 
 // Read the live ?v= token straight from its source module so the test and the regen
-// script agree on one value without a second literal to keep in sync.
-export function readAssetCacheBustToken() {
-  const source = readFileSync(
-    resolve(PROJECT_ROOT, ASSET_CACHE_BUST_SOURCE),
-    "utf8",
-  );
+// script agree on one value without a second literal to keep in sync. sourcePath
+// defaults to the real project file; tests pass a fixture path instead so exercising
+// the parse (including a suffixed token) doesn't depend on editing the committed
+// asset-cache-bust.ts.
+export function readAssetCacheBustToken(
+  sourcePath = resolve(PROJECT_ROOT, ASSET_CACHE_BUST_SOURCE),
+) {
+  const source = readFileSync(sourcePath, "utf8");
   const match = source.match(TOKEN_PATTERN);
   if (!match) {
     throw new Error(
