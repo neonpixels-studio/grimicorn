@@ -14,6 +14,20 @@ import { MAIN_CONTENT_ID } from "../theme/constants";
 const HIDDEN_BOX_SIZE = { width: 1, height: 1 };
 const TO_PASS_TIMEOUT_MS = 5_000;
 
+// Real Safari (and Playwright's macOS WebKit build, which mirrors it) excludes
+// links from the Tab order unless the OS "Press Tab to highlight each item on a
+// webpage" preference is on — off by default. Option+Tab reaches links there
+// regardless of that preference, matching Safari's own shortcut, so use it only
+// for that engine/platform combination. Playwright's Linux WebKit build (what CI
+// runs) has no such restriction and reaches links on a plain Tab like Chromium
+// and Firefox.
+function linkTabKeyFor(browserName: string) {
+  if (browserName === "webkit" && process.platform === "darwin") {
+    return "Alt+Tab";
+  }
+  return "Tab";
+}
+
 // One evaluate() so the box and the outline come from a single snapshot — two
 // separate reads (a boundingBox() call plus a getComputedStyle() round trip)
 // could straddle a frame and pass on values that never held simultaneously.
@@ -45,16 +59,6 @@ test("tabbing to the skip link reveals it, activating focuses main content, and 
   page,
   browserName,
 }) => {
-  // Real Safari (and Playwright's macOS WebKit build, which mirrors it) excludes
-  // links from the Tab order unless the OS "Press Tab to highlight each item on a
-  // webpage" preference is on — off by default. Playwright's Linux WebKit build
-  // (what CI runs) has no such restriction, so this assertion stays covered there;
-  // skip it locally on macOS instead of green-washing a known engine/OS quirk.
-  test.skip(
-    browserName === "webkit" && process.platform === "darwin",
-    "WebKit on macOS doesn't Tab-focus links unless a system preference is enabled; covered by CI's Linux WebKit instead.",
-  );
-
   await page.goto("/");
 
   const skipLink = page.getByRole("link", { name: "skip to content" });
@@ -65,8 +69,9 @@ test("tabbing to the skip link reveals it, activating focuses main content, and 
   }).toPass({ timeout: TO_PASS_TIMEOUT_MS });
 
   // The skip link is the first element AppLayout.vue renders (before the nav
-  // and page content), so a single Tab from a fresh load lands on it.
-  await page.keyboard.press("Tab");
+  // and page content), so a single Tab (or, on macOS WebKit, Option+Tab — see
+  // linkTabKeyFor) from a fresh load lands on it.
+  await page.keyboard.press(linkTabKeyFor(browserName));
   await expect(skipLink).toBeFocused();
 
   // `.skip-link:focus` overrides the `sr-only` clip with a real width/height
