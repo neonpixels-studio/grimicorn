@@ -14,13 +14,15 @@ const gzipAsync = promisify(gzip);
 // exercise the site under the exact CSP Netlify serves in production. A hash
 // mismatch that blocks VitePress's inline bootstrap (and therefore hydration and
 // every interactive behavior) then fails the test instead of shipping silently.
-// It also gzips compressible responses (see COMPRESSIBLE_CONTENT_TYPES) so the
+// It also gzips compressible responses (see COMPRESSIBLE_EXTENSIONS) so the
 // Lighthouse LCP/byte-budget numbers aren't measured against artificially
-// uncompressed bytes — Netlify compresses these same content types at its edge, so
-// serving them raw here would make every text-asset transfer look slower than
-// production ever is. It still applies only the CSP and this compression — not
-// netlify.toml's other static headers (Cache-Control, X-Frame-Options, HSTS, etc.)
-// — so neither consumer can catch a regression in those.
+// uncompressed bytes — Netlify compresses these same content types at its edge
+// (Brotli for browsers that support it, so real production transfers are slightly
+// smaller than what gzip measures here), and serving them raw would make every
+// text-asset transfer look slower than production ever is. It still applies only
+// the CSP and this compression — not netlify.toml's other static headers
+// (Cache-Control, X-Frame-Options, HSTS, etc.) — so neither consumer can catch a
+// regression in those.
 //
 // candidateFiles and parseGlobalContentSecurityPolicy are pure (no filesystem, no
 // import.meta.url) and exported so the traversal guard and the _headers parser get
@@ -88,14 +90,41 @@ export function isCompressibleFile(filePath) {
   return COMPRESSIBLE_EXTENSIONS.has(extname(filePath).toLowerCase());
 }
 
+const GZIP_CODING = "gzip";
+const ENCODING_QUALITY_PREFIX = "q=";
+const DEFAULT_ENCODING_QUALITY = 1;
+
+// One "gzip" or "gzip;q=0.5"-shaped Accept-Encoding token, lowercased so the
+// case-insensitive coding (RFC 9110) and q= parameter compare reliably. An
+// unparseable quality (missing, or not a number) is treated as the default 1
+// rather than propagating NaN, so a malformed q= can't accidentally disable
+// compression for the whole request.
+function parseEncodingToken(rawToken) {
+  const [coding, ...parameters] = rawToken.trim().toLowerCase().split(";");
+  const qualityParameter = parameters
+    .map((parameter) => parameter.trim())
+    .find((parameter) => parameter.startsWith(ENCODING_QUALITY_PREFIX));
+  const parsedQuality = qualityParameter
+    ? Number(qualityParameter.slice(ENCODING_QUALITY_PREFIX.length))
+    : NaN;
+  const quality = Number.isNaN(parsedQuality)
+    ? DEFAULT_ENCODING_QUALITY
+    : parsedQuality;
+  return { coding: coding.trim(), quality };
+}
+
 // Pure header-parsing helper, same shape as parseGlobalContentSecurityPolicy:
 // takes the raw header value rather than reading `request` directly, so it can be
-// unit-tested without a real IncomingMessage. Chrome (and every other browser)
-// always sends "gzip" as one of the Accept-Encoding tokens, but this only matters
-// when it's true — deciding is not worth failing the request over — so a
-// missing/malformed header just falls back to serving uncompressed.
+// unit-tested without a real IncomingMessage. Rejects an explicit "gzip;q=0"
+// (the client asking NOT to receive gzip) rather than matching on substring, and
+// a missing/malformed header just falls back to serving uncompressed — deciding
+// this wrong is not worth failing the request over.
 export function clientAcceptsGzip(acceptEncodingHeader) {
-  return (acceptEncodingHeader ?? "").includes("gzip");
+  return (acceptEncodingHeader ?? "")
+    .split(",")
+    .filter((token) => token.trim().length > 0)
+    .map(parseEncodingToken)
+    .some((token) => token.coding === GZIP_CODING && token.quality > 0);
 }
 
 // A `_headers` path line starts at column 0; header lines under it are indented.
@@ -192,16 +221,31 @@ async function firstReadableFile(candidateList) {
 }
 
 // Gzips `body` when both the file type and the requesting client's
-// Accept-Encoding allow it, returning the bytes to send plus the Content-Encoding
-// header value to attach (undefined when uncompressed, so the caller can omit the
-// header entirely rather than sending an empty one).
-async function compressIfEligible(body, fileToServe, acceptEncodingHeader) {
-  const eligible =
-    isCompressibleFile(fileToServe) && clientAcceptsGzip(acceptEncodingHeader);
-  if (!eligible) {
-    return { bytes: body, contentEncoding: undefined };
+// Accept-Encoding allow it. Returns the bytes to send, the Content-Encoding header
+// value to attach (undefined when uncompressed, so the caller can omit the header
+// entirely rather than sending an empty one), and whether this response's body
+// depends on Accept-Encoding at all — true for every compressible file, not just
+// the ones actually compressed this time, since an uncompressed response for a
+// compressible file still varies by that header (a client that didn't ask for
+// gzip got different bytes than one that did/will). Exported for direct unit
+// coverage (decoding the gzip path back with zlib) beyond what testing
+// isCompressibleFile/clientAcceptsGzip individually already implies.
+export async function compressIfEligible(
+  body,
+  fileToServe,
+  acceptEncodingHeader,
+) {
+  if (!isCompressibleFile(fileToServe)) {
+    return { bytes: body, contentEncoding: undefined, variesByEncoding: false };
   }
-  return { bytes: await gzipAsync(body), contentEncoding: "gzip" };
+  if (!clientAcceptsGzip(acceptEncodingHeader)) {
+    return { bytes: body, contentEncoding: undefined, variesByEncoding: true };
+  }
+  return {
+    bytes: await gzipAsync(body),
+    contentEncoding: "gzip",
+    variesByEncoding: true,
+  };
 }
 
 async function serveFile(request, response, paths, contentSecurityPolicy) {
@@ -210,7 +254,7 @@ async function serveFile(request, response, paths, contentSecurityPolicy) {
   const fileToServe = match ?? paths.notFoundFile;
   const status = match ? OK_STATUS : NOT_FOUND_STATUS;
   const body = await readFile(fileToServe);
-  const { bytes, contentEncoding } = await compressIfEligible(
+  const { bytes, contentEncoding, variesByEncoding } = await compressIfEligible(
     body,
     fileToServe,
     request.headers["accept-encoding"],
@@ -222,9 +266,13 @@ async function serveFile(request, response, paths, contentSecurityPolicy) {
   };
   if (contentEncoding) {
     headers["Content-Encoding"] = contentEncoding;
+  }
+  if (variesByEncoding) {
     // Tells any cache in front of this response (and Lighthouse/Playwright, which
-    // both run against it directly) that the body varies by this header, so a
-    // gzip-fetched response is never reused for a client that didn't ask for it.
+    // both run against it directly) that the body depends on this header, so a
+    // response fetched under one Accept-Encoding is never reused for a client
+    // that asked for something different — whether or not this particular
+    // response happened to be compressed.
     headers.Vary = "Accept-Encoding";
   }
   response.writeHead(status, headers);

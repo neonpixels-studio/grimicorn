@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import {
   candidateFiles,
   parseGlobalContentSecurityPolicy,
   isCompressibleFile,
   clientAcceptsGzip,
+  compressIfEligible,
 } from "../e2e/serve-dist.mjs";
 
 // Unit coverage for the security-relevant pure logic in the e2e static server: the
@@ -91,6 +93,7 @@ describe("isCompressibleFile", () => {
     expect(isCompressibleFile(join(DIST, "index.html"))).toBe(true);
     expect(isCompressibleFile(join(DIST, "assets/app.js"))).toBe(true);
     expect(isCompressibleFile(join(DIST, "assets/style.css"))).toBe(true);
+    expect(isCompressibleFile(join(DIST, "images/sitemap.svg"))).toBe(true);
   });
 
   it("treats already-compressed binary formats as not compressible", () => {
@@ -103,6 +106,14 @@ describe("isCompressibleFile", () => {
     expect(isCompressibleFile(join(DIST, "fonts/space-grotesk.woff2"))).toBe(
       false,
     );
+  });
+
+  it("is case-insensitive on the extension", () => {
+    expect(isCompressibleFile(join(DIST, "INDEX.HTML"))).toBe(true);
+  });
+
+  it("treats a path with no extension as not compressible", () => {
+    expect(isCompressibleFile(join(DIST, "LICENSE"))).toBe(false);
   });
 });
 
@@ -117,5 +128,51 @@ describe("clientAcceptsGzip", () => {
 
   it("rejects a missing header rather than throwing", () => {
     expect(clientAcceptsGzip(undefined)).toBe(false);
+  });
+
+  it("is case-insensitive on the coding", () => {
+    expect(clientAcceptsGzip("GZIP")).toBe(true);
+  });
+
+  it("rejects an explicit gzip;q=0 (the client opting out)", () => {
+    expect(clientAcceptsGzip("gzip;q=0, br")).toBe(false);
+  });
+
+  it("rejects an empty header", () => {
+    expect(clientAcceptsGzip("")).toBe(false);
+  });
+});
+
+describe("compressIfEligible", () => {
+  const HTML_PATH = join(DIST, "index.html");
+  const FONT_PATH = join(DIST, "fonts/space-grotesk.woff2");
+  const body = Buffer.from("<html>".repeat(50));
+
+  it("gzips a compressible file for a client that accepts gzip", async () => {
+    const result = await compressIfEligible(body, HTML_PATH, "gzip, br");
+    expect(result.contentEncoding).toBe("gzip");
+    expect(result.variesByEncoding).toBe(true);
+    expect(gunzipSync(result.bytes)).toEqual(body);
+  });
+
+  it("serves a compressible file uncompressed, but still Vary, for a client without gzip", async () => {
+    const result = await compressIfEligible(body, HTML_PATH, "br");
+    expect(result.contentEncoding).toBeUndefined();
+    expect(result.variesByEncoding).toBe(true);
+    expect(result.bytes).toEqual(body);
+  });
+
+  it("serves a compressible file uncompressed when Accept-Encoding is missing", async () => {
+    const result = await compressIfEligible(body, HTML_PATH, undefined);
+    expect(result.contentEncoding).toBeUndefined();
+    expect(result.variesByEncoding).toBe(true);
+    expect(result.bytes).toEqual(body);
+  });
+
+  it("never compresses an already-compressed format, even if gzip is accepted", async () => {
+    const result = await compressIfEligible(body, FONT_PATH, "gzip");
+    expect(result.contentEncoding).toBeUndefined();
+    expect(result.variesByEncoding).toBe(false);
+    expect(result.bytes).toEqual(body);
   });
 });
