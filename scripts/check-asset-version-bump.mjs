@@ -155,8 +155,11 @@ export function checkAssetVersionBump({
 // argv1 is realpath'd before comparing so invoking through a symlinked path (a `/tmp`
 // that is itself a symlink, as on macOS) still resolves to the same URL Node computed
 // for this module — see the identical concern documented in
-// scripts/regenerate-asset-version-lock.mjs, which this duplicates in miniature
-// rather than sharing an import, so each CLI script stays independently readable.
+// scripts/regenerate-asset-version-lock.mjs. Deliberately NOT imported from there:
+// import.meta.url is bound to the module that defines it, so an imported copy would
+// always compare argv[1] against regenerate-asset-version-lock.mjs's own URL, never
+// match, and silently make isMainModule() return false here — the CI step would then
+// exit 0 having checked nothing. Duplicated in miniature instead.
 function isMainModule(argv1 = process.argv[1]) {
   if (argv1 == null) {
     return false;

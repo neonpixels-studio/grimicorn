@@ -6,7 +6,7 @@ import {
   resolveBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
 
-// Mirrors the fixture shape scripts/regenerate-asset-version-lock.test.ts already
+// Mirrors the fixture shape .vitepress/tests/asset-version-lock.test.ts already
 // uses for assertTokenBumpedForChangedAssets, but exercised through
 // checkAssetVersionBump()'s injectable findMergeBase/readLock/computeFingerprint/
 // readToken seam so none of these tests needs a real git repo or the committed
