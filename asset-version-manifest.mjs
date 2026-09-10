@@ -37,25 +37,32 @@ export const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
 export const SITE_WEBMANIFEST_FILE = "public/images/site.webmanifest";
 
 const HASH_ALGORITHM = "sha256";
-// The canonical token grammar, built once from shared fragments so the three patterns
-// below (source-file match, standalone validation, date+revision parse) can never
-// drift apart — a change to the date or revision shape only has one place to edit.
+// Loosely captures whatever literal string follows the assignment (any run of
+// non-quote characters), rather than embedding the strict token grammar itself. A
+// malformed value ("?v=20260823-1", a dropped digit) still matches this pattern and
+// reaches parseAssetCacheBustToken() in readAssetCacheBustToken() below, which raises
+// a precise "Malformed" error — encoding the grammar here too would instead make a
+// bad value silently fail to match, producing a misleading "could not find a token"
+// error that points at a healthy export.
+const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"([^"]*)"/m;
+// The canonical token grammar, built once from shared fragments so the two patterns
+// below (standalone validation, date+revision parse) can never drift apart — a change
+// to the date or revision shape only has one place to edit.
 const TOKEN_DATE_PATTERN_SOURCE = String.raw`\d{8}`;
 // A same-day revision suffix: 2-9 as a single digit, or a leading-nonzero multi-digit
-// number (10, 11, ...). The day's first revision is the bare token with no suffix at
-// all, so 0 and 1 are excluded — otherwise "?v=20260823", "?v=20260823-1" and
-// "?v=20260823-01" would all mean the same revision with three valid spellings, and a
-// stray leading zero (e.g. "-02" vs the locked "-2") would parse as a no-op bump and
-// get rejected by assertTokenBumpedForChangedAssets with a confusing "not newer".
-const TOKEN_REVISION_PATTERN_SOURCE = String.raw`[2-9]|[1-9]\d+`;
+// number (10, 11, ...). Order matters: the multi-digit branch is tried first so a
+// value like "-20" is captured whole rather than matched by "[2-9]" alone and left
+// with a dangling "0" that fails the pattern. The day's first revision is the bare
+// token with no suffix at all, so 0 and 1 are excluded — otherwise "?v=20260823",
+// "?v=20260823-1" and "?v=20260823-01" would all mean the same revision with three
+// valid spellings, and a stray leading zero (e.g. "-02" vs the locked "-2") would
+// parse as a no-op bump and get rejected by assertTokenBumpedForChangedAssets with a
+// confusing "not newer".
+const TOKEN_REVISION_PATTERN_SOURCE = String.raw`[1-9]\d+|[2-9]`;
 const TOKEN_GRAMMAR_SOURCE = `\\?v=${TOKEN_DATE_PATTERN_SOURCE}(?:-(?:${TOKEN_REVISION_PATTERN_SOURCE}))?`;
-const TOKEN_PATTERN = new RegExp(
-  `^export const ASSET_CACHE_BUST\\s*=\\s*"(${TOKEN_GRAMMAR_SOURCE})"`,
-  "m",
-);
-// Validates a standalone token string (e.g. "" or "?v=9" or "?v=20260823-01") against
-// the same grammar TOKEN_PATTERN extracts from the source file. Used to reject a
-// corrupted committed token that would otherwise silently disable the monotonic guard.
+// Validates a standalone token string (e.g. "" or "?v=9" or "?v=20260823-01"). Used to
+// reject a corrupted committed token that would otherwise silently disable the
+// monotonic guard.
 const TOKEN_VALUE_PATTERN = new RegExp(`^${TOKEN_GRAMMAR_SOURCE}$`);
 // Splits a valid token into its date and revision, capturing the same two grammar
 // fragments TOKEN_VALUE_PATTERN validates against. A bare date (no suffix) is the
@@ -109,7 +116,10 @@ export function fingerprintAssets() {
 // script agree on one value without a second literal to keep in sync. sourcePath
 // defaults to the real project file; tests pass a fixture path instead so exercising
 // the parse (including a suffixed token) doesn't depend on editing the committed
-// asset-cache-bust.ts.
+// asset-cache-bust.ts. Validates the extracted value through parseAssetCacheBustToken
+// so a malformed suffix (e.g. "?v=20260823-1") raises that function's precise
+// "Malformed" error, rather than TOKEN_PATTERN itself silently failing to match and
+// misreporting a healthy export as missing entirely.
 export function readAssetCacheBustToken(
   sourcePath = resolve(PROJECT_ROOT, ASSET_CACHE_BUST_SOURCE),
 ) {
@@ -117,9 +127,10 @@ export function readAssetCacheBustToken(
   const match = source.match(TOKEN_PATTERN);
   if (!match) {
     throw new Error(
-      `Could not find an ASSET_CACHE_BUST "?v=" token in ${ASSET_CACHE_BUST_SOURCE}.`,
+      `Could not find an ASSET_CACHE_BUST "?v=" token in ${sourcePath}.`,
     );
   }
+  parseAssetCacheBustToken(match[1]);
   return match[1];
 }
 
@@ -215,9 +226,10 @@ export function changedAssetPaths(previousAssets, nextAssets) {
 }
 
 // Splits a token into its date and revision for comparison. A bare token (no -N
-// suffix) is the day's implicit first revision (DEFAULT_TOKEN_REVISION), so
-// "?v=20260823" and "?v=20260823-1" parse to the same { date, revision } pair.
-// Throws on a malformed token rather than comparing garbage, mirroring the other
+// suffix) is the day's implicit first revision (DEFAULT_TOKEN_REVISION); an explicit
+// "-1" (or "-0") is rejected as malformed, since TOKEN_REVISION_PATTERN_SOURCE starts
+// at 2 — the bare token is the only valid spelling of the first revision. Throws on a
+// malformed token rather than comparing garbage, mirroring the other
 // TOKEN_VALUE_PATTERN guards in this module.
 export function parseAssetCacheBustToken(token) {
   const match = TOKEN_DATE_AND_REVISION_PATTERN.exec(token);

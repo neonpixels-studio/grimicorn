@@ -400,6 +400,17 @@ describe("parseAssetCacheBustToken", () => {
     });
   });
 
+  it("parses a multi-digit revision starting with 2-9 as a single number, not a truncated single digit", () => {
+    // Guards TOKEN_REVISION_PATTERN_SOURCE's branch order: if the single-digit
+    // "[2-9]" branch were tried before the multi-digit branch, "-20" would still parse
+    // (via backtracking) today, but a future simplification that drops the ordering
+    // guarantee could silently truncate it to revision 2.
+    expect(parseAssetCacheBustToken("?v=20260823-20")).toEqual({
+      date: "20260823",
+      revision: 20,
+    });
+  });
+
   it("rejects an explicit -1 or -0 suffix, since the bare token is the only valid spelling of the first revision", () => {
     // Allowing "-1" (or "-0") as an alternate spelling of the implicit first revision
     // would let a stray leading-zero variant like "-01" parse as a same-day no-op
