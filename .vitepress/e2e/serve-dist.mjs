@@ -1,18 +1,26 @@
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+const gzipAsync = promisify(gzip);
+
 // Minimal static server for the built VitePress site, used by the Playwright smoke
-// test and by Lighthouse CI (.github/workflows/lighthouse.yml, lighthouserc.json).
+// test and by Lighthouse CI (.github/workflows/lighthouse.yml, lighthouserc.cjs).
 // Its one job that `vitepress preview` can't do: apply the per-build
 // Content-Security-Policy from the generated dist/_headers file, so both consumers
 // exercise the site under the exact CSP Netlify serves in production. A hash
 // mismatch that blocks VitePress's inline bootstrap (and therefore hydration and
 // every interactive behavior) then fails the test instead of shipping silently.
-// It applies only that CSP header — not netlify.toml's other static headers
-// (Cache-Control, X-Frame-Options, HSTS, etc.) or Netlify's response compression —
-// so neither consumer can catch a regression in those.
+// It also gzips compressible responses (see COMPRESSIBLE_CONTENT_TYPES) so the
+// Lighthouse LCP/byte-budget numbers aren't measured against artificially
+// uncompressed bytes — Netlify compresses these same content types at its edge, so
+// serving them raw here would make every text-asset transfer look slower than
+// production ever is. It still applies only the CSP and this compression — not
+// netlify.toml's other static headers (Cache-Control, X-Frame-Options, HSTS, etc.)
+// — so neither consumer can catch a regression in those.
 //
 // candidateFiles and parseGlobalContentSecurityPolicy are pure (no filesystem, no
 // import.meta.url) and exported so the traversal guard and the _headers parser get
@@ -56,6 +64,38 @@ function contentTypeFor(filePath) {
   return (
     CONTENT_TYPES.get(extname(filePath).toLowerCase()) ?? DEFAULT_CONTENT_TYPE
   );
+}
+
+// Extensions Netlify's edge compresses in production (text formats only — the
+// image/font formats above are already compressed at rest, so gzipping them again
+// would just spend CPU for zero benefit or a larger payload). Kept as its own set
+// rather than reusing CONTENT_TYPES' keys so adding a future binary type doesn't
+// silently start compressing it.
+const COMPRESSIBLE_EXTENSIONS = new Set([
+  ".html",
+  ".js",
+  ".mjs",
+  ".css",
+  ".json",
+  ".svg",
+  ".txt",
+  ".xml",
+]);
+
+// Pure so it's unit-testable without spinning up the server (mirrors
+// contentTypeFor's own filesystem-free shape).
+export function isCompressibleFile(filePath) {
+  return COMPRESSIBLE_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
+
+// Pure header-parsing helper, same shape as parseGlobalContentSecurityPolicy:
+// takes the raw header value rather than reading `request` directly, so it can be
+// unit-tested without a real IncomingMessage. Chrome (and every other browser)
+// always sends "gzip" as one of the Accept-Encoding tokens, but this only matters
+// when it's true — deciding is not worth failing the request over — so a
+// missing/malformed header just falls back to serving uncompressed.
+export function clientAcceptsGzip(acceptEncodingHeader) {
+  return (acceptEncodingHeader ?? "").includes("gzip");
 }
 
 // A `_headers` path line starts at column 0; header lines under it are indented.
@@ -151,18 +191,44 @@ async function firstReadableFile(candidateList) {
   return null;
 }
 
+// Gzips `body` when both the file type and the requesting client's
+// Accept-Encoding allow it, returning the bytes to send plus the Content-Encoding
+// header value to attach (undefined when uncompressed, so the caller can omit the
+// header entirely rather than sending an empty one).
+async function compressIfEligible(body, fileToServe, acceptEncodingHeader) {
+  const eligible =
+    isCompressibleFile(fileToServe) && clientAcceptsGzip(acceptEncodingHeader);
+  if (!eligible) {
+    return { bytes: body, contentEncoding: undefined };
+  }
+  return { bytes: await gzipAsync(body), contentEncoding: "gzip" };
+}
+
 async function serveFile(request, response, paths, contentSecurityPolicy) {
   const candidates = candidateFiles(paths.distDir, request.url ?? "/");
   const match = await firstReadableFile(candidates);
   const fileToServe = match ?? paths.notFoundFile;
   const status = match ? OK_STATUS : NOT_FOUND_STATUS;
   const body = await readFile(fileToServe);
+  const { bytes, contentEncoding } = await compressIfEligible(
+    body,
+    fileToServe,
+    request.headers["accept-encoding"],
+  );
 
-  response.writeHead(status, {
+  const headers = {
     "Content-Type": contentTypeFor(fileToServe),
     [CSP_HEADER_NAME]: contentSecurityPolicy,
-  });
-  response.end(body);
+  };
+  if (contentEncoding) {
+    headers["Content-Encoding"] = contentEncoding;
+    // Tells any cache in front of this response (and Lighthouse/Playwright, which
+    // both run against it directly) that the body varies by this header, so a
+    // gzip-fetched response is never reused for a client that didn't ask for it.
+    headers.Vary = "Accept-Encoding";
+  }
+  response.writeHead(status, headers);
+  response.end(bytes);
 }
 
 // Wraps each request so a rejected path (malformed URL, a directory, a missing

@@ -5,7 +5,7 @@ name: Lighthouse
 # Runs Lighthouse CI against the production build served by
 # .vitepress/e2e/serve-dist.mjs. Coverage limits (what this gate can and can't
 # catch) and budget rationale: the "CI" section of README.md and
-# lighthouserc.json.
+# lighthouserc.cjs.
 
 on:
   push:
@@ -53,5 +53,5 @@ jobs:
       - name: Lighthouse CI
         uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # 12.6.2
         with:
-          configPath: ./lighthouserc.json
+          configPath: ./lighthouserc.cjs
           uploadArtifacts: true

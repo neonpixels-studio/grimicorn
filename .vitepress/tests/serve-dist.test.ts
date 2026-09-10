@@ -3,6 +3,8 @@ import { join } from "node:path";
 import {
   candidateFiles,
   parseGlobalContentSecurityPolicy,
+  isCompressibleFile,
+  clientAcceptsGzip,
 } from "../e2e/serve-dist.mjs";
 
 // Unit coverage for the security-relevant pure logic in the e2e static server: the
@@ -81,5 +83,39 @@ describe("parseGlobalContentSecurityPolicy", () => {
   it("throws when no policy is present at all", () => {
     const headers = "/*\n  X-Frame-Options: DENY\n";
     expect(() => parseGlobalContentSecurityPolicy(headers)).toThrow();
+  });
+});
+
+describe("isCompressibleFile", () => {
+  it("treats text-based build output as compressible", () => {
+    expect(isCompressibleFile(join(DIST, "index.html"))).toBe(true);
+    expect(isCompressibleFile(join(DIST, "assets/app.js"))).toBe(true);
+    expect(isCompressibleFile(join(DIST, "assets/style.css"))).toBe(true);
+  });
+
+  it("treats already-compressed binary formats as not compressible", () => {
+    expect(isCompressibleFile(join(DIST, "assets/grimicorn-hero.avif"))).toBe(
+      false,
+    );
+    expect(isCompressibleFile(join(DIST, "assets/grimicorn-hero.webp"))).toBe(
+      false,
+    );
+    expect(isCompressibleFile(join(DIST, "fonts/space-grotesk.woff2"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("clientAcceptsGzip", () => {
+  it("accepts a header that lists gzip among other encodings", () => {
+    expect(clientAcceptsGzip("gzip, deflate, br")).toBe(true);
+  });
+
+  it("rejects a header that omits gzip", () => {
+    expect(clientAcceptsGzip("br, deflate")).toBe(false);
+  });
+
+  it("rejects a missing header rather than throwing", () => {
+    expect(clientAcceptsGzip(undefined)).toBe(false);
   });
 });
