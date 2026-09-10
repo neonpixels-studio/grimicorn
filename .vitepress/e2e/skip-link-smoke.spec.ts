@@ -14,13 +14,12 @@ import { MAIN_CONTENT_ID } from "../theme/constants";
 const HIDDEN_BOX_SIZE = { width: 1, height: 1 };
 const TO_PASS_TIMEOUT_MS = 5_000;
 
-// Real Safari (and Playwright's macOS WebKit build, which mirrors it) excludes
-// links from the Tab order unless the OS "Press Tab to highlight each item on a
-// webpage" preference is on — off by default. Option+Tab reaches links there
-// regardless of that preference, matching Safari's own shortcut, so use it only
-// for that engine/platform combination. Playwright's Linux WebKit build (what CI
-// runs) has no such restriction and reaches links on a plain Tab like Chromium
-// and Firefox.
+// WebKit on macOS leaves links out of the Tab order by default (Safari exposes
+// this as Settings > Advanced > "Press Tab to highlight each item on a webpage").
+// Holding Option flips that setting for a single keypress, so Option+Tab reaches
+// links while it's at its default, which is what Playwright's macOS WebKit
+// always uses. Playwright's Linux WebKit build (what CI runs) Tab-focuses links
+// by default, like Chromium and Firefox, so plain Tab is used everywhere else.
 function linkTabKeyFor(browserName: string) {
   if (browserName === "webkit" && process.platform === "darwin") {
     return "Alt+Tab";
