@@ -44,8 +44,8 @@ function countOccurrences(source: string, token: string) {
 }
 
 describe("asset cache-bust token", () => {
-  it("exposes an 8-digit dated ?v= token as the single source of truth", () => {
-    expect(ASSET_CACHE_BUST).toMatch(/^\?v=\d{8}$/);
+  it("exposes an 8-digit dated ?v= token, with an optional same-day -N revision suffix, as the single source of truth", () => {
+    expect(ASSET_CACHE_BUST).toMatch(/^\?v=\d{8}(?:-\d+)?$/);
   });
 
   it("appends the token to an asset path via the shared helper", () => {

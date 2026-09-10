@@ -20,8 +20,10 @@ import {
   VERSIONED_ASSET_FILES,
   assertTokenBumpedForChangedAssets,
   changedAssetPaths,
+  compareAssetCacheBustTokens,
   fingerprintAssets,
   hashAssetBytes,
+  parseAssetCacheBustToken,
   readAssetCacheBustToken,
   readAssetVersionLock,
   syncManifestCacheBustTokens,
@@ -223,6 +225,158 @@ describe("assertTokenBumpedForChangedAssets", () => {
       assertTokenBumpedForChangedAssets(null, previousLock.token, fingerprint);
     }).not.toThrow();
   });
+
+  // Same-day revision suffix: two asset changes on one calendar day must both be
+  // able to bump the token, via ?v=YYYYMMDD-N.
+  describe("same-day revision suffix", () => {
+    const fingerprint = { "a.png": "hash-a-new" };
+
+    it("accepts a bare first-of-day token followed by an explicit -2 revision on the same day", () => {
+      const sameDayFirstRevision = {
+        token: "?v=20260823",
+        assets: { "a.png": "hash-a" },
+      };
+      expect(() => {
+        assertTokenBumpedForChangedAssets(
+          sameDayFirstRevision,
+          "?v=20260823-2",
+          fingerprint,
+        );
+      }).not.toThrow();
+    });
+
+    it("rejects a same-day revision that did not advance past the locked revision", () => {
+      const sameDaySecondRevision = {
+        token: "?v=20260823-2",
+        assets: { "a.png": "hash-a" },
+      };
+      expect(() => {
+        assertTokenBumpedForChangedAssets(
+          sameDaySecondRevision,
+          "?v=20260823-2",
+          fingerprint,
+        );
+      }).toThrow(/not newer/);
+    });
+
+    it("accepts a double-digit same-day revision as newer than a single-digit one (parsed, not lexicographic, comparison)", () => {
+      // A plain string comparison would reject this: "?v=20260823-10" sorts before
+      // "?v=20260823-2" lexicographically, because "1" < "2".
+      const sameDaySecondRevision = {
+        token: "?v=20260823-2",
+        assets: { "a.png": "hash-a" },
+      };
+      expect(() => {
+        assertTokenBumpedForChangedAssets(
+          sameDaySecondRevision,
+          "?v=20260823-10",
+          fingerprint,
+        );
+      }).not.toThrow();
+    });
+
+    it("rejects a single-digit same-day revision as a downgrade from a double-digit one it would beat lexicographically", () => {
+      const sameDayTenthRevision = {
+        token: "?v=20260823-10",
+        assets: { "a.png": "hash-a" },
+      };
+      expect(() => {
+        assertTokenBumpedForChangedAssets(
+          sameDayTenthRevision,
+          "?v=20260823-2",
+          fingerprint,
+        );
+      }).toThrow(/not newer/);
+    });
+
+    it("accepts a next-day rollover to a bare token, resetting the revision suffix", () => {
+      const lastRevisionOfPriorDay = {
+        token: "?v=20260823-3",
+        assets: { "a.png": "hash-a" },
+      };
+      expect(() => {
+        assertTokenBumpedForChangedAssets(
+          lastRevisionOfPriorDay,
+          "?v=20260824",
+          fingerprint,
+        );
+      }).not.toThrow();
+    });
+
+    it("rejects a same-day revision on a stale date, even with a higher suffix, as a downgrade", () => {
+      const nextDayToken = {
+        token: "?v=20260824",
+        assets: { "a.png": "hash-a" },
+      };
+      expect(() => {
+        assertTokenBumpedForChangedAssets(
+          nextDayToken,
+          "?v=20260823-5",
+          fingerprint,
+        );
+      }).toThrow(/not newer/);
+    });
+  });
+});
+
+describe("parseAssetCacheBustToken", () => {
+  it("parses a bare dated token as the day's implicit first revision", () => {
+    expect(parseAssetCacheBustToken("?v=20260823")).toEqual({
+      date: "20260823",
+      revision: 1,
+    });
+  });
+
+  it("parses a same-day -N suffix as that day's explicit revision", () => {
+    expect(parseAssetCacheBustToken("?v=20260823-2")).toEqual({
+      date: "20260823",
+      revision: 2,
+    });
+  });
+
+  it("treats a bare token and an explicit -1 suffix as equivalent", () => {
+    expect(parseAssetCacheBustToken("?v=20260823-1")).toEqual(
+      parseAssetCacheBustToken("?v=20260823"),
+    );
+  });
+
+  it("throws a descriptive error for a malformed token", () => {
+    for (const malformedToken of ["", "?v=1", "?v=20260823-", "20260823"]) {
+      expect(() => {
+        parseAssetCacheBustToken(malformedToken);
+      }).toThrow(/Malformed asset cache-bust token/);
+    }
+  });
+});
+
+describe("compareAssetCacheBustTokens", () => {
+  it("returns 0 for two tokens on the same date and revision", () => {
+    expect(compareAssetCacheBustTokens("?v=20260823", "?v=20260823-1")).toBe(0);
+  });
+
+  it("orders by date first, regardless of revision", () => {
+    expect(
+      compareAssetCacheBustTokens("?v=20260824", "?v=20260823-9"),
+    ).toBeGreaterThan(0);
+    expect(
+      compareAssetCacheBustTokens("?v=20260823-9", "?v=20260824"),
+    ).toBeLessThan(0);
+  });
+
+  it("orders by revision within the same date", () => {
+    expect(
+      compareAssetCacheBustTokens("?v=20260823-2", "?v=20260823"),
+    ).toBeGreaterThan(0);
+    expect(
+      compareAssetCacheBustTokens("?v=20260823", "?v=20260823-2"),
+    ).toBeLessThan(0);
+  });
+
+  it("orders numerically, not lexicographically, across a digit-count boundary", () => {
+    expect(
+      compareAssetCacheBustTokens("?v=20260823-10", "?v=20260823-2"),
+    ).toBeGreaterThan(0);
+  });
 });
 
 describe("syncManifestCacheBustTokens", () => {
@@ -245,6 +399,23 @@ describe("syncManifestCacheBustTokens", () => {
       '{"name":"Grimicorn Agent","icons":[{"src":"/images/icon.png?v=20260101"}]}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       '{"name":"Grimicorn Agent","icons":[{"src":"/images/icon.png?v=20990101"}]}',
+    );
+  });
+
+  it("rewrites an existing same-day revision suffix to the new token wholesale", () => {
+    // Proves MANIFEST_TOKEN_PATTERN's own (?:-\d+)? matches and fully replaces a
+    // prior "-N" suffix, rather than leaving it dangling after the new date.
+    const manifestSource = '{"src":"/images/icon.png?v=20260101-3"}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      `{"src":"/images/icon.png${NEW_TOKEN}"}`,
+    );
+  });
+
+  it("syncs to a new token that itself carries a same-day revision suffix", () => {
+    const manifestSource = '{"src":"/images/icon.png?v=20260101"}';
+    const suffixedToken = "?v=20260101-2";
+    expect(syncManifestCacheBustTokens(manifestSource, suffixedToken)).toBe(
+      `{"src":"/images/icon.png${suffixedToken}"}`,
     );
   });
 

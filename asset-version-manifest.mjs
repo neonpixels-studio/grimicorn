@@ -37,11 +37,20 @@ export const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
 export const SITE_WEBMANIFEST_FILE = "public/images/site.webmanifest";
 
 const HASH_ALGORITHM = "sha256";
-const TOKEN_PATTERN = /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8})"/m;
-// The canonical token grammar: ?v= plus a YYYYMMDD date. Kept in sync with the
+const TOKEN_PATTERN =
+  /^export const ASSET_CACHE_BUST\s*=\s*"(\?v=\d{8}(?:-\d+)?)"/m;
+// The canonical token grammar: ?v= plus a YYYYMMDD date, and an optional -N revision
+// suffix for a second (or later) bump on the same calendar day. Kept in sync with the
 // existing invariant in asset-cache-bust.test.ts. Used to reject a corrupted committed
-// token (e.g. "" or "?v=9") that would otherwise silently disable the monotonic guard.
-const TOKEN_VALUE_PATTERN = /^\?v=\d{8}$/;
+// token (e.g. "" or "?v=9" or "?v=20260823-") that would otherwise silently disable the
+// monotonic guard.
+const TOKEN_VALUE_PATTERN = /^\?v=\d{8}(?:-\d+)?$/;
+// Splits a valid token into its date and optional revision suffix. A bare date (no
+// suffix) is the day's implicit first revision, so DEFAULT_TOKEN_REVISION fills in
+// when the suffix is absent — that keeps "?v=20260823" and "?v=20260823-1" equivalent
+// for comparison purposes without requiring every first-of-day token to spell out -1.
+const TOKEN_DATE_AND_REVISION_PATTERN = /^\?v=(\d{8})(?:-(\d+))?$/;
+const DEFAULT_TOKEN_REVISION = 1;
 // Matches a JSON "src" value that ends in an image-asset extension, with an optional
 // existing ?v= query — an icon src (current usage), or a future manifest image
 // member (a screenshot, a shortcut icon) that carries the same cache-bust
@@ -53,8 +62,11 @@ const TOKEN_VALUE_PATTERN = /^\?v=\d{8}$/;
 // that point ahead of the new token and the closing quote. Matches a run of one or
 // more digits (not a fixed \d{8}) so a malformed existing token (an extra or missing
 // digit) gets normalized to the valid live token instead of partially overwritten.
+// The trailing (?:-\d+)? mirrors TOKEN_VALUE_PATTERN's optional same-day revision
+// suffix so an existing "-N" token is replaced wholesale, not left with a stray
+// suffix from a prior revision dangling after the new date.
 const MANIFEST_TOKEN_PATTERN =
-  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=\d+)?"/g;
+  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=\d+(?:-\d+)?)?"/g;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -187,11 +199,48 @@ export function changedAssetPaths(previousAssets, nextAssets) {
   });
 }
 
+// Splits a token into its date and revision for comparison. A bare token (no -N
+// suffix) is the day's implicit first revision (DEFAULT_TOKEN_REVISION), so
+// "?v=20260823" and "?v=20260823-1" parse to the same { date, revision } pair.
+// Throws on a malformed token rather than comparing garbage, mirroring the other
+// TOKEN_VALUE_PATTERN guards in this module.
+export function parseAssetCacheBustToken(token) {
+  const match = TOKEN_DATE_AND_REVISION_PATTERN.exec(token);
+  if (!match) {
+    throw new Error(
+      `Malformed asset cache-bust token: ${JSON.stringify(token)}. Expected ${TOKEN_VALUE_PATTERN}.`,
+    );
+  }
+  const [, date, revisionSuffix] = match;
+  const revision =
+    revisionSuffix === undefined
+      ? DEFAULT_TOKEN_REVISION
+      : Number(revisionSuffix);
+  return { date, revision };
+}
+
+// Orders two tokens by date first, then by same-day revision — never by comparing
+// the raw strings. A plain string comparison breaks across a two-digit revision
+// ("?v=20260823-10" sorts *before* "?v=20260823-2" lexicographically, since "1" < "2"),
+// which would let a real regression through. Returns <0, 0, or >0 like a standard
+// comparator. Pure so both the regen script and the tests exercise the exact
+// enforcement logic.
+export function compareAssetCacheBustTokens(tokenA, tokenB) {
+  const parsedA = parseAssetCacheBustToken(tokenA);
+  const parsedB = parseAssetCacheBustToken(tokenB);
+  if (parsedA.date !== parsedB.date) {
+    return parsedA.date < parsedB.date ? -1 : 1;
+  }
+  return parsedA.revision - parsedB.revision;
+}
+
 // The core guard: if any existing asset's bytes moved, the shared token must move
 // *forward*, or a year-long immutable cache keeps serving stale bytes behind an
-// unchanged URL. The token is a YYYYMMDD date, so a plain string comparison enforces
-// monotonicity and rejects a same-token no-op and an accidental downgrade alike. Pure
-// so both the regen script and the tests exercise the exact enforcement logic.
+// unchanged URL. The token is a YYYYMMDD date with an optional same-day -N revision
+// suffix, so a parsed comparison (date, then revision) enforces monotonicity and
+// rejects a same-token no-op and an accidental downgrade alike — including a
+// same-day revision downgrade a plain string comparison would miss. Pure so both the
+// regen script and the tests exercise the exact enforcement logic.
 export function assertTokenBumpedForChangedAssets(
   previousLock,
   token,
@@ -204,7 +253,7 @@ export function assertTokenBumpedForChangedAssets(
   if (changed.length === 0) {
     return;
   }
-  if (token > previousLock.token) {
+  if (compareAssetCacheBustTokens(token, previousLock.token) > 0) {
     return;
   }
   throw new Error(
