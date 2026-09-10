@@ -18,6 +18,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          # Full history (not just the PR tip) so origin/<base branch> is available
+          # locally for the asset-version bump check below, which diffs against it.
+          fetch-depth: 0
 
       - name: Read .nvmrc
         id: nvmrc
@@ -40,6 +43,9 @@ jobs:
 
       - name: Test
         run: npm run test:ci
+
+      - name: Check asset-version token bump against base branch
+        run: npm run check:asset-version-bump
 
       - name: Build
         run: npm run build
