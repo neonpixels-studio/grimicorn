@@ -19,6 +19,11 @@ import {
 // A stand-in build directory: candidateFiles takes it as an argument, so the tests
 // never touch a real filesystem.
 const DIST = join("/site", "dist");
+// Shared fixture paths for the compression tests below (isCompressibleFile,
+// compressIfEligible, buildResponseHeaders): one representative compressible file
+// and one representative already-compressed one.
+const HTML_PATH = join(DIST, "index.html");
+const FONT_PATH = join(DIST, "fonts/space-grotesk.woff2");
 
 describe("candidateFiles", () => {
   it("maps the site root to index.html", () => {
@@ -91,7 +96,7 @@ describe("parseGlobalContentSecurityPolicy", () => {
 
 describe("isCompressibleFile", () => {
   it("treats text-based build output as compressible", () => {
-    expect(isCompressibleFile(join(DIST, "index.html"))).toBe(true);
+    expect(isCompressibleFile(HTML_PATH)).toBe(true);
     expect(isCompressibleFile(join(DIST, "assets/app.js"))).toBe(true);
     expect(isCompressibleFile(join(DIST, "assets/style.css"))).toBe(true);
     expect(isCompressibleFile(join(DIST, "images/sitemap.svg"))).toBe(true);
@@ -104,9 +109,7 @@ describe("isCompressibleFile", () => {
     expect(isCompressibleFile(join(DIST, "assets/grimicorn-hero.webp"))).toBe(
       false,
     );
-    expect(isCompressibleFile(join(DIST, "fonts/space-grotesk.woff2"))).toBe(
-      false,
-    );
+    expect(isCompressibleFile(FONT_PATH)).toBe(false);
   });
 
   it("is case-insensitive on the extension", () => {
@@ -170,8 +173,6 @@ describe("clientAcceptsGzip", () => {
 });
 
 describe("compressIfEligible", () => {
-  const HTML_PATH = join(DIST, "index.html");
-  const FONT_PATH = join(DIST, "fonts/space-grotesk.woff2");
   const body = Buffer.from("<html>".repeat(50));
 
   it("gzips a compressible file for a client that accepts gzip", async () => {
@@ -204,8 +205,6 @@ describe("compressIfEligible", () => {
 });
 
 describe("buildResponseHeaders", () => {
-  const HTML_PATH = join(DIST, "index.html");
-  const FONT_PATH = join(DIST, "fonts/space-grotesk.woff2");
   const CSP = "default-src 'self'";
 
   it("sets Content-Encoding and Vary for a compressed response", () => {
