@@ -311,6 +311,23 @@ describe("ci.yml's ci job checkout", () => {
     expect(ciJobStart).toBeGreaterThanOrEqual(0);
     expect(e2eJobStart).toBeGreaterThan(ciJobStart);
     const ciJobLines = lines.slice(ciJobStart, e2eJobStart);
-    expect(ciJobLines.some((line) => /fetch-depth:\s*0/.test(line))).toBe(true);
+    // Anchored to the checkout step's own option lines (not "anywhere in the ci
+    // job") so a commented-out `# fetch-depth: 0`, an unrelated step's `with:`, or a
+    // later checkout step further down the job can't satisfy this test.
+    const checkoutStart = ciJobLines.findIndex((line) =>
+      /^\s*-\s+uses:\s*actions\/checkout/.test(line),
+    );
+    expect(checkoutStart).toBeGreaterThanOrEqual(0);
+    const afterCheckout = ciJobLines.slice(checkoutStart + 1);
+    const nextStepOffset = afterCheckout.findIndex((line) =>
+      /^\s*-\s+\S/.test(line),
+    );
+    const checkoutOptionLines = afterCheckout.slice(
+      0,
+      nextStepOffset === -1 ? undefined : nextStepOffset,
+    );
+    expect(
+      checkoutOptionLines.some((line) => /^\s+fetch-depth:\s*0\s*$/.test(line)),
+    ).toBe(true);
   });
 });
