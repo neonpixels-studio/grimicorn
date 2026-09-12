@@ -175,7 +175,13 @@ export default defineConfig({
     return [HERO_PRELOAD_HEAD_ENTRY];
   },
   vite: {
-    plugins: [tailwindcss()],
+    // tailwindcss() is typed against the top-level `vite` package, which npm
+    // hoists to v8 to satisfy vitest 5's peer range. vitepress bundles its own
+    // vite@5 internally and types `vite.plugins` against that copy, so the two
+    // Plugin types are structurally different even though they're both valid
+    // Vite plugin objects at runtime. Cast through `any` to bridge the two
+    // physical vite installations rather than fighting npm's dependency graph.
+    plugins: [tailwindcss()] as any,
   },
   buildEnd(siteConfig: SiteConfig) {
     writeCspHeaders(siteConfig.outDir);
