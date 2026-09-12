@@ -1,13 +1,12 @@
-import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
 import {
   ASSET_VERSION_LOCK_FILE,
-  PROJECT_ROOT,
   assertTokenBumpedForChangedAssets,
   fingerprintAssets,
   parseAssetVersionLock,
   readAssetCacheBustToken,
+  runGit,
 } from "../asset-version-manifest.mjs";
 
 // scripts/regenerate-asset-version-lock.mjs already guards a *local* run: it compares
@@ -35,23 +34,11 @@ import {
 // the lock file) has nothing to diff against — same "first lock" allowance
 // scripts/regenerate-asset-version-lock.mjs grants at ABSENT_FROM_HEAD_PATTERN.
 // Anchored to git's actual "path at ref" message shape (not a loose substring match)
-// so an unrelated failure isn't misclassified as a missing lock either way.
-//
-// Depends on runGit forcing LC_ALL=C below — git's fatal messages go through
-// gettext, so a translated git would otherwise never match this pattern and every
-// PR against a lockless base would fail with a spurious "could not read lock" error
-// instead of the intended "no lock yet" pass.
+// so an unrelated failure isn't misclassified as a missing lock either way. Relies on
+// the shared runGit() (asset-version-manifest.mjs) pinning LC_ALL=C, since git's fatal
+// messages go through gettext and would otherwise translate under a non-English git.
 const ABSENT_AT_REF_PATTERN =
   /^fatal: path '.+' (?:does not exist in|exists on disk, but not in) '.+'/m;
-
-function runGit(args) {
-  return execFileSync("git", args, {
-    cwd: PROJECT_ROOT,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, LC_ALL: "C" },
-  });
-}
 
 // True when a `git show <ref>:<path>` failure means "the file doesn't exist at that
 // ref" rather than a real problem. Unit-testable without invoking git.

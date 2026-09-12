@@ -1,10 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, symlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const TEST_FILE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 import {
   checkAssetVersionBump,
   isLockAbsentAtRefError,
@@ -13,6 +11,8 @@ import {
   resolveBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
 import { ASSET_VERSION_LOCK_FILE } from "../../asset-version-manifest.mjs";
+
+const TEST_FILE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
 // Mirrors the fixture shape .vitepress/tests/asset-version-lock.test.ts already
 // uses for assertTokenBumpedForChangedAssets, but exercised through
@@ -290,5 +290,27 @@ describe("isLockAbsentAtRefError", () => {
     expect(isLockAbsentAtRefError("fatal: branch 'main' does not exist")).toBe(
       false,
     );
+  });
+});
+
+describe("ci.yml's ci job checkout", () => {
+  // check:asset-version-bump needs origin/<base> available locally to compute a
+  // merge-base against it; without `fetch-depth: 0` the checkout is shallow and
+  // findMergeBaseUsingGit() fails with "fatal: Not a valid object name origin/main"
+  // for every PR. Reading the raw workflow (rather than asserting in prose) means a
+  // dropped `fetch-depth: 0` fails this test instead of only failing CI.
+  it("sets fetch-depth: 0 so check:asset-version-bump can diff against the base branch", () => {
+    const ciYamlPath = resolve(
+      TEST_FILE_DIRECTORY,
+      "../../.github/workflows/ci.yml",
+    );
+    const source = readFileSync(ciYamlPath, "utf8");
+    const lines = source.split("\n");
+    const ciJobStart = lines.findIndex((line) => /^\s*ci:\s*$/.test(line));
+    const e2eJobStart = lines.findIndex((line) => /^\s*e2e:\s*$/.test(line));
+    expect(ciJobStart).toBeGreaterThanOrEqual(0);
+    expect(e2eJobStart).toBeGreaterThan(ciJobStart);
+    const ciJobLines = lines.slice(ciJobStart, e2eJobStart);
+    expect(ciJobLines.some((line) => /fetch-depth:\s*0/.test(line))).toBe(true);
   });
 });

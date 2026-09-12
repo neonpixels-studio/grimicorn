@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +10,7 @@ import {
   parseAssetVersionLock,
   readAssetCacheBustToken,
   readAssetVersionLock,
+  runGit,
   syncWebManifestCacheBustTokensOnDisk,
 } from "../asset-version-manifest.mjs";
 
@@ -26,6 +26,12 @@ const JSON_INDENT = 2;
 
 // A first-lock or non-git checkout legitimately has no committed lock; any other git
 // failure (git missing, broken repo) must NOT silently weaken the guard, so it rethrows.
+// Deliberately looser than scripts/check-asset-version-bump.mjs's ABSENT_AT_REF_PATTERN:
+// this also treats "unknown revision" (HEAD doesn't resolve yet, e.g. a brand-new repo
+// with no commits) as "no lock", which the CI gate must NOT do — there HEAD always
+// resolves, so "unknown revision" can only mean an unfetched base ref, a broken check
+// that must fail loud. Relies on the shared runGit() (asset-version-manifest.mjs)
+// pinning LC_ALL=C so this pattern isn't broken by a translated git.
 const ABSENT_FROM_HEAD_PATTERN =
   /does not exist|exists on disk, but not in|unknown revision/;
 
@@ -35,11 +41,7 @@ const ABSENT_FROM_HEAD_PATTERN =
 function readCommittedLockOrNull() {
   let raw;
   try {
-    raw = execFileSync("git", ["show", `HEAD:${ASSET_VERSION_LOCK_FILE}`], {
-      cwd: PROJECT_ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    raw = runGit(["show", `HEAD:${ASSET_VERSION_LOCK_FILE}`]);
   } catch (error) {
     const stderr = String(error.stderr ?? "");
     if (ABSENT_FROM_HEAD_PATTERN.test(stderr)) {
