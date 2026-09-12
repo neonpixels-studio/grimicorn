@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,21 @@ import { fileURLToPath } from "node:url";
 // (run by vitest) and the regen script (run by node) agree on one project root no
 // matter which directory they were launched from.
 export const PROJECT_ROOT = dirname(fileURLToPath(import.meta.url));
+
+// The one seam every script that shells out to git goes through (scripts/regenerate-
+// asset-version-lock.mjs and scripts/check-asset-version-bump.mjs both read a lock at
+// a ref via `git show`). LC_ALL=C is required, not cosmetic: both callers classify
+// failures by pattern-matching git's `fatal:` stderr text, which goes through gettext
+// — an unpinned locale would translate that text under a non-English git/OS and break
+// the "lock absent at this ref" vs. "real git failure" classification silently.
+export function runGit(args) {
+  return execFileSync("git", args, {
+    cwd: PROJECT_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, LC_ALL: "C" },
+  });
+}
 
 // Every static asset whose cache-bust ?v= is the shared ASSET_CACHE_BUST token
 // (.vitepress/asset-cache-bust.ts). All of these live under a year-long immutable
