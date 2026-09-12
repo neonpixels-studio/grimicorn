@@ -1,10 +1,18 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, symlinkSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const TEST_FILE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 import {
   checkAssetVersionBump,
   isLockAbsentAtRefError,
+  isMainModule,
   readLockTextAtRef,
   resolveBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
+import { ASSET_VERSION_LOCK_FILE } from "../../asset-version-manifest.mjs";
 
 // Mirrors the fixture shape .vitepress/tests/asset-version-lock.test.ts already
 // uses for assertTokenBumpedForChangedAssets, but exercised through
@@ -82,6 +90,24 @@ describe("checkAssetVersionBump", () => {
     });
     expect(run).not.toThrow();
     expect(run()).toEqual({ skipped: false, comparedRef: MERGE_BASE_SHA });
+  });
+
+  it("throws instead of silently reading the index when findMergeBase returns an empty ref", () => {
+    // An empty comparedRef fed straight into readLock would resolve to `git show
+    // :<path>` — the index, not a commit — which in CI matches HEAD and would make
+    // the gate compare the PR against itself instead of failing loud.
+    let readLockCalled = false;
+    const run = () =>
+      checkAssetVersionBump({
+        baseRef: BASE_REF,
+        findMergeBase: () => "",
+        readLock: () => {
+          readLockCalled = true;
+          return baseLock;
+        },
+      });
+    expect(run).toThrow(/Could not resolve a merge base/);
+    expect(readLockCalled).toBe(false);
   });
 
   it("propagates a findMergeBase failure (e.g. an unfetched base ref) without reading the lock", () => {
@@ -182,11 +208,47 @@ describe("readLockTextAtRef", () => {
     );
   });
 
-  it("returns the raw text on success", () => {
-    const runGitCommand = () => '{"token":"?v=20260816","assets":{}}';
+  it("returns the raw text on success, invoking git show with a single ref:path arg", () => {
+    const receivedArgs: string[][] = [];
+    const runGitCommand = (args: string[]) => {
+      receivedArgs.push(args);
+      return '{"token":"?v=20260816","assets":{}}';
+    };
     expect(readLockTextAtRef(REF, runGitCommand)).toBe(
       '{"token":"?v=20260816","assets":{}}',
     );
+    expect(receivedArgs).toEqual([
+      ["show", `${REF}:${ASSET_VERSION_LOCK_FILE}`],
+    ]);
+  });
+});
+
+describe("isMainModule", () => {
+  it("returns false when argv1 is undefined (module imported, not invoked)", () => {
+    expect(isMainModule(undefined)).toBe(false);
+  });
+
+  it("returns false for an unrelated existing path", () => {
+    expect(isMainModule(fileURLToPath(import.meta.url))).toBe(false);
+  });
+
+  it("returns false for a path that does not exist on disk, without throwing", () => {
+    expect(isMainModule("/nonexistent/path/does-not-exist.mjs")).toBe(false);
+  });
+
+  it("returns true when argv1 is a symlink resolving to this module's real path", () => {
+    const scriptPath = resolve(
+      TEST_FILE_DIRECTORY,
+      "../../scripts/check-asset-version-bump.mjs",
+    );
+    const tempDirectory = mkdtempSync(join(tmpdir(), "isMainModule-"));
+    const symlinkPath = join(tempDirectory, "check-asset-version-bump.mjs");
+    try {
+      symlinkSync(scriptPath, symlinkPath);
+      expect(isMainModule(symlinkPath)).toBe(true);
+    } finally {
+      rmSync(tempDirectory, { recursive: true, force: true });
+    }
   });
 });
 

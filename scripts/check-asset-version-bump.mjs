@@ -32,18 +32,15 @@ import {
 // changes to land through one.
 
 // A base ref with no committed lock (a brand-new repo, or a base branch that predates
-// the lock file) has nothing to diff against — the same "first lock" allowance
-// scripts/regenerate-asset-version-lock.mjs grants for a missing HEAD copy at
-// ABSENT_FROM_HEAD_PATTERN there. The two patterns deliberately disagree on "unknown
-// revision": that script reads git's local HEAD, which always resolves once a repo has
-// a commit, so treating it as "no lock" there is a harmless, purely defensive
-// fallback. This script reads a fetched remote ref instead, where "unknown revision"
-// means the base branch was never fetched at all (e.g. fetch-depth: 0 got dropped from
-// ci.yml, or findMergeBaseUsingGit's own `git merge-base` failed for the same reason,
-// which surfaces even earlier than this classifier does) — a broken check, not "no
-// lock yet". Anchored to git's actual "path at ref" message shape (not a loose
-// substring match) so an unrelated failure that happens to contain "does not exist" is
-// never misclassified either way.
+// the lock file) has nothing to diff against — same "first lock" allowance
+// scripts/regenerate-asset-version-lock.mjs grants at ABSENT_FROM_HEAD_PATTERN.
+// Anchored to git's actual "path at ref" message shape (not a loose substring match)
+// so an unrelated failure isn't misclassified as a missing lock either way.
+//
+// Depends on runGit forcing LC_ALL=C below — git's fatal messages go through
+// gettext, so a translated git would otherwise never match this pattern and every
+// PR against a lockless base would fail with a spurious "could not read lock" error
+// instead of the intended "no lock yet" pass.
 const ABSENT_AT_REF_PATTERN =
   /^fatal: path '.+' (?:does not exist in|exists on disk, but not in) '.+'/m;
 
@@ -52,21 +49,19 @@ function runGit(args) {
     cwd: PROJECT_ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, LC_ALL: "C" },
   });
 }
 
 // True when a `git show <ref>:<path>` failure means "the file doesn't exist at that
-// ref" rather than a real problem (missing ref, broken repo, no fetch). Pulled out as
-// its own function so the classification is unit-testable without invoking git.
+// ref" rather than a real problem. Unit-testable without invoking git.
 export function isLockAbsentAtRefError(stderrText) {
   return ABSENT_AT_REF_PATTERN.test(stderrText);
 }
 
 // Runs `git show <ref>:<lock path>`, returning the raw text, null when the lock is
-// absent at that ref, or throwing for any other git failure. Isolated from the JSON
-// parse below so readLockAtRefUsingGit's only remaining job is "text in, lock out".
-// `runGitCommand` is its own seam (defaulting to the real `runGit`) so both branches
-// of the catch — "absent, return null" and "real failure, rethrow" — are directly
+// absent at that ref, or throwing for any other git failure. `runGitCommand` is an
+// injectable seam (defaulting to the real `runGit`) so both branches of the catch are
 // unit-testable without invoking git.
 export function readLockTextAtRef(ref, runGitCommand = runGit) {
   try {
@@ -83,10 +78,9 @@ export function readLockTextAtRef(ref, runGitCommand = runGit) {
   }
 }
 
-// The only function in this file that touches git for real to read the lock. Every
-// caller reaches it through the injectable `readLock` parameter of
-// checkAssetVersionBump(), so tests exercise the enforcement logic with canned data
-// and never need a real git repo.
+// The only function in this file that touches git for real to read the lock. Reached
+// through the injectable `readLock` parameter of checkAssetVersionBump(), so tests
+// exercise the enforcement logic with canned data and never need a real git repo.
 function readLockAtRefUsingGit(ref) {
   const raw = readLockTextAtRef(ref);
   if (raw === null) {
@@ -96,18 +90,14 @@ function readLockAtRefUsingGit(ref) {
 }
 
 // The commit both `headRef` and `baseRef` descend from — see the module comment for
-// why the merge base, not the base branch's live tip, is the correct comparison
-// point. Its own injectable seam (default `findMergeBase` param of
-// checkAssetVersionBump) for the same reason readLock is: testable without git.
+// why the merge base, not the base branch's live tip, is the correct comparison point.
 function findMergeBaseUsingGit(baseRef, headRef = "HEAD") {
   return runGit(["merge-base", headRef, baseRef]).trim();
 }
 
 // The base branch to diff against, derived from the GitHub Actions pull_request
 // context. GITHUB_BASE_REF is only set for pull_request events; see the module
-// comment for why a push (main itself, or any other non-PR trigger) is skipped. The
-// workflow's checkout step fetches full history (see .github/workflows/ci.yml), so
-// origin/<base> is available as a local remote-tracking ref without an extra fetch.
+// comment for why a push (main itself, or any other non-PR trigger) is skipped.
 export function resolveBaseRef(env = process.env) {
   const baseBranch = env.GITHUB_BASE_REF;
   if (!baseBranch) {
@@ -118,11 +108,8 @@ export function resolveBaseRef(env = process.env) {
 
 // The check itself. Every collaborator (git access, asset fingerprinting, token read)
 // is an injectable seam defaulting to the real implementation, so tests can drive all
-// three required outcomes (bumped, not bumped, unchanged) against canned baseline/
-// current data without a real git repo or filesystem. JSDoc-typed (rather than left
-// to plain-JS inference) so the .ts test file that imports this gets an accurate
-// `baseRef: string | null` and a `readLock` return type that includes `null` — both
-// of which plain inference from the defaults alone gets wrong.
+// three required outcomes (bumped, not bumped, unchanged) against canned data without
+// a real git repo or filesystem.
 /**
  * @param {object} [options]
  * @param {string | null} [options.baseRef]
@@ -143,6 +130,14 @@ export function checkAssetVersionBump({
     return { skipped: true, reason: "no base ref (not a pull request)" };
   }
   const comparedRef = findMergeBase(baseRef);
+  if (!comparedRef) {
+    // Guards against `readLock(undefined)` resolving to `git show :<path>` — a bare
+    // `:path` reads the index, not a commit, which in CI matches HEAD and would make
+    // the gate silently compare the PR against itself instead of failing loud.
+    throw new Error(
+      `Could not resolve a merge base between HEAD and ${baseRef}.`,
+    );
+  }
   const baseLock = readLock(comparedRef);
   const fingerprint = computeFingerprint();
   const token = readToken();
@@ -154,17 +149,26 @@ export function checkAssetVersionBump({
 // bump.mjs` / `npm run check:asset-version-bump`), not when imported for its tests.
 // argv1 is realpath'd before comparing so invoking through a symlinked path (a `/tmp`
 // that is itself a symlink, as on macOS) still resolves to the same URL Node computed
-// for this module — see the identical concern documented in
-// scripts/regenerate-asset-version-lock.mjs. Deliberately NOT imported from there:
-// import.meta.url is bound to the module that defines it, so an imported copy would
-// always compare argv[1] against regenerate-asset-version-lock.mjs's own URL, never
+// for this module. Deliberately NOT imported from regenerate-asset-version-lock.mjs's
+// identical helper: import.meta.url is bound to the module that defines it, so an
+// imported copy would always compare argv[1] against that script's own URL, never
 // match, and silently make isMainModule() return false here — the CI step would then
-// exit 0 having checked nothing. Duplicated in miniature instead.
-function isMainModule(argv1 = process.argv[1]) {
+// exit 0 having checked nothing. Duplicated in miniature instead, and exported so
+// that silent-failure risk is directly unit-tested rather than only asserted in prose.
+// realpathSync throws ENOENT for an argv1 that doesn't exist on disk (e.g. a virtual
+// path when this module is imported from a non-file context); fall back to resolving
+// the raw path rather than crashing the import.
+export function isMainModule(argv1 = process.argv[1]) {
   if (argv1 == null) {
     return false;
   }
-  return import.meta.url === pathToFileURL(realpathSync(argv1)).href;
+  let resolvedPath;
+  try {
+    resolvedPath = realpathSync(argv1);
+  } catch {
+    resolvedPath = argv1;
+  }
+  return import.meta.url === pathToFileURL(resolvedPath).href;
 }
 
 function formatResultMessage(result) {
