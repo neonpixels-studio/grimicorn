@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { ASSET_CACHE_BUST, withAssetCacheBust } from "../asset-cache-bust";
+import { parseAssetCacheBustToken } from "../../asset-version-manifest.mjs";
 
 const SHARED_MODULE_PATH = resolve(
   process.cwd(),
@@ -44,8 +45,13 @@ function countOccurrences(source: string, token: string) {
 }
 
 describe("asset cache-bust token", () => {
-  it("exposes an 8-digit dated ?v= token as the single source of truth", () => {
-    expect(ASSET_CACHE_BUST).toMatch(/^\?v=\d{8}$/);
+  it("exposes an 8-digit dated ?v= token, with an optional same-day -N revision suffix, as the single source of truth", () => {
+    // Checked against the real parser (not a second, looser regex here) so this
+    // invariant can't silently drift from the grammar asset-version-manifest.mjs
+    // actually enforces.
+    expect(() => {
+      parseAssetCacheBustToken(ASSET_CACHE_BUST);
+    }).not.toThrow();
   });
 
   it("appends the token to an asset path via the shared helper", () => {

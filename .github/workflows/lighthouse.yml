@@ -1,0 +1,57 @@
+name: Lighthouse
+
+# Standalone perf/a11y/SEO budget gate, separate from ci.yml (which owns
+# lint/typecheck/test/build) so this can iterate on thresholds independently.
+# Runs Lighthouse CI against the production build served by
+# .vitepress/e2e/serve-dist.mjs. Coverage limits (what this gate can and can't
+# catch) and budget rationale: the "CI" section of README.md and
+# lighthouserc.cjs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Read .nvmrc
+        id: nvmrc
+        run: echo "version=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.nvmrc.outputs.version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Third-party action, pinned to a commit SHA (not just a version tag) per
+      # least-privilege/supply-chain practice for non-GitHub-owned actions; the
+      # first-party actions/* steps above follow the repo's existing major-tag
+      # convention instead. Tag: 12.6.2.
+      - name: Lighthouse CI
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # 12.6.2
+        with:
+          configPath: ./lighthouserc.cjs
+          uploadArtifacts: true

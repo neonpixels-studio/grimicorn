@@ -28,6 +28,15 @@ export default [
     },
   },
   {
+    files: ["**/*.cjs"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.commonjs,
+      },
+    },
+  },
+  {
     files: ["**/*.vue"],
     languageOptions: {
       parserOptions: {
