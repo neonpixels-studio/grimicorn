@@ -14,6 +14,19 @@ import { MAIN_CONTENT_ID } from "../theme/constants";
 const HIDDEN_BOX_SIZE = { width: 1, height: 1 };
 const TO_PASS_TIMEOUT_MS = 5_000;
 
+// WebKit on macOS leaves links out of the Tab order by default (Safari exposes
+// this as Settings > Advanced > "Press Tab to highlight each item on a webpage").
+// Holding Option flips that setting for a single keypress, so Option+Tab reaches
+// links while it's at its default, which is what Playwright's macOS WebKit
+// always uses. Playwright's Linux WebKit build (what CI runs) Tab-focuses links
+// by default, like Chromium and Firefox, so plain Tab is used everywhere else.
+function linkTabKeyFor(browserName: string) {
+  if (browserName === "webkit" && process.platform === "darwin") {
+    return "Alt+Tab";
+  }
+  return "Tab";
+}
+
 // One evaluate() so the box and the outline come from a single snapshot — two
 // separate reads (a boundingBox() call plus a getComputedStyle() round trip)
 // could straddle a frame and pass on values that never held simultaneously.
@@ -43,6 +56,7 @@ function readRevealState(locator: Locator) {
 
 test("tabbing to the skip link reveals it, activating focuses main content, and it re-hides", async ({
   page,
+  browserName,
 }) => {
   await page.goto("/");
 
@@ -54,8 +68,9 @@ test("tabbing to the skip link reveals it, activating focuses main content, and 
   }).toPass({ timeout: TO_PASS_TIMEOUT_MS });
 
   // The skip link is the first element AppLayout.vue renders (before the nav
-  // and page content), so a single Tab from a fresh load lands on it.
-  await page.keyboard.press("Tab");
+  // and page content), so a single Tab (or, on macOS WebKit, Option+Tab — see
+  // linkTabKeyFor) from a fresh load lands on it.
+  await page.keyboard.press(linkTabKeyFor(browserName));
   await expect(skipLink).toBeFocused();
 
   // `.skip-link:focus` overrides the `sr-only` clip with a real width/height
