@@ -26,10 +26,10 @@ const PERMISSIONS_HEADER_PATTERN = /^([ \t]*)permissions:(.*)$/;
 // Matches the standalone-`{}` flow mapping, which grants *no* scopes — the
 // tightest possible setting, not an "overly broad" one.
 const EMPTY_FLOW_MAPPING_PATTERN = /^\{\s*\}$/;
-// A job (or step) can declare its own `permissions:` block, which per GitHub
-// Actions semantics fully replaces — not merges with — the workflow-level
-// block. Narrowing further (e.g. `permissions: {}` on one job) is fine; only
-// a nested grant of `write`/`write-all` defeats the top-level read-only
+// A job can declare its own `permissions:` block, which per GitHub Actions
+// semantics fully replaces — not merges with — the workflow-level block.
+// Narrowing further (e.g. `permissions: {}` on one job) is fine; only a
+// nested grant of `write`/`write-all` defeats the top-level read-only
 // guarantee this test checks for.
 const WRITE_KEYWORD_PATTERN = /\bwrite(-all)?\b/i;
 
@@ -37,6 +37,11 @@ type PermissionsResult =
   | { kind: "missing" }
   | { kind: "duplicate"; count: number }
   | { kind: "unsupported-inline"; value: string }
+  // A bare `permissions:` key with no scopes underneath is invalid YAML
+  // policy (GitHub rejects it outright) — distinct from the deliberate
+  // "grant nothing" of `permissions: {}`, which arrives as `block` with an
+  // empty `lines` array instead.
+  | { kind: "empty-block" }
   | { kind: "block"; lines: string[] };
 
 // Strips a trailing inline `# comment` and collapses runs of internal
@@ -93,6 +98,9 @@ function parseTopLevelPermissions(lines: string[]): PermissionsResult {
       .filter((line) => !COMMENT_LINE_PATTERN.test(line))
       .map(normalizeLine)
       .filter(Boolean);
+    if (blockLines.length === 0) {
+      return { kind: "empty-block" };
+    }
     return { kind: "block", lines: blockLines };
   }
   if (EMPTY_FLOW_MAPPING_PATTERN.test(inlineValue)) {
@@ -114,13 +122,17 @@ function findWriteScopeOverride(lines: string[]) {
   });
 
   for (const headerIndex of nestedHeaderIndexes) {
-    const inlineValue = lines[headerIndex].match(
-      PERMISSIONS_HEADER_PATTERN,
-    )![2];
-    const blockText = readBlockBody(lines, headerIndex).join("\n");
+    const inlineValue = normalizeLine(
+      lines[headerIndex].match(PERMISSIONS_HEADER_PATTERN)![2],
+    );
+    const blockText = readBlockBody(lines, headerIndex)
+      .filter((line) => !COMMENT_LINE_PATTERN.test(line))
+      .map(normalizeLine)
+      .join("\n");
     const candidateText = `${inlineValue}\n${blockText}`;
     if (WRITE_KEYWORD_PATTERN.test(candidateText)) {
-      return lines[headerIndex].trim();
+      // 1-indexed line number, matching how editors and diffs report it.
+      return `line ${headerIndex + 1}: ${lines[headerIndex].trim()}`;
     }
   }
   return undefined;
@@ -154,6 +166,11 @@ describe("Workflow permissions", () => {
           `${fileName} declares permissions in an inline form this check can't verify ("${permissions.value}"); use the block form instead`,
         );
       }
+      if (permissions.kind === "empty-block") {
+        throw new Error(
+          `${fileName} declares a "permissions:" key with no scopes underneath, which GitHub Actions rejects — use "permissions: {}" to deliberately grant nothing`,
+        );
+      }
 
       // An empty block (from `permissions: {}`) grants no scopes at all,
       // which is strictly tighter than the read-only policy and also passes.
@@ -161,19 +178,23 @@ describe("Workflow permissions", () => {
       const isReadOnly =
         permissions.lines.length === 1 &&
         permissions.lines[0] === EXPECTED_PERMISSIONS_LINE;
-      expect(isNoScopes || isReadOnly).toBe(true);
+      if (!isNoScopes && !isReadOnly) {
+        throw new Error(
+          `${fileName} declares permissions ${JSON.stringify(permissions.lines)}, expected [] (no scopes) or ["${EXPECTED_PERMISSIONS_LINE}"]`,
+        );
+      }
     },
   );
 
   it.each(WORKFLOW_FILES)(
     "%s has no job-level permissions override granting write access",
     (fileName) => {
-      const writeOverrideLine = findWriteScopeOverride(
+      const writeOverrideLocation = findWriteScopeOverride(
         readWorkflowLines(fileName),
       );
-      if (writeOverrideLine !== undefined) {
+      if (writeOverrideLocation !== undefined) {
         throw new Error(
-          `${fileName} declares a job-level permissions override ("${writeOverrideLine}") that grants write access, defeating the read-only top-level block`,
+          `${fileName} declares a job-level permissions override (${writeOverrideLocation}) that grants write access, defeating the read-only top-level block`,
         );
       }
     },
@@ -209,6 +230,21 @@ describe("parseTopLevelPermissions edge cases", () => {
       kind: "block",
       lines: [],
     });
+  });
+
+  it("reports empty-block for a bare permissions key with no scopes underneath", () => {
+    const lines = ["name: Example", "permissions:", "jobs:"];
+    expect(parseTopLevelPermissions(lines)).toEqual({ kind: "empty-block" });
+  });
+
+  it("reports empty-block when the only body line is a comment", () => {
+    const lines = [
+      "name: Example",
+      "permissions:",
+      "  # contents: read",
+      "jobs:",
+    ];
+    expect(parseTopLevelPermissions(lines)).toEqual({ kind: "empty-block" });
   });
 
   it("strips a trailing inline comment on the permissions entry", () => {
@@ -254,7 +290,7 @@ describe("parseTopLevelPermissions edge cases", () => {
     });
   });
 
-  it("flags a job-level override that grants write access", () => {
+  it("flags a job-level override that grants write access in its block body", () => {
     const lines = [
       "permissions:",
       "  contents: read",
@@ -263,7 +299,20 @@ describe("parseTopLevelPermissions edge cases", () => {
       "    permissions:",
       "      contents: write",
     ];
-    expect(findWriteScopeOverride(lines)).toBe("permissions:");
+    expect(findWriteScopeOverride(lines)).toBe("line 5: permissions:");
+  });
+
+  it("flags a job-level override declared inline", () => {
+    const lines = [
+      "permissions:",
+      "  contents: read",
+      "jobs:",
+      "  build:",
+      "    permissions: write-all",
+    ];
+    expect(findWriteScopeOverride(lines)).toBe(
+      "line 5: permissions: write-all",
+    );
   });
 
   it("allows a job-level override that only narrows further", () => {
@@ -273,6 +322,19 @@ describe("parseTopLevelPermissions edge cases", () => {
       "jobs:",
       "  build:",
       "    permissions: {}",
+    ];
+    expect(findWriteScopeOverride(lines)).toBeUndefined();
+  });
+
+  it("does not trip on a comment mentioning write inside a job's permissions block", () => {
+    const lines = [
+      "permissions:",
+      "  contents: read",
+      "jobs:",
+      "  build:",
+      "    permissions:",
+      "      # deliberately no write scopes",
+      "      contents: read",
     ];
     expect(findWriteScopeOverride(lines)).toBeUndefined();
   });
