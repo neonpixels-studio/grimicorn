@@ -8,14 +8,15 @@ import { ESLint } from "eslint";
 // "error". Anchored to the repo root, not process.cwd(): both ESLint config
 // discovery and the `files` glob matching resolve against `cwd`, so pinning
 // it keeps callers honest regardless of where the runner is invoked from.
-export const REPO_ROOT = path.resolve(
+const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
 );
 
 // ESLint's numeric severity for "error"; the point of these rules is to block
-// CI, so callers assert this rather than merely that a rule reported.
-export const ERROR_SEVERITY = 2;
+// CI, so `expectRuleError` asserts this rather than merely that a rule
+// reported.
+const ERROR_SEVERITY = 2;
 
 // errorOnUnmatchedPattern is off so a caller using `lintFiles` on a glob (e.g.
 // asserting the ruleset resolves against real theme components) reports its
@@ -38,27 +39,28 @@ export function createVueLinter(probeFileName: string) {
     probeFileName,
   );
 
-  return async function lintVue(source: string) {
+  async function lintVue(source: string) {
+    // A negative assertion (expecting no error) would pass vacuously if the
+    // probe path ever started matching an `ignores` pattern in
+    // eslint.config.js. Check the public predicate up front rather than
+    // pattern-matching ESLint's human-readable ignore message, which is not
+    // a stable API and could reword out from under a text match.
+    if (await eslint.isPathIgnored(probeFilePath)) {
+      throw new Error(
+        `Probe path is being ignored by ESLint: ${probeFilePath}`,
+      );
+    }
     const results = await eslint.lintText(source, { filePath: probeFilePath });
     const messages = results.flatMap((result) => result.messages);
     const fatalMessage = messages.find((message) => message.fatal);
     if (fatalMessage) {
       throw new Error(`Probe source failed to parse: ${fatalMessage.message}`);
     }
-    // lintText warns rather than errors when the probe path matches an
-    // `ignores` pattern, so a negative assertion (expecting no error) would
-    // pass vacuously if the probe path were ever ignored. Fail loud instead.
-    const ignoredMessage = messages.find(
-      (message) =>
-        message.ruleId === null && message.message.includes("File ignored"),
-    );
-    if (ignoredMessage) {
-      throw new Error(
-        `Probe path is being ignored by ESLint: ${probeFilePath}`,
-      );
-    }
     return messages;
-  };
+  }
+
+  lintVue.probeFilePath = probeFilePath;
+  return lintVue;
 }
 
 export function expectRuleError(
