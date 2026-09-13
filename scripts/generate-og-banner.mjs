@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
-import { extractBrandBackgroundColor } from "../brand-color.mjs";
+import { readBrandBackgroundColor } from "../brand-color.mjs";
 
 // Landscape Open Graph banner. Twitter's summary_large_image and most platforms
 // render ~1.91:1, so a square source gets center-cropped. We derive the banner
@@ -15,16 +14,14 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(scriptDir, "..");
 const SOURCE_IMAGE = resolve(projectRoot, "public/assets/grimicorn-hero.png");
 const OUTPUT_IMAGE = resolve(projectRoot, "public/assets", OG_IMAGE_FILENAME);
-const THEME_STYLESHEET = resolve(projectRoot, ".vitepress/theme/style.css");
-
-// Read straight from the theme stylesheet (--color-bg) rather than a hardcoded
-// copy, so the padding can't silently drift from the site's real background.
-const THEME_BACKGROUND = extractBrandBackgroundColor(
-  readFileSync(THEME_STYLESHEET, "utf8"),
-  THEME_STYLESHEET,
-);
 
 async function generateBanner() {
+  // Read inside the try/catch-guarded entry point (see the .catch below) rather
+  // than at module top level, so a missing stylesheet or an ambiguous/non-hex
+  // --color-bg declaration reports the same contextual failure as any other
+  // generation error instead of a bare unhandled-rejection stack trace.
+  const themeBackground = readBrandBackgroundColor();
+
   const hero = await sharp(SOURCE_IMAGE)
     .resize(OG_HEIGHT, OG_HEIGHT, { fit: "inside" })
     .toBuffer();
@@ -34,11 +31,11 @@ async function generateBanner() {
       width: OG_WIDTH,
       height: OG_HEIGHT,
       channels: 4,
-      background: THEME_BACKGROUND,
+      background: themeBackground,
     },
   })
     .composite([{ input: hero, gravity: "center" }])
-    .flatten({ background: THEME_BACKGROUND })
+    .flatten({ background: themeBackground })
     .png({ compressionLevel: PNG_COMPRESSION_LEVEL, palette: true })
     .toFile(OUTPUT_IMAGE);
 }
