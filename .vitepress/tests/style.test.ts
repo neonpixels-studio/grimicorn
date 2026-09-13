@@ -175,6 +175,31 @@ describe("skip link focus reveal", () => {
   });
 });
 
+// .colorful-btn:hover sets its own independent `animation-name: gx-rainbow-pan`
+// (infinite) rather than relying on the `.animate-rainbow-pan` class the
+// reduced-motion block already silences, so hovering it kept spinning the
+// rainbow forever for prefers-reduced-motion visitors until reset here too.
+describe("reduced motion guards", () => {
+  const css = readStyleCss();
+
+  it("neutralizes the colorful-btn hover rainbow animation under prefers-reduced-motion", () => {
+    const mediaBlock = css.match(
+      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)^\}/m,
+    );
+    expect(
+      mediaBlock,
+      "prefers-reduced-motion media block not found",
+    ).not.toBeNull();
+
+    const rule = mediaBlock![1].match(/\.colorful-btn:hover\s*\{([^}]*)\}/);
+    expect(
+      rule,
+      ".colorful-btn:hover rule not found inside the reduced-motion block",
+    ).not.toBeNull();
+    expect(stripWhitespace(rule![1])).toContain("animation:none");
+  });
+});
+
 // .colorful-btn resets the UA button outline (border:none, padding:0), so
 // without an explicit rule every colorful button — including the footer's
 // bare rave toggle, which carries no other class — shows no keyboard focus
