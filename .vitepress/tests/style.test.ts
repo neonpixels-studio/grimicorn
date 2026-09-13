@@ -195,12 +195,15 @@ describe("reduced motion guards", () => {
   // real CSS.
   const cssWithoutComments = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
 
-  // Anchored on the preceding `{` or `}` (or start of file) so a future
-  // compound selector ending in `.colorful-btn:hover` (e.g. some
-  // `.foo .colorful-btn:hover` override) can't be mistaken for one of these
-  // two top-level rules.
+  // Anchored on the preceding `{`, `}`, `,` (a grouped selector list), or
+  // start of file, so a future compound selector ending in
+  // `.colorful-btn:hover` (e.g. some `.foo .colorful-btn:hover` override)
+  // can't be mistaken for one of these two top-level rules. No `m` flag: with
+  // it, `^` matches at every line start, which would treat an indented
+  // continuation line as "start of file" and defeat the anchor (see the
+  // `.colorful-btn:focus-visible` enclosure test below for the same hazard).
   const HOVER_RULE_PATTERN =
-    /(?:^|\}|\{)\s*\.colorful-btn:hover\s*\{([^}]*)\}/gm;
+    /(?:^|\}|\{|,)\s*\.colorful-btn:hover\s*\{([^}]*)\}/g;
 
   // The anchor alternation `(?:^|\}|\{)` can consume a real preceding brace
   // (e.g. the @media block's own opening `{` when the rule is the block's
@@ -243,14 +246,22 @@ describe("reduced motion guards", () => {
       "the reduced-motion guard must be declared after the base .colorful-btn:hover rule — equal specificity means an earlier guard loses the cascade regardless of the @media wrapper",
     ).toBeGreaterThan(baseHoverStart);
 
+    // Whitespace-insensitive, unlike a literal lastIndexOf on the exact
+    // source string, so a formatter change to the query's internal spacing
+    // (e.g. `prefers-reduced-motion:reduce`) can't fail this for a reason
+    // unrelated to the cascade bug it guards.
     const beforeGuard = cssWithoutComments.slice(0, guardStart);
-    const mediaQueryStart = beforeGuard.lastIndexOf(
-      "@media (prefers-reduced-motion: reduce)",
-    );
+    const mediaQueryMatches = [
+      ...beforeGuard.matchAll(
+        /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g,
+      ),
+    ];
+    const lastMediaQueryMatch = mediaQueryMatches.at(-1);
     expect(
-      mediaQueryStart,
+      lastMediaQueryMatch,
       "guard rule is not preceded by a prefers-reduced-motion media query",
-    ).toBeGreaterThan(-1);
+    ).toBeDefined();
+    const mediaQueryStart = lastMediaQueryMatch!.index!;
 
     const betweenMediaAndGuard = cssWithoutComments.slice(
       mediaQueryStart,
