@@ -151,14 +151,6 @@ body {
   .animate-dot {
     box-shadow: none;
   }
-
-  /* .colorful-btn:hover sets its own independent animation-name
-     (gx-rainbow-pan, infinite) rather than relying on the .animate-rainbow-pan
-     class above, so it needs its own reset here or hovering it still spins
-     the rainbow forever under reduced motion. */
-  .colorful-btn:hover {
-    animation: none;
-  }
 }
 
 /* The skip-to-content link ships visually hidden via Tailwind's `sr-only`; on
@@ -221,6 +213,18 @@ main[tabindex="-1"]:focus {
   animation-duration: var(--gx-rainbow-dur, 7s);
   animation-timing-function: linear;
   animation-iteration-count: infinite;
+}
+
+/* Must come after .colorful-btn:hover above, not inside the earlier
+   reduced-motion block: this selector carries the same specificity as the
+   hover rule it resets, so with equal specificity the cascade falls back to
+   source order and an earlier declaration would lose to the later one
+   regardless of the @media wrapper. Placing the guard after the rule it
+   overrides is what makes the reset actually win. */
+@media (prefers-reduced-motion: reduce) {
+  .colorful-btn:hover {
+    animation: none;
+  }
 }
 
 /* The pause control is a genuine accessibility affordance, not the footer's

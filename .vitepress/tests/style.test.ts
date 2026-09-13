@@ -179,24 +179,54 @@ describe("skip link focus reveal", () => {
 // (infinite) rather than relying on the `.animate-rainbow-pan` class the
 // reduced-motion block already silences, so hovering it kept spinning the
 // rainbow forever for prefers-reduced-motion visitors until reset here too.
+//
+// The reset selector (`.colorful-btn:hover`) carries the exact same
+// specificity as the base hover rule it's meant to override, so wrapping it
+// in `@media` alone isn't enough — with equal specificity the cascade falls
+// back to source order, and a guard declared *before* the base rule would
+// still lose to it. This test checks placement, not just presence, so a
+// guard that exists but is ordered before the base rule (and therefore
+// silently loses the cascade in a real browser) fails here too.
 describe("reduced motion guards", () => {
   const css = readStyleCss();
 
-  it("neutralizes the colorful-btn hover rainbow animation under prefers-reduced-motion", () => {
-    const mediaBlock = css.match(
-      /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)^\}/m,
+  it("orders the colorful-btn hover reduced-motion guard after the base hover rule so it wins the cascade", () => {
+    const hoverRuleMatches = [
+      ...css.matchAll(/\.colorful-btn:hover\s*\{([^}]*)\}/g),
+    ];
+    expect(
+      hoverRuleMatches.length,
+      "expected exactly two .colorful-btn:hover rules: the base rainbow-pan hover effect and its reduced-motion reset",
+    ).toBe(2);
+
+    const [baseHoverRule, guardRule] = hoverRuleMatches;
+    expect(stripWhitespace(baseHoverRule[1])).toContain(
+      "animation-name:gx-rainbow-pan",
+    );
+    expect(stripWhitespace(guardRule[1])).toContain("animation:none");
+
+    expect(
+      guardRule.index!,
+      "the reduced-motion guard must be declared after the base .colorful-btn:hover rule — equal specificity means an earlier guard loses the cascade regardless of the @media wrapper",
+    ).toBeGreaterThan(baseHoverRule.index!);
+
+    const beforeGuard = css.slice(0, guardRule.index);
+    const mediaQueryStart = beforeGuard.lastIndexOf(
+      "@media (prefers-reduced-motion: reduce)",
     );
     expect(
-      mediaBlock,
-      "prefers-reduced-motion media block not found",
-    ).not.toBeNull();
+      mediaQueryStart,
+      "guard rule is not preceded by a prefers-reduced-motion media query",
+    ).toBeGreaterThan(-1);
 
-    const rule = mediaBlock![1].match(/\.colorful-btn:hover\s*\{([^}]*)\}/);
+    const betweenMediaAndGuard = css.slice(mediaQueryStart, guardRule.index);
+    const openBraceDepth =
+      countOccurrences(betweenMediaAndGuard, "{") -
+      countOccurrences(betweenMediaAndGuard, "}");
     expect(
-      rule,
-      ".colorful-btn:hover rule not found inside the reduced-motion block",
-    ).not.toBeNull();
-    expect(stripWhitespace(rule![1])).toContain("animation:none");
+      openBraceDepth,
+      "guard rule must still be inside an open prefers-reduced-motion block, not after it closed",
+    ).toBe(1);
   });
 });
 
