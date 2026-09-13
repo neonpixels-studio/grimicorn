@@ -188,29 +188,62 @@ describe("skip link focus reveal", () => {
 // guard that exists but is ordered before the base rule (and therefore
 // silently loses the cascade in a real browser) fails here too.
 describe("reduced motion guards", () => {
-  const css = readStyleCss();
+  // Stripped once, like the sibling enclosure checks above (skip-link focus,
+  // colorful-btn focus-visible): this stylesheet's own comments quote
+  // selectors and at-rules verbatim, so counting braces or searching for a
+  // literal against the raw source risks landing inside a comment instead of
+  // real CSS.
+  const cssWithoutComments = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Anchored on the preceding `{` or `}` (or start of file) so a future
+  // compound selector ending in `.colorful-btn:hover` (e.g. some
+  // `.foo .colorful-btn:hover` override) can't be mistaken for one of these
+  // two top-level rules.
+  const HOVER_RULE_PATTERN =
+    /(?:^|\}|\{)\s*\.colorful-btn:hover\s*\{([^}]*)\}/gm;
+
+  // The anchor alternation `(?:^|\}|\{)` can consume a real preceding brace
+  // (e.g. the @media block's own opening `{` when the rule is the block's
+  // first declaration) as part of the match. Land on the selector itself, not
+  // that consumed prefix, so index-based ordering/depth math below isn't off
+  // by one — mirrors the `.colorful-btn:focus-visible` enclosure check above.
+  function selectorStart(match: RegExpMatchArray) {
+    return match.index! + match[0].indexOf(".colorful-btn:hover");
+  }
 
   it("orders the colorful-btn hover reduced-motion guard after the base hover rule so it wins the cascade", () => {
     const hoverRuleMatches = [
-      ...css.matchAll(/\.colorful-btn:hover\s*\{([^}]*)\}/g),
+      ...cssWithoutComments.matchAll(HOVER_RULE_PATTERN),
     ];
-    expect(
-      hoverRuleMatches.length,
-      "expected exactly two .colorful-btn:hover rules: the base rainbow-pan hover effect and its reduced-motion reset",
-    ).toBe(2);
 
-    const [baseHoverRule, guardRule] = hoverRuleMatches;
-    expect(stripWhitespace(baseHoverRule[1])).toContain(
-      "animation-name:gx-rainbow-pan",
+    // Select each rule by what it declares, not by array position — matchAll
+    // already returns matches in source order, so destructuring by index
+    // would make the ordering assertion below true by construction and
+    // unable to ever fail.
+    const baseHoverRule = hoverRuleMatches.find((rule) =>
+      stripWhitespace(rule[1]).includes("animation-name:gx-rainbow-pan"),
     );
-    expect(stripWhitespace(guardRule[1])).toContain("animation:none");
+    const guardRule = hoverRuleMatches.find((rule) =>
+      stripWhitespace(rule[1]).includes("animation:none"),
+    );
+    expect(
+      baseHoverRule,
+      "base .colorful-btn:hover rainbow-pan rule not found",
+    ).toBeDefined();
+    expect(
+      guardRule,
+      ".colorful-btn:hover reduced-motion reset (animation: none) not found",
+    ).toBeDefined();
+
+    const baseHoverStart = selectorStart(baseHoverRule!);
+    const guardStart = selectorStart(guardRule!);
 
     expect(
-      guardRule.index!,
+      guardStart,
       "the reduced-motion guard must be declared after the base .colorful-btn:hover rule — equal specificity means an earlier guard loses the cascade regardless of the @media wrapper",
-    ).toBeGreaterThan(baseHoverRule.index!);
+    ).toBeGreaterThan(baseHoverStart);
 
-    const beforeGuard = css.slice(0, guardRule.index);
+    const beforeGuard = cssWithoutComments.slice(0, guardStart);
     const mediaQueryStart = beforeGuard.lastIndexOf(
       "@media (prefers-reduced-motion: reduce)",
     );
@@ -219,7 +252,10 @@ describe("reduced motion guards", () => {
       "guard rule is not preceded by a prefers-reduced-motion media query",
     ).toBeGreaterThan(-1);
 
-    const betweenMediaAndGuard = css.slice(mediaQueryStart, guardRule.index);
+    const betweenMediaAndGuard = cssWithoutComments.slice(
+      mediaQueryStart,
+      guardStart,
+    );
     const openBraceDepth =
       countOccurrences(betweenMediaAndGuard, "{") -
       countOccurrences(betweenMediaAndGuard, "}");
