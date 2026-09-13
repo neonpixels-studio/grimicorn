@@ -3,8 +3,8 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { mount, type VueWrapper } from "@vue/test-utils";
 
-import config from "../config";
 import GrimicornPage from "@components/GrimicornPage.vue";
+import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -87,9 +87,7 @@ function listImmutableAssetUrlPaths(): string[] {
 
 // A head entry is [tag, attributes?, innerText?]; collect every string value that
 // could carry an asset URL (link/meta attributes plus inline JSON-LD text).
-function headEntryStrings(
-  entry: NonNullable<typeof config.head>[number],
-): string[] {
+function headEntryStrings(entry: HeadEntry): string[] {
   const [, attributes, innerText] = entry as [
     string,
     Record<string, string>?,
@@ -102,27 +100,7 @@ function headEntryStrings(
   return [...attributeValues, ...innerValues];
 }
 
-// Canonical, Open Graph, Twitter Card, and JSON-LD (the surface carrying the
-// versioned og:image reference this suite exists to check) are page-conditional —
-// added via transformHead, not the static config.head — so the real head a normal
-// page renders is config.head plus transformHead's indexable-page output. The 404
-// omits that metadata entirely (see config.ts / config.test.ts's noindex suite),
-// so it carries no asset references of its own to check.
-async function resolvedIndexablePageHead(): Promise<
-  NonNullable<typeof config.head>
-> {
-  const transformHead = config.transformHead;
-  if (typeof transformHead !== "function") {
-    return config.head ?? [];
-  }
-  const context = { pageData: { isNotFound: false } } as Parameters<
-    NonNullable<typeof config.transformHead>
-  >[0];
-  const transformed = (await transformHead(context)) ?? [];
-  return [...(config.head ?? []), ...transformed];
-}
-
-function headReferenceStrings(head: NonNullable<typeof config.head>): string[] {
+function headReferenceStrings(head: HeadEntry[]): string[] {
   return head.flatMap(headEntryStrings);
 }
 
@@ -199,7 +177,7 @@ function toAssetReferences(
 }
 
 async function collectAssetReferences(): Promise<AssetReference[]> {
-  const indexablePageHead = await resolvedIndexablePageHead();
+  const indexablePageHead = await resolveHeadForPage({ isNotFound: false });
   return [
     ...toAssetReferences(
       "config head",

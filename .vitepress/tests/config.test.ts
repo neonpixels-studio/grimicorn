@@ -10,6 +10,7 @@ import {
 } from "../../og-banner-spec.mjs";
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
+import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -189,8 +190,6 @@ function readPngDimensions(filePath: string) {
   };
 }
 
-type HeadEntry = NonNullable<typeof config.head>[number];
-
 // The subset of config.head that never varies by page (favicons, theme-color,
 // fonts, manifest). Canonical, Open Graph, Twitter Card, and JSON-LD moved out of
 // this static array into INDEXABLE_HEAD_ENTRIES in config.ts, added per-page via
@@ -269,34 +268,31 @@ function hasJsonLdScript(head: HeadEntry[]) {
   return head.some(jsonLdScriptPredicate);
 }
 
-type TransformHeadContext = Parameters<
-  NonNullable<typeof config.transformHead>
->[0];
-
-// Mirrors AppLayout's own gate: the hero (and its preload) belongs on every page
-// except the 404, which VitePress flags with pageData.isNotFound.
-async function headForPage(pageData: { isNotFound?: boolean }) {
-  const transformHead = config.transformHead;
-  if (typeof transformHead !== "function") {
-    throw new Error("config.transformHead is not defined");
-  }
-  const context = { pageData } as TransformHeadContext;
-  const transformed = (await transformHead(context)) ?? [];
-  // The page's real head is the site-wide config.head plus the per-page additions,
-  // so the negative test catches a site-wide hero preload if one is ever reintroduced.
-  return [...STATIC_HEAD, ...transformed];
+// Prefix, not an enumerated list: the 404 must carry no og:* or twitter:* meta tag
+// at all, not merely the specific ones config.ts happens to declare today. A
+// future og:site_name (or any other og:*/twitter:* tag) added to the static head
+// by mistake, instead of INDEXABLE_HEAD_ENTRIES, still fails this even though no
+// enumerated list named it.
+function metaIdentifiersWithPrefix(head: HeadEntry[], prefix: string) {
+  return head
+    .filter(([tag]) => tag === "meta")
+    .map(([, attributes]) => attributes?.property ?? attributes?.name)
+    .filter(
+      (identifier): identifier is string =>
+        typeof identifier === "string" && identifier.startsWith(prefix),
+    );
 }
 
 // The resolved head for a normal (indexable) page and for the 404, computed once
 // for the whole suite via top-level await (matching the module-scope computation
 // this file already uses for SITE_ORIGIN, localHrefs, etc.). config's transformHead
-// is synchronous, so headForPage's await resolves immediately; module-scope (rather
-// than beforeAll) lets it.each and other describe-level consumers read it directly.
-// Canonical, Open Graph, Twitter Card, and JSON-LD only exist on the indexable head
-// (see INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what the 404 must
-// omit in favor of a noindex signal.
-const indexableHead = await headForPage({ isNotFound: false });
-const notFoundHead = await headForPage({ isNotFound: true });
+// is synchronous, so resolveHeadForPage's await resolves immediately; module-scope
+// (rather than beforeAll) lets it.each and other describe-level consumers read it
+// directly. Canonical, Open Graph, Twitter Card, and JSON-LD only exist on the
+// indexable head (see INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what
+// the 404 must omit in favor of a noindex signal.
+const indexableHead = await resolveHeadForPage({ isNotFound: false });
+const notFoundHead = await resolveHeadForPage({ isNotFound: true });
 
 function filterPreloadImageEntries(head: HeadEntry[]) {
   return head.filter(
@@ -756,7 +752,7 @@ describe("Local head asset hrefs", () => {
 
 describe("Hero image preload", () => {
   it("preloads the hero picture's avif source on content pages to improve LCP", async () => {
-    const head = await headForPage({ isNotFound: false });
+    const head = await resolveHeadForPage({ isNotFound: false });
     const attributes = findPreloadImageAttributes(head);
     expect(attributes.href).toBe(readHeroAvifUrl());
     expect(attributes.type).toBe(HERO_AVIF_TYPE);
@@ -780,13 +776,13 @@ describe("Hero image preload", () => {
   });
 
   it("resolves the preloaded avif to a real file under public", async () => {
-    const head = await headForPage({ isNotFound: false });
+    const head = await resolveHeadForPage({ isNotFound: false });
     const href = findPreloadImageHref(head);
     expect(isRealFileWithExactCase(publicPathForUrl(href)), href).toBe(true);
   });
 
   it("does not preload the hero on the 404 page, which renders no hero", async () => {
-    const head = await headForPage({ isNotFound: true });
+    const head = await resolveHeadForPage({ isNotFound: true });
     expect(filterPreloadImageEntries(head)).toHaveLength(0);
   });
 });
@@ -830,14 +826,14 @@ describe("Hero avif path shared source of truth", () => {
   });
 
   it("keeps config's preload target on the shared hero avif path", async () => {
-    const head = await headForPage({ isNotFound: false });
+    const head = await resolveHeadForPage({ isNotFound: false });
     const href = findPreloadImageHref(head);
     expect(href.startsWith(HERO_AVIF_HREF)).toBe(true);
     expect(href.slice(0, HERO_AVIF_HREF.length)).toBe(HERO_AVIF_HREF);
   });
 
   it("resolves the preload target to the exact url the component fetches", async () => {
-    const head = await headForPage({ isNotFound: false });
+    const head = await resolveHeadForPage({ isNotFound: false });
     expect(findPreloadImageHref(head)).toBe(readHeroAvifUrl());
   });
 });
@@ -1092,36 +1088,14 @@ describe("404 page noindex", () => {
   });
 
   it("omits every Open Graph tag", () => {
-    const ogIdentifiers = [
-      "og:type",
-      "og:locale",
-      "og:url",
-      "og:title",
-      "og:description",
-      "og:image",
-      "og:image:width",
-      "og:image:height",
-      "og:image:alt",
-    ];
-    for (const identifier of ogIdentifiers) {
-      expect(hasMetaTag(notFoundHead, identifier), identifier).toBe(false);
-    }
+    expect(metaIdentifiersWithPrefix(notFoundHead, "og:")).toEqual([]);
   });
 
   it("omits every Twitter Card tag", () => {
     // X, Slack, and Discord fall back to twitter:* when og:* is absent, so a
     // link-preview scraper hitting the 404 would still render it as the homepage
     // unless these are also omitted.
-    const twitterIdentifiers = [
-      "twitter:card",
-      "twitter:title",
-      "twitter:description",
-      "twitter:image",
-      "twitter:image:alt",
-    ];
-    for (const identifier of twitterIdentifiers) {
-      expect(hasMetaTag(notFoundHead, identifier), identifier).toBe(false);
-    }
+    expect(metaIdentifiersWithPrefix(notFoundHead, "twitter:")).toEqual([]);
   });
 
   it("omits the SoftwareApplication JSON-LD script", () => {

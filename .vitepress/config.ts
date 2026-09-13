@@ -188,12 +188,16 @@ export default defineConfig({
   // real, indexable homepage. transformHead is a build-time hook, so both effects
   // are baked into the static HTML under `vitepress build`/`preview`, not
   // `vitepress dev` — verify against a production build. This is SSR-only: a
-  // client-side route change between the homepage and the 404 does not re-run
-  // this hook (VitePress's client-side head updater works off the static
-  // `siteData.head`), but crawlers and scrapers fetch each URL directly and get
-  // the correct baked-in head, which is the only case this guards against —
-  // don't "fix" the client-side gap by moving these tags back into the static
-  // `head` array above.
+  // client-side route change does not re-run this hook (VitePress's client-side
+  // head updater works off the static `siteData.head`), in both directions — land
+  // on the homepage, then a client-side nav to the 404 still shows the indexable
+  // tags; land directly on the 404 (SSR'd with `noindex, follow`), then a
+  // client-side nav back to the homepage leaves that `noindex` meta in the DOM for
+  // the rest of the SPA session. Crawlers and scrapers fetch each URL directly and
+  // get the correct baked-in head, which is the case this guards against, so the
+  // practical risk is low — but don't "fix" the client-side gap by moving these
+  // tags back into the static `head` array above; that reintroduces the bug this
+  // change fixes.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
       return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
