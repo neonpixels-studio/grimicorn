@@ -10,6 +10,12 @@ import {
 } from "../../og-banner-spec.mjs";
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
+import {
+  BRAND_BG_CUSTOM_PROPERTY,
+  extractBrandBackgroundColor,
+  normalizeHexColor,
+  stripBlockComments,
+} from "../../brand-color.mjs";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -21,21 +27,6 @@ const EXPECTED_SITE_URL = "https://grimicorn.dev";
 // --color-bg custom property in the theme stylesheet — assert against that, not a
 // second copy of the literal.
 const THEME_STYLESHEET = resolve(process.cwd(), ".vitepress/theme/style.css");
-const BRAND_BG_CUSTOM_PROPERTY = "--color-bg";
-// Anchored to a declaration boundary: the char before the property must be a
-// non-identifier char (start of input, whitespace, `{`, or `;`), so a sibling whose
-// name ends with the full `--color-bg` token (e.g. `--accent--color-bg`) can't match
-// on a substring. The value runs to the next `;`, block-closing `}`, or end of input,
-// so a final declaration that omits its trailing semicolon still matches. The lazy
-// value group plus trailing `\s*` stop the capture from absorbing the whitespace
-// before a `}` or EOF terminator.
-const BRAND_BG_PATTERN = new RegExp(
-  `(?<![\\w-])${BRAND_BG_CUSTOM_PROPERTY}\\s*:\\s*([^;}]+?)\\s*(?:;|}|$)`,
-  "g",
-);
-// The stylesheet and theme-color both use 6-digit hex; anything else fails loud
-// rather than being silently normalized into a false match.
-const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 const JSON_LD_MIME = "application/ld+json";
 
@@ -139,14 +130,15 @@ const OG_GENERATOR_SCRIPT = resolve(
 const SHARED_SPEC_IMPORT_PATTERN =
   /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/og-banner-spec\.mjs["']/;
 const REQUIRED_SPEC_BINDINGS = ["OG_WIDTH", "OG_HEIGHT", "OG_IMAGE_FILENAME"];
-
-// CSS has block comments only, so the stylesheet scan strips just `/* ... */` — a
-// commented-out `--color-bg` must not be counted. Kept separate from the line-comment
-// rule because `^\s*//` would delete legal CSS (e.g. a protocol-relative `//cdn…` URL
-// on its own line), so each caller strips only the grammar its source actually uses.
-function stripBlockComments(source: string) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "");
-}
+// The generator must import the brand background color from the shared CSS parser
+// (brand-color.mjs), not re-inline a hex literal, or the padding can drift from the
+// theme stylesheet even though every other consumer (manifest, theme-color) tracks it.
+const BRAND_COLOR_IMPORT_PATTERN =
+  /import\s*\{([^}]*)\}\s*from\s*["'][^"']*brand-color\.mjs["']/;
+const REQUIRED_BRAND_COLOR_BINDING = "extractBrandBackgroundColor";
+// A bare 6-digit hex literal in the generator would be a re-inlined copy of the
+// theme background; the shared parser is the only place that literal should live.
+const HEX_LITERAL_PATTERN = /#[0-9a-fA-F]{6}/;
 
 // JS/TS sources (the generator-import scan) also carry `//` line comments; a
 // commented-out import must not satisfy the drift assertion.
@@ -343,44 +335,11 @@ function readStructuredData() {
   return parsed as { url: string; image: string };
 }
 
-// One hex contract for both sides of the comparison: the CSS source and the
-// manifest/meta colors are all held to a 6-digit literal, so `#fff` vs `#ffffff`
-// (identical to a browser) fails loud with a clear message instead of a confusing diff.
-function normalizeHexColor(value: unknown, description: string) {
-  if (typeof value !== "string") {
-    throw new Error(`${description} is not a string color: ${String(value)}`);
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!HEX_COLOR_PATTERN.test(normalized)) {
-    throw new Error(
-      `${description} is not a 6-digit hex literal: ${normalized}`,
-    );
-  }
-  return normalized;
-}
-
 // Missing/typo'd manifest color keys are exactly the desync this suite guards
 // against; normalizeHexColor fails loud on the missing value with a keyed
 // message, so a dropped color surfaces as a readable failure, not a crash.
 function readManifestColor(manifest: Record<string, unknown>, key: string) {
   return normalizeHexColor(manifest[key], `manifest ${key}`);
-}
-
-// Parse the single brand background literal out of a stylesheet source. Comments
-// must be stripped first; otherwise a commented-out `/* --color-bg: ... */`
-// declaration counts as a real match and trips the "exactly one" guard. Pure over
-// its input (source and label) so the comment-stripping can be exercised in
-// isolation, and so failures name the source the caller actually passed.
-function extractBrandBackgroundColor(stylesheet: string, sourceLabel: string) {
-  const value = extractSingleCapture(
-    stripBlockComments(stylesheet),
-    BRAND_BG_PATTERN,
-    `${BRAND_BG_CUSTOM_PROPERTY} declaration in ${sourceLabel}`,
-  );
-  return normalizeHexColor(
-    value,
-    `${BRAND_BG_CUSTOM_PROPERTY} in ${sourceLabel}`,
-  );
 }
 
 function readBrandBackgroundColor() {
@@ -674,6 +633,32 @@ describe("Open Graph image metadata", () => {
     for (const binding of REQUIRED_SPEC_BINDINGS) {
       expect(imported, binding).toContain(binding);
     }
+  });
+
+  it("has the generator source its padding background from the theme stylesheet, not a hardcoded literal", () => {
+    // Same drift guard as the spec-import check above, but for the theme
+    // background: the generator must derive THEME_BACKGROUND from style.css via
+    // the shared brand-color parser rather than carrying its own copy of the hex
+    // literal, or the banner padding can silently go stale after a rebrand.
+    const code = stripComments(readFileSync(OG_GENERATOR_SCRIPT, "utf8"));
+    const [, bindingList = ""] = code.match(BRAND_COLOR_IMPORT_PATTERN) ?? [];
+    const imported = bindingList.split(",").map((binding) => binding.trim());
+    expect(imported, REQUIRED_BRAND_COLOR_BINDING).toContain(
+      REQUIRED_BRAND_COLOR_BINDING,
+    );
+    expect(code).not.toMatch(HEX_LITERAL_PATTERN);
+  });
+
+  it("derives the exact background the generator pads with from the theme stylesheet", () => {
+    // Executes the same parser the generator imports against the real
+    // stylesheet, so a future change to the CSS or the parser that breaks the
+    // generator's derivation fails here too, not just at image-generation time.
+    expect(
+      extractBrandBackgroundColor(
+        readFileSync(THEME_STYLESHEET, "utf8"),
+        THEME_STYLESHEET,
+      ),
+    ).toBe(readBrandBackgroundColor());
   });
 
   it("declares usable alt text for og:image and twitter:image", () => {

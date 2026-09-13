@@ -28,7 +28,8 @@
     ".vitepress/**/*.ts",
     ".vitepress/**/*.vue",
     "og-banner-spec.mjs",
-    "hero-image-spec.mjs"
+    "hero-image-spec.mjs",
+    "brand-color.mjs"
   ],
   "exclude": ["node_modules", ".vitepress/cache", ".vitepress/dist"]
 }
