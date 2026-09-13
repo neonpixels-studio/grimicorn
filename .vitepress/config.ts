@@ -10,6 +10,9 @@ import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 const SITE_URL = "https://grimicorn.dev";
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
+// Shared by og:title and twitter:title, which must stay identical — extracted so
+// the two can't drift the way two independent literals could.
+const SOCIAL_TITLE = "Grimicorn – AI Coding Sidekick";
 // The ?v= cache-bust token is the single source of truth in ./asset-cache-bust,
 // shared with the hero <picture> srcsets in GrimicornPage.vue so an avif client
 // never fetches a different URL than the preload warmed.
@@ -67,27 +70,28 @@ const JSON_LD = JSON.stringify({
 // preview. VitePress's head merge (mergeHead) can only add or override a `meta`
 // tag that shares its first attribute key/value with a later entry; it can't
 // remove a `link` or `script` tag once it's in the static site-wide `head` array.
-// So these live here, added per-page by transformHead, instead of in the static
-// `head` list below — the only way to omit them on the 404 rather than merely
-// duplicate or override them. Twitter Card tags are included alongside Open
-// Graph: X, Slack, and Discord all fall back to `twitter:*` when `og:*` is
+// So these live here, added per-page by transformHead (see below), instead of in
+// the static `head` list — the only way to omit them on the 404 rather than
+// merely duplicate or override them. Twitter Card tags are included alongside
+// Open Graph: X, Slack, and Discord all fall back to `twitter:*` when `og:*` is
 // absent, so leaving them static would still preview the 404 as the homepage.
+// This covers the tags in the issue's acceptance criteria (canonical, OG,
+// Twitter, JSON-LD); it doesn't touch the page `<title>`/meta description, which
+// VitePress derives from `siteData` for every page including the 404 and aren't
+// covered by this fix.
 const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
   ["link", { rel: "canonical", href: SITE_URL }],
   ["meta", { property: "og:type", content: "website" }],
   ["meta", { property: "og:locale", content: "en_US" }],
   ["meta", { property: "og:url", content: SITE_URL }],
-  ["meta", { property: "og:title", content: "Grimicorn – AI Coding Sidekick" }],
+  ["meta", { property: "og:title", content: SOCIAL_TITLE }],
   ["meta", { property: "og:description", content: DESCRIPTION }],
   ["meta", { property: "og:image", content: OG_IMAGE }],
   ["meta", { property: "og:image:width", content: OG_IMAGE_WIDTH }],
   ["meta", { property: "og:image:height", content: OG_IMAGE_HEIGHT }],
   ["meta", { property: "og:image:alt", content: OG_IMAGE_ALT }],
   ["meta", { name: "twitter:card", content: "summary_large_image" }],
-  [
-    "meta",
-    { name: "twitter:title", content: "Grimicorn – AI Coding Sidekick" },
-  ],
+  ["meta", { name: "twitter:title", content: SOCIAL_TITLE }],
   ["meta", { name: "twitter:description", content: DESCRIPTION }],
   ["meta", { name: "twitter:image", content: OG_IMAGE }],
   ["meta", { name: "twitter:image:alt", content: OG_IMAGE_ALT }],
@@ -137,8 +141,7 @@ export default defineConfig({
       },
     ],
     // Theme color. Canonical, Open Graph, Twitter Card, and structured data are
-    // page-conditional (see INDEXABLE_HEAD_ENTRIES / transformHead below) —
-    // omitted on the 404.
+    // page-conditional — see INDEXABLE_HEAD_ENTRIES above — omitted on the 404.
     ["meta", { name: "theme-color", content: "#0a0a0b" }],
     // Favicon
     [
@@ -179,25 +182,23 @@ export default defineConfig({
       { rel: "manifest", href: withAssetCacheBust("/images/site.webmanifest") },
     ],
   ],
-  // Scope the hero preload and indexable metadata to every page except the 404.
-  // AppLayout shows NotFound (no hero) when page.isNotFound and GrimicornPage
-  // otherwise, so this mirrors that exact condition: preloading the hero on the
-  // 404 would burn a high-priority request and trip Chrome's "preloaded but not
-  // used" warning, and shipping the homepage's canonical/OG/JSON-LD/Twitter Card
-  // there would tell crawlers (and link-preview scrapers) a broken URL is the
-  // real, indexable homepage. transformHead is a build-time hook, so both effects
-  // are baked into the static HTML under `vitepress build`/`preview`, not
-  // `vitepress dev` — verify against a production build. This is SSR-only: a
-  // client-side route change does not re-run this hook (VitePress's client-side
-  // head updater works off the static `siteData.head`), in both directions — land
-  // on the homepage, then a client-side nav to the 404 still shows the indexable
-  // tags; land directly on the 404 (SSR'd with `noindex, follow`), then a
-  // client-side nav back to the homepage leaves that `noindex` meta in the DOM for
-  // the rest of the SPA session. Crawlers and scrapers fetch each URL directly and
-  // get the correct baked-in head, which is the case this guards against, so the
-  // practical risk is low — but don't "fix" the client-side gap by moving these
-  // tags back into the static `head` array above; that reintroduces the bug this
-  // change fixes.
+  // Scope the hero preload and INDEXABLE_HEAD_ENTRIES (see rationale above) to
+  // every page except the 404. AppLayout shows NotFound (no hero) when
+  // page.isNotFound and GrimicornPage otherwise, so this mirrors that exact
+  // condition: preloading the hero on the 404 would burn a high-priority request
+  // and trip Chrome's "preloaded but not used" warning.
+  //
+  // transformHead is a build-time hook: both effects are baked into the static
+  // HTML under `vitepress build`/`preview`, not `vitepress dev` — verify against a
+  // production build. This also means it's SSR-only in both directions — a
+  // client-side route change never re-runs it (VitePress's client-side head
+  // updater works off the static `siteData.head`), so a client-side nav onto the
+  // 404 still shows the indexable tags, and a client-side nav off the 404 leaves
+  // its `noindex` meta in the DOM for the rest of that SPA session. Crawlers and
+  // scrapers fetch each URL directly and get the correct baked-in head, which is
+  // the case this guards against, so the practical risk is low — but don't "fix"
+  // the client-side gap by moving INDEXABLE_HEAD_ENTRIES back into the static
+  // `head` array; that reintroduces the bug this change fixes.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
       return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
