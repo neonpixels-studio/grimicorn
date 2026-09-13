@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
@@ -192,23 +192,28 @@ function readPngDimensions(filePath: string) {
 type HeadEntry = NonNullable<typeof config.head>[number];
 
 // Duplicate tags (two canonicals, two JSON-LD blocks) are exactly the defect this
-// suite guards against, so every lookup insists on exactly one match.
+// suite guards against, so every lookup insists on exactly one match. Callers pass
+// the specific head array they mean to check (the static config.head for tags that
+// never vary by page, or the resolved per-page head for ones that do) rather than
+// this function assuming config.head, since canonical/OG/JSON-LD now only exist on
+// the resolved indexable-page head (see INDEXABLE_HEAD_ENTRIES in config.ts).
 function findHeadEntry(
+  head: HeadEntry[],
   predicate: (_entry: HeadEntry) => boolean,
   description: string,
 ) {
-  const head = config.head ?? [];
   const entries = head.filter(predicate);
   if (entries.length !== 1) {
     throw new Error(
-      `Expected exactly one ${description} in config.head, found ${entries.length}`,
+      `Expected exactly one ${description} in the given head array, found ${entries.length}`,
     );
   }
   return entries[0];
 }
 
-function findMetaContent(identifier: string) {
+function findMetaContent(head: HeadEntry[], identifier: string) {
   const entry = findHeadEntry(
+    head,
     ([tag, attributes]) =>
       tag === "meta" &&
       (attributes?.property ?? attributes?.name) === identifier,
@@ -221,8 +226,9 @@ function findMetaContent(identifier: string) {
   return content;
 }
 
-function findLinkHref(rel: string) {
+function findLinkHref(head: HeadEntry[], rel: string) {
   const entry = findHeadEntry(
+    head,
     ([tag, attributes]) => tag === "link" && attributes?.rel === rel,
     `link tag for rel="${rel}"`,
   );
@@ -231,6 +237,27 @@ function findLinkHref(rel: string) {
     throw new Error(`Link tag rel="${rel}" has no href attribute`);
   }
   return href;
+}
+
+function hasMetaTag(head: HeadEntry[], identifier: string) {
+  return head.some(
+    ([tag, attributes]) =>
+      tag === "meta" &&
+      (attributes?.property ?? attributes?.name) === identifier,
+  );
+}
+
+function hasLinkRel(head: HeadEntry[], rel: string) {
+  return head.some(
+    ([tag, attributes]) => tag === "link" && attributes?.rel === rel,
+  );
+}
+
+function hasJsonLdScript(head: HeadEntry[]) {
+  return head.some(
+    ([tag, attributes]) =>
+      tag === "script" && attributes?.type === JSON_LD_MIME,
+  );
 }
 
 type TransformHeadContext = Parameters<
@@ -250,6 +277,18 @@ async function headForPage(pageData: { isNotFound?: boolean }) {
   // so the negative test catches a site-wide hero preload if one is ever reintroduced.
   return [...((config.head ?? []) as HeadEntry[]), ...transformed];
 }
+
+// The resolved head for a normal (indexable) page and for the 404, computed once
+// for the whole suite. Canonical, Open Graph, and JSON-LD only exist on the
+// indexable head (see INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what
+// the 404 must omit in favor of a noindex signal.
+let indexableHead: HeadEntry[];
+let notFoundHead: HeadEntry[];
+
+beforeAll(async () => {
+  indexableHead = await headForPage({ isNotFound: false });
+  notFoundHead = await headForPage({ isNotFound: true });
+});
 
 function filterPreloadImageEntries(head: HeadEntry[]) {
   return head.filter(
@@ -326,8 +365,9 @@ function readHeroAvifUrl() {
   return readHeroAvifSrcset().trim().split(/\s+/)[0];
 }
 
-function readStructuredData() {
+function readStructuredData(head: HeadEntry[]) {
   const entry = findHeadEntry(
+    head,
     ([tag, attributes]) =>
       tag === "script" && attributes?.type === JSON_LD_MIME,
     `${JSON_LD_MIME} script tag`,
@@ -426,12 +466,17 @@ function publicPathForUrl(assetUrl: string) {
   return resolve(PUBLIC_DIR, pathname);
 }
 
-function resolveMetaImagePath(identifier: string) {
-  return publicPathForUrl(findMetaContent(identifier));
+function resolveMetaImagePath(head: HeadEntry[], identifier: string) {
+  return publicPathForUrl(findMetaContent(head, identifier));
 }
 
 function readRawWebManifest() {
-  return readFileSync(publicPathForUrl(findLinkHref("manifest")), "utf8");
+  return readFileSync(
+    publicPathForUrl(
+      findLinkHref((config.head ?? []) as HeadEntry[], "manifest"),
+    ),
+    "utf8",
+  );
 }
 
 function readWebManifest() {
@@ -638,24 +683,32 @@ describe("Web app manifest installability", () => {
 });
 
 describe("Open Graph image metadata", () => {
+  const staticHead = () => (config.head ?? []) as HeadEntry[];
+
   it("points twitter:image at the same asset as og:image", () => {
-    expect(findMetaContent("twitter:image")).toBe(findMetaContent("og:image"));
+    expect(findMetaContent(staticHead(), "twitter:image")).toBe(
+      findMetaContent(indexableHead, "og:image"),
+    );
   });
 
   it("serves a dedicated landscape banner asset", () => {
-    expect(resolveMetaImagePath("og:image")).toBe(
+    expect(resolveMetaImagePath(indexableHead, "og:image")).toBe(
       resolve(PUBLIC_DIR, "assets", OG_IMAGE_FILE),
     );
   });
 
   it("declares the 1200x630 landscape dimensions", () => {
-    expect(findMetaContent("og:image:width")).toBe(String(OG_EXPECTED_WIDTH));
-    expect(findMetaContent("og:image:height")).toBe(String(OG_EXPECTED_HEIGHT));
+    expect(findMetaContent(indexableHead, "og:image:width")).toBe(
+      String(OG_EXPECTED_WIDTH),
+    );
+    expect(findMetaContent(indexableHead, "og:image:height")).toBe(
+      String(OG_EXPECTED_HEIGHT),
+    );
   });
 
   it("ships a landscape banner file matching the declared dimensions", () => {
     const { width, height } = readPngDimensions(
-      resolveMetaImagePath("og:image"),
+      resolveMetaImagePath(indexableHead, "og:image"),
     );
     expect(width).toBe(OG_EXPECTED_WIDTH);
     expect(height).toBe(OG_EXPECTED_HEIGHT);
@@ -677,12 +730,12 @@ describe("Open Graph image metadata", () => {
   });
 
   it("declares usable alt text for og:image and twitter:image", () => {
-    const altText = findMetaContent("og:image:alt");
+    const altText = findMetaContent(indexableHead, "og:image:alt");
     expect(altText.trim().length).toBeGreaterThanOrEqual(MIN_IMAGE_ALT_LENGTH);
     expect(altText.trim().length).toBeLessThanOrEqual(MAX_IMAGE_ALT_LENGTH);
-    expect(altText).not.toBe(findMetaContent("og:title"));
-    expect(altText).not.toBe(findMetaContent("og:description"));
-    expect(findMetaContent("twitter:image:alt")).toBe(altText);
+    expect(altText).not.toBe(findMetaContent(indexableHead, "og:title"));
+    expect(altText).not.toBe(findMetaContent(indexableHead, "og:description"));
+    expect(findMetaContent(staticHead(), "twitter:image:alt")).toBe(altText);
   });
 });
 
@@ -788,14 +841,17 @@ describe("Hero avif path shared source of truth", () => {
 
 describe("Canonical URL", () => {
   it("points the canonical link at the site URL", () => {
-    expect(findLinkHref("canonical")).toBe(EXPECTED_SITE_URL);
+    expect(findLinkHref(indexableHead, "canonical")).toBe(EXPECTED_SITE_URL);
   });
 });
 
 describe("theme-color", () => {
   it("matches the brand dark background from the theme stylesheet", () => {
     expect(
-      normalizeHexColor(findMetaContent("theme-color"), "theme-color meta"),
+      normalizeHexColor(
+        findMetaContent((config.head ?? []) as HeadEntry[], "theme-color"),
+        "theme-color meta",
+      ),
     ).toBe(
       normalizeHexColor(readBrandBackgroundColor(), BRAND_BG_CUSTOM_PROPERTY),
     );
@@ -949,10 +1005,10 @@ describe("Sitemap", () => {
 
 describe("Site URL consistency", () => {
   it("keeps every on-site URL in sync with the canonical link", () => {
-    const canonical = findLinkHref("canonical");
-    const ogImage = findMetaContent("og:image");
-    const structuredData = readStructuredData();
-    expect(findMetaContent("og:url")).toBe(canonical);
+    const canonical = findLinkHref(indexableHead, "canonical");
+    const ogImage = findMetaContent(indexableHead, "og:image");
+    const structuredData = readStructuredData(indexableHead);
+    expect(findMetaContent(indexableHead, "og:url")).toBe(canonical);
     expect(structuredData.url).toBe(canonical);
     expect(structuredData.image).toBe(ogImage);
     expect(ogImage.slice(0, canonical.length + 1)).toBe(`${canonical}/`);
@@ -961,7 +1017,10 @@ describe("Site URL consistency", () => {
 
 describe("Structured data offers", () => {
   it("exposes a truthful free-tier Offer on the SoftwareApplication markup", () => {
-    const structuredData = readStructuredData() as Record<string, unknown>;
+    const structuredData = readStructuredData(indexableHead) as Record<
+      string,
+      unknown
+    >;
     expect(structuredData.offers).toEqual({
       "@type": "Offer",
       price: "0",
@@ -970,7 +1029,10 @@ describe("Structured data offers", () => {
   });
 
   it("omits any fabricated aggregateRating or review", () => {
-    const structuredData = readStructuredData() as Record<string, unknown>;
+    const structuredData = readStructuredData(indexableHead) as Record<
+      string,
+      unknown
+    >;
     expect("aggregateRating" in structuredData).toBe(false);
     expect("review" in structuredData).toBe(false);
   });
@@ -978,7 +1040,7 @@ describe("Structured data offers", () => {
 
 describe("robots.txt", () => {
   it("points its Sitemap directive at the config site URL", () => {
-    const siteUrl = findLinkHref("canonical");
+    const siteUrl = findLinkHref(indexableHead, "canonical");
     const robots = readFileSync(ROBOTS_TXT, "utf8");
     const sitemapUrl = extractSingleCapture(
       robots,
@@ -1001,11 +1063,55 @@ describe("llms.txt", () => {
   });
 
   it("points its on-site links at the config site URL", () => {
-    const siteUrl = findLinkHref("canonical");
+    const siteUrl = findLinkHref(indexableHead, "canonical");
     const llms = readFileSync(LLMS_TXT, "utf8");
     expect(extractMarkdownLinkUrl(llms, "Home")).toBe(`${siteUrl}/`);
     expect(extractMarkdownLinkUrl(llms, "Sitemap")).toBe(
       `${siteUrl}${SITEMAP_PATHNAME}`,
     );
+  });
+});
+
+describe("404 page noindex", () => {
+  // The 404 must actively say "don't index this" and must not ship the homepage's
+  // canonical URL, Open Graph tags, or SoftwareApplication JSON-LD — a crawler
+  // hitting a broken URL should see a missing-content signal, not a page that
+  // claims to be the real, indexable homepage.
+  it("declares a noindex robots meta tag", () => {
+    expect(hasMetaTag(notFoundHead, "robots")).toBe(true);
+    expect(findMetaContent(notFoundHead, "robots")).toBe("noindex, follow");
+  });
+
+  it("omits the canonical link", () => {
+    expect(hasLinkRel(notFoundHead, "canonical")).toBe(false);
+  });
+
+  it("omits every Open Graph tag", () => {
+    const ogIdentifiers = [
+      "og:type",
+      "og:locale",
+      "og:url",
+      "og:title",
+      "og:description",
+      "og:image",
+      "og:image:width",
+      "og:image:height",
+      "og:image:alt",
+    ];
+    for (const identifier of ogIdentifiers) {
+      expect(hasMetaTag(notFoundHead, identifier), identifier).toBe(false);
+    }
+  });
+
+  it("omits the SoftwareApplication JSON-LD script", () => {
+    expect(hasJsonLdScript(notFoundHead)).toBe(false);
+  });
+
+  it("still ships page-independent tags like theme-color on the 404", () => {
+    expect(hasMetaTag(notFoundHead, "theme-color")).toBe(true);
+  });
+
+  it("does not carry a robots meta tag on indexable pages", () => {
+    expect(hasMetaTag(indexableHead, "robots")).toBe(false);
   });
 });

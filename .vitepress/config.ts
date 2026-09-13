@@ -61,6 +61,35 @@ const JSON_LD = JSON.stringify({
   },
 });
 
+// These tags all assert "this URL is the real, indexable Grimicorn homepage" —
+// wrong on the 404, which is neither canonical nor the SoftwareApplication the
+// JSON-LD describes. VitePress's head merge (mergeHead) can only add or override
+// a `meta` tag that shares its first attribute key/value with a later entry; it
+// can't remove a `link` or `script` tag once it's in the static site-wide `head`
+// array. So these live here, added per-page by transformHead, instead of in the
+// static `head` list below — the only way to omit them on the 404 rather than
+// merely duplicate or override them.
+const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
+  ["link", { rel: "canonical", href: SITE_URL }],
+  ["meta", { property: "og:type", content: "website" }],
+  ["meta", { property: "og:locale", content: "en_US" }],
+  ["meta", { property: "og:url", content: SITE_URL }],
+  ["meta", { property: "og:title", content: "Grimicorn – AI Coding Sidekick" }],
+  ["meta", { property: "og:description", content: DESCRIPTION }],
+  ["meta", { property: "og:image", content: OG_IMAGE }],
+  ["meta", { property: "og:image:width", content: OG_IMAGE_WIDTH }],
+  ["meta", { property: "og:image:height", content: OG_IMAGE_HEIGHT }],
+  ["meta", { property: "og:image:alt", content: OG_IMAGE_ALT }],
+  ["script", { type: "application/ld+json" }, JSON_LD],
+];
+
+// Tells crawlers the 404 itself isn't a real destination while leaving "follow"
+// so the real links it renders (home, GitHub) still pass link equity.
+const NOT_FOUND_ROBOTS_HEAD_ENTRY: HeadConfig = [
+  "meta",
+  { name: "robots", content: "noindex, follow" },
+];
+
 export default defineConfig({
   title: "Grimicorn",
   description: DESCRIPTION,
@@ -96,23 +125,12 @@ export default defineConfig({
         crossorigin: "",
       },
     ],
-    // Canonical + theme color
-    ["link", { rel: "canonical", href: SITE_URL }],
+    // Theme color. Canonical, Open Graph, and structured data are page-conditional
+    // (see INDEXABLE_HEAD_ENTRIES / transformHead below) — omitted on the 404.
     ["meta", { name: "theme-color", content: "#0a0a0b" }],
-    // Open Graph
-    ["meta", { property: "og:type", content: "website" }],
-    ["meta", { property: "og:locale", content: "en_US" }],
-    ["meta", { property: "og:url", content: SITE_URL }],
-    [
-      "meta",
-      { property: "og:title", content: "Grimicorn – AI Coding Sidekick" },
-    ],
-    ["meta", { property: "og:description", content: DESCRIPTION }],
-    ["meta", { property: "og:image", content: OG_IMAGE }],
-    ["meta", { property: "og:image:width", content: OG_IMAGE_WIDTH }],
-    ["meta", { property: "og:image:height", content: OG_IMAGE_HEIGHT }],
-    ["meta", { property: "og:image:alt", content: OG_IMAGE_ALT }],
-    // Twitter Card
+    // Twitter Card — a link-preview affordance, not a search-indexing signal like
+    // canonical/OG/JSON-LD, so it's fine to keep static across every page including
+    // the 404.
     ["meta", { name: "twitter:card", content: "summary_large_image" }],
     [
       "meta",
@@ -121,8 +139,6 @@ export default defineConfig({
     ["meta", { name: "twitter:description", content: DESCRIPTION }],
     ["meta", { name: "twitter:image", content: OG_IMAGE }],
     ["meta", { name: "twitter:image:alt", content: OG_IMAGE_ALT }],
-    // Structured data
-    ["script", { type: "application/ld+json" }, JSON_LD],
     // Favicon
     [
       "link",
@@ -162,17 +178,19 @@ export default defineConfig({
       { rel: "manifest", href: withAssetCacheBust("/images/site.webmanifest") },
     ],
   ],
-  // Scope the preload to where the hero renders: every page except the 404. AppLayout
-  // shows NotFound (no hero) when page.isNotFound and GrimicornPage otherwise, so this
-  // mirrors that exact condition — preloading on the 404 would burn a high-priority
-  // request and trip Chrome's "preloaded but not used" warning. transformHead is a
-  // build-time hook, so the preload appears under `vitepress build`/`preview`, not
-  // `vitepress dev` — verify the LCP win against a production build.
+  // Scope the hero preload and indexable metadata to every page except the 404.
+  // AppLayout shows NotFound (no hero) when page.isNotFound and GrimicornPage
+  // otherwise, so this mirrors that exact condition: preloading the hero on the
+  // 404 would burn a high-priority request and trip Chrome's "preloaded but not
+  // used" warning, and shipping the homepage's canonical/OG/JSON-LD there would
+  // tell crawlers a broken URL is the real, indexable homepage. transformHead is a
+  // build-time hook, so both effects appear under `vitepress build`/`preview`, not
+  // `vitepress dev` — verify against a production build.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
-      return [];
+      return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
     }
-    return [HERO_PRELOAD_HEAD_ENTRY];
+    return [HERO_PRELOAD_HEAD_ENTRY, ...INDEXABLE_HEAD_ENTRIES];
   },
   vite: {
     // tailwindcss() is typed against the top-level `vite` package, which npm
