@@ -102,8 +102,28 @@ function headEntryStrings(
   return [...attributeValues, ...innerValues];
 }
 
-function headReferenceStrings(): string[] {
-  return (config.head ?? []).flatMap(headEntryStrings);
+// Canonical, Open Graph, Twitter Card, and JSON-LD (the surface carrying the
+// versioned og:image reference this suite exists to check) are page-conditional —
+// added via transformHead, not the static config.head — so the real head a normal
+// page renders is config.head plus transformHead's indexable-page output. The 404
+// omits that metadata entirely (see config.ts / config.test.ts's noindex suite),
+// so it carries no asset references of its own to check.
+async function resolvedIndexablePageHead(): Promise<
+  NonNullable<typeof config.head>
+> {
+  const transformHead = config.transformHead;
+  if (typeof transformHead !== "function") {
+    return config.head ?? [];
+  }
+  const context = { pageData: { isNotFound: false } } as Parameters<
+    NonNullable<typeof config.transformHead>
+  >[0];
+  const transformed = (await transformHead(context)) ?? [];
+  return [...(config.head ?? []), ...transformed];
+}
+
+function headReferenceStrings(head: NonNullable<typeof config.head>): string[] {
+  return head.flatMap(headEntryStrings);
 }
 
 // A full mount renders child components too, so an asset reference stays covered even
@@ -178,9 +198,13 @@ function toAssetReferences(
   );
 }
 
-function collectAssetReferences(): AssetReference[] {
+async function collectAssetReferences(): Promise<AssetReference[]> {
+  const indexablePageHead = await resolvedIndexablePageHead();
   return [
-    ...toAssetReferences("config head", headReferenceStrings()),
+    ...toAssetReferences(
+      "config head",
+      headReferenceStrings(indexablePageHead),
+    ),
     ...toAssetReferences("GrimicornPage render", componentReferenceStrings()),
     ...toAssetReferences("theme stylesheet", themeStyleReferenceStrings()),
     ...toAssetReferences("site.webmanifest icons", manifestReferenceStrings()),
@@ -191,8 +215,8 @@ const immutableAssetUrlPaths = listImmutableAssetUrlPaths();
 let assetReferences: AssetReference[];
 let versionedAssetPaths: Set<string>;
 
-beforeAll(() => {
-  assetReferences = collectAssetReferences();
+beforeAll(async () => {
+  assetReferences = await collectAssetReferences();
   versionedAssetPaths = new Set(
     assetReferences
       .filter((reference) => versionOf(reference) !== "")

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 
@@ -191,12 +191,32 @@ function readPngDimensions(filePath: string) {
 
 type HeadEntry = NonNullable<typeof config.head>[number];
 
+// The subset of config.head that never varies by page (favicons, theme-color,
+// fonts, manifest). Canonical, Open Graph, Twitter Card, and JSON-LD moved out of
+// this static array into INDEXABLE_HEAD_ENTRIES in config.ts, added per-page via
+// transformHead, so callers checking those must resolve a page's head instead
+// (see indexableHead/notFoundHead below).
+const STATIC_HEAD = (config.head ?? []) as HeadEntry[];
+
+// Single source of truth for "what identifies this tag", shared by the find*
+// (assert-exactly-one, used for indexable-page content) and has* (presence-only,
+// used for the 404's negative assertions) helpers below, so a future change to how
+// a tag is matched can't update one family and silently desync the other.
+const metaTagPredicate =
+  (identifier: string) =>
+  ([tag, attributes]: HeadEntry) =>
+    tag === "meta" && (attributes?.property ?? attributes?.name) === identifier;
+const linkRelPredicate =
+  (rel: string) =>
+  ([tag, attributes]: HeadEntry) =>
+    tag === "link" && attributes?.rel === rel;
+const jsonLdScriptPredicate = ([tag, attributes]: HeadEntry) =>
+  tag === "script" && attributes?.type === JSON_LD_MIME;
+
 // Duplicate tags (two canonicals, two JSON-LD blocks) are exactly the defect this
 // suite guards against, so every lookup insists on exactly one match. Callers pass
-// the specific head array they mean to check (the static config.head for tags that
-// never vary by page, or the resolved per-page head for ones that do) rather than
-// this function assuming config.head, since canonical/OG/JSON-LD now only exist on
-// the resolved indexable-page head (see INDEXABLE_HEAD_ENTRIES in config.ts).
+// the specific head array they mean to check (STATIC_HEAD for tags that never vary
+// by page, or a resolved per-page head for ones that do).
 function findHeadEntry(
   head: HeadEntry[],
   predicate: (_entry: HeadEntry) => boolean,
@@ -214,9 +234,7 @@ function findHeadEntry(
 function findMetaContent(head: HeadEntry[], identifier: string) {
   const entry = findHeadEntry(
     head,
-    ([tag, attributes]) =>
-      tag === "meta" &&
-      (attributes?.property ?? attributes?.name) === identifier,
+    metaTagPredicate(identifier),
     `meta tag "${identifier}"`,
   );
   const content = entry[1].content;
@@ -229,7 +247,7 @@ function findMetaContent(head: HeadEntry[], identifier: string) {
 function findLinkHref(head: HeadEntry[], rel: string) {
   const entry = findHeadEntry(
     head,
-    ([tag, attributes]) => tag === "link" && attributes?.rel === rel,
+    linkRelPredicate(rel),
     `link tag for rel="${rel}"`,
   );
   const href = entry[1].href;
@@ -240,24 +258,15 @@ function findLinkHref(head: HeadEntry[], rel: string) {
 }
 
 function hasMetaTag(head: HeadEntry[], identifier: string) {
-  return head.some(
-    ([tag, attributes]) =>
-      tag === "meta" &&
-      (attributes?.property ?? attributes?.name) === identifier,
-  );
+  return head.some(metaTagPredicate(identifier));
 }
 
 function hasLinkRel(head: HeadEntry[], rel: string) {
-  return head.some(
-    ([tag, attributes]) => tag === "link" && attributes?.rel === rel,
-  );
+  return head.some(linkRelPredicate(rel));
 }
 
 function hasJsonLdScript(head: HeadEntry[]) {
-  return head.some(
-    ([tag, attributes]) =>
-      tag === "script" && attributes?.type === JSON_LD_MIME,
-  );
+  return head.some(jsonLdScriptPredicate);
 }
 
 type TransformHeadContext = Parameters<
@@ -275,20 +284,19 @@ async function headForPage(pageData: { isNotFound?: boolean }) {
   const transformed = (await transformHead(context)) ?? [];
   // The page's real head is the site-wide config.head plus the per-page additions,
   // so the negative test catches a site-wide hero preload if one is ever reintroduced.
-  return [...((config.head ?? []) as HeadEntry[]), ...transformed];
+  return [...STATIC_HEAD, ...transformed];
 }
 
 // The resolved head for a normal (indexable) page and for the 404, computed once
-// for the whole suite. Canonical, Open Graph, and JSON-LD only exist on the
-// indexable head (see INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what
-// the 404 must omit in favor of a noindex signal.
-let indexableHead: HeadEntry[];
-let notFoundHead: HeadEntry[];
-
-beforeAll(async () => {
-  indexableHead = await headForPage({ isNotFound: false });
-  notFoundHead = await headForPage({ isNotFound: true });
-});
+// for the whole suite via top-level await (matching the module-scope computation
+// this file already uses for SITE_ORIGIN, localHrefs, etc.). config's transformHead
+// is synchronous, so headForPage's await resolves immediately; module-scope (rather
+// than beforeAll) lets it.each and other describe-level consumers read it directly.
+// Canonical, Open Graph, Twitter Card, and JSON-LD only exist on the indexable head
+// (see INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what the 404 must
+// omit in favor of a noindex signal.
+const indexableHead = await headForPage({ isNotFound: false });
+const notFoundHead = await headForPage({ isNotFound: true });
 
 function filterPreloadImageEntries(head: HeadEntry[]) {
   return head.filter(
@@ -368,8 +376,7 @@ function readHeroAvifUrl() {
 function readStructuredData(head: HeadEntry[]) {
   const entry = findHeadEntry(
     head,
-    ([tag, attributes]) =>
-      tag === "script" && attributes?.type === JSON_LD_MIME,
+    jsonLdScriptPredicate,
     `${JSON_LD_MIME} script tag`,
   );
   const [, , rawJson] = entry;
@@ -472,9 +479,7 @@ function resolveMetaImagePath(head: HeadEntry[], identifier: string) {
 
 function readRawWebManifest() {
   return readFileSync(
-    publicPathForUrl(
-      findLinkHref((config.head ?? []) as HeadEntry[], "manifest"),
-    ),
+    publicPathForUrl(findLinkHref(STATIC_HEAD, "manifest")),
     "utf8",
   );
 }
@@ -511,9 +516,9 @@ function isPageLinkRel(attributes: Record<string, string> | undefined) {
 }
 
 function collectLocalAssetHrefs() {
-  const head = config.head ?? [];
-  const hrefs = head
-    .filter(([tag, attributes]) => tag === "link" && !isPageLinkRel(attributes))
+  const hrefs = STATIC_HEAD.filter(
+    ([tag, attributes]) => tag === "link" && !isPageLinkRel(attributes),
+  )
     .map(([, attributes]) => attributes?.href)
     .filter((href): href is string => typeof href === "string")
     .filter(isLocalHref);
@@ -683,10 +688,8 @@ describe("Web app manifest installability", () => {
 });
 
 describe("Open Graph image metadata", () => {
-  const staticHead = () => (config.head ?? []) as HeadEntry[];
-
   it("points twitter:image at the same asset as og:image", () => {
-    expect(findMetaContent(staticHead(), "twitter:image")).toBe(
+    expect(findMetaContent(indexableHead, "twitter:image")).toBe(
       findMetaContent(indexableHead, "og:image"),
     );
   });
@@ -735,7 +738,7 @@ describe("Open Graph image metadata", () => {
     expect(altText.trim().length).toBeLessThanOrEqual(MAX_IMAGE_ALT_LENGTH);
     expect(altText).not.toBe(findMetaContent(indexableHead, "og:title"));
     expect(altText).not.toBe(findMetaContent(indexableHead, "og:description"));
-    expect(findMetaContent(staticHead(), "twitter:image:alt")).toBe(altText);
+    expect(findMetaContent(indexableHead, "twitter:image:alt")).toBe(altText);
   });
 });
 
@@ -849,7 +852,7 @@ describe("theme-color", () => {
   it("matches the brand dark background from the theme stylesheet", () => {
     expect(
       normalizeHexColor(
-        findMetaContent((config.head ?? []) as HeadEntry[], "theme-color"),
+        findMetaContent(STATIC_HEAD, "theme-color"),
         "theme-color meta",
       ),
     ).toBe(
@@ -1074,11 +1077,13 @@ describe("llms.txt", () => {
 
 describe("404 page noindex", () => {
   // The 404 must actively say "don't index this" and must not ship the homepage's
-  // canonical URL, Open Graph tags, or SoftwareApplication JSON-LD — a crawler
-  // hitting a broken URL should see a missing-content signal, not a page that
-  // claims to be the real, indexable homepage.
+  // canonical URL, Open Graph tags, Twitter Card tags, or SoftwareApplication
+  // JSON-LD — a crawler or link-preview scraper hitting a broken URL should see a
+  // missing-content signal, not a page that claims to be the real, indexable
+  // homepage.
   it("declares a noindex robots meta tag", () => {
-    expect(hasMetaTag(notFoundHead, "robots")).toBe(true);
+    // findMetaContent already asserts exactly one match and throws if the tag is
+    // missing, so its return value covers both presence and content.
     expect(findMetaContent(notFoundHead, "robots")).toBe("noindex, follow");
   });
 
@@ -1099,6 +1104,22 @@ describe("404 page noindex", () => {
       "og:image:alt",
     ];
     for (const identifier of ogIdentifiers) {
+      expect(hasMetaTag(notFoundHead, identifier), identifier).toBe(false);
+    }
+  });
+
+  it("omits every Twitter Card tag", () => {
+    // X, Slack, and Discord fall back to twitter:* when og:* is absent, so a
+    // link-preview scraper hitting the 404 would still render it as the homepage
+    // unless these are also omitted.
+    const twitterIdentifiers = [
+      "twitter:card",
+      "twitter:title",
+      "twitter:description",
+      "twitter:image",
+      "twitter:image:alt",
+    ];
+    for (const identifier of twitterIdentifiers) {
       expect(hasMetaTag(notFoundHead, identifier), identifier).toBe(false);
     }
   });

@@ -63,12 +63,15 @@ const JSON_LD = JSON.stringify({
 
 // These tags all assert "this URL is the real, indexable Grimicorn homepage" —
 // wrong on the 404, which is neither canonical nor the SoftwareApplication the
-// JSON-LD describes. VitePress's head merge (mergeHead) can only add or override
-// a `meta` tag that shares its first attribute key/value with a later entry; it
-// can't remove a `link` or `script` tag once it's in the static site-wide `head`
-// array. So these live here, added per-page by transformHead, instead of in the
-// static `head` list below — the only way to omit them on the 404 rather than
-// merely duplicate or override them.
+// JSON-LD describes, nor the page whose title/image the Twitter Card should
+// preview. VitePress's head merge (mergeHead) can only add or override a `meta`
+// tag that shares its first attribute key/value with a later entry; it can't
+// remove a `link` or `script` tag once it's in the static site-wide `head` array.
+// So these live here, added per-page by transformHead, instead of in the static
+// `head` list below — the only way to omit them on the 404 rather than merely
+// duplicate or override them. Twitter Card tags are included alongside Open
+// Graph: X, Slack, and Discord all fall back to `twitter:*` when `og:*` is
+// absent, so leaving them static would still preview the 404 as the homepage.
 const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
   ["link", { rel: "canonical", href: SITE_URL }],
   ["meta", { property: "og:type", content: "website" }],
@@ -80,6 +83,14 @@ const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
   ["meta", { property: "og:image:width", content: OG_IMAGE_WIDTH }],
   ["meta", { property: "og:image:height", content: OG_IMAGE_HEIGHT }],
   ["meta", { property: "og:image:alt", content: OG_IMAGE_ALT }],
+  ["meta", { name: "twitter:card", content: "summary_large_image" }],
+  [
+    "meta",
+    { name: "twitter:title", content: "Grimicorn – AI Coding Sidekick" },
+  ],
+  ["meta", { name: "twitter:description", content: DESCRIPTION }],
+  ["meta", { name: "twitter:image", content: OG_IMAGE }],
+  ["meta", { name: "twitter:image:alt", content: OG_IMAGE_ALT }],
   ["script", { type: "application/ld+json" }, JSON_LD],
 ];
 
@@ -125,20 +136,10 @@ export default defineConfig({
         crossorigin: "",
       },
     ],
-    // Theme color. Canonical, Open Graph, and structured data are page-conditional
-    // (see INDEXABLE_HEAD_ENTRIES / transformHead below) — omitted on the 404.
+    // Theme color. Canonical, Open Graph, Twitter Card, and structured data are
+    // page-conditional (see INDEXABLE_HEAD_ENTRIES / transformHead below) —
+    // omitted on the 404.
     ["meta", { name: "theme-color", content: "#0a0a0b" }],
-    // Twitter Card — a link-preview affordance, not a search-indexing signal like
-    // canonical/OG/JSON-LD, so it's fine to keep static across every page including
-    // the 404.
-    ["meta", { name: "twitter:card", content: "summary_large_image" }],
-    [
-      "meta",
-      { name: "twitter:title", content: "Grimicorn – AI Coding Sidekick" },
-    ],
-    ["meta", { name: "twitter:description", content: DESCRIPTION }],
-    ["meta", { name: "twitter:image", content: OG_IMAGE }],
-    ["meta", { name: "twitter:image:alt", content: OG_IMAGE_ALT }],
     // Favicon
     [
       "link",
@@ -182,10 +183,17 @@ export default defineConfig({
   // AppLayout shows NotFound (no hero) when page.isNotFound and GrimicornPage
   // otherwise, so this mirrors that exact condition: preloading the hero on the
   // 404 would burn a high-priority request and trip Chrome's "preloaded but not
-  // used" warning, and shipping the homepage's canonical/OG/JSON-LD there would
-  // tell crawlers a broken URL is the real, indexable homepage. transformHead is a
-  // build-time hook, so both effects appear under `vitepress build`/`preview`, not
-  // `vitepress dev` — verify against a production build.
+  // used" warning, and shipping the homepage's canonical/OG/JSON-LD/Twitter Card
+  // there would tell crawlers (and link-preview scrapers) a broken URL is the
+  // real, indexable homepage. transformHead is a build-time hook, so both effects
+  // are baked into the static HTML under `vitepress build`/`preview`, not
+  // `vitepress dev` — verify against a production build. This is SSR-only: a
+  // client-side route change between the homepage and the 404 does not re-run
+  // this hook (VitePress's client-side head updater works off the static
+  // `siteData.head`), but crawlers and scrapers fetch each URL directly and get
+  // the correct baked-in head, which is the only case this guards against —
+  // don't "fix" the client-side gap by moving these tags back into the static
+  // `head` array above.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
       return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
