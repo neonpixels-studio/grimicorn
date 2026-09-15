@@ -175,6 +175,108 @@ describe("skip link focus reveal", () => {
   });
 });
 
+// .colorful-btn:hover sets its own independent `animation-name: gx-rainbow-pan`
+// (infinite) rather than relying on the `.animate-rainbow-pan` class the
+// reduced-motion block already silences, so hovering it kept spinning the
+// rainbow forever for prefers-reduced-motion visitors until reset here too.
+//
+// The reset selector (`.colorful-btn:hover`) carries the exact same
+// specificity as the base hover rule it's meant to override, so wrapping it
+// in `@media` alone isn't enough — with equal specificity the cascade falls
+// back to source order, and a guard declared *before* the base rule would
+// still lose to it. This test checks placement, not just presence, so a
+// guard that exists but is ordered before the base rule (and therefore
+// silently loses the cascade in a real browser) fails here too.
+describe("reduced motion guards", () => {
+  // Stripped once, like the sibling enclosure checks above (skip-link focus,
+  // colorful-btn focus-visible): this stylesheet's own comments quote
+  // selectors and at-rules verbatim, so counting braces or searching for a
+  // literal against the raw source risks landing inside a comment instead of
+  // real CSS.
+  const cssWithoutComments = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
+
+  // Anchored on the preceding `{`, `}`, `,` (a grouped selector list), or
+  // start of file, so a future compound selector ending in
+  // `.colorful-btn:hover` (e.g. some `.foo .colorful-btn:hover` override)
+  // can't be mistaken for one of these two top-level rules. No `m` flag: with
+  // it, `^` matches at every line start, which would treat an indented
+  // continuation line as "start of file" and defeat the anchor (see the
+  // `.colorful-btn:focus-visible` enclosure test below for the same hazard).
+  const HOVER_RULE_PATTERN =
+    /(?:^|\}|\{|,)\s*\.colorful-btn:hover\s*\{([^}]*)\}/g;
+
+  // The anchor alternation `(?:^|\}|\{)` can consume a real preceding brace
+  // (e.g. the @media block's own opening `{` when the rule is the block's
+  // first declaration) as part of the match. Land on the selector itself, not
+  // that consumed prefix, so index-based ordering/depth math below isn't off
+  // by one — mirrors the `.colorful-btn:focus-visible` enclosure check above.
+  function selectorStart(match: RegExpMatchArray) {
+    return match.index! + match[0].indexOf(".colorful-btn:hover");
+  }
+
+  it("orders the colorful-btn hover reduced-motion guard after the base hover rule so it wins the cascade", () => {
+    const hoverRuleMatches = [
+      ...cssWithoutComments.matchAll(HOVER_RULE_PATTERN),
+    ];
+
+    // Select each rule by what it declares, not by array position — matchAll
+    // already returns matches in source order, so destructuring by index
+    // would make the ordering assertion below true by construction and
+    // unable to ever fail.
+    const baseHoverRule = hoverRuleMatches.find((rule) =>
+      stripWhitespace(rule[1]).includes("animation-name:gx-rainbow-pan"),
+    );
+    const guardRule = hoverRuleMatches.find((rule) =>
+      stripWhitespace(rule[1]).includes("animation:none"),
+    );
+    expect(
+      baseHoverRule,
+      "base .colorful-btn:hover rainbow-pan rule not found",
+    ).toBeDefined();
+    expect(
+      guardRule,
+      ".colorful-btn:hover reduced-motion reset (animation: none) not found",
+    ).toBeDefined();
+
+    const baseHoverStart = selectorStart(baseHoverRule!);
+    const guardStart = selectorStart(guardRule!);
+
+    expect(
+      guardStart,
+      "the reduced-motion guard must be declared after the base .colorful-btn:hover rule — equal specificity means an earlier guard loses the cascade regardless of the @media wrapper",
+    ).toBeGreaterThan(baseHoverStart);
+
+    // Whitespace-insensitive, unlike a literal lastIndexOf on the exact
+    // source string, so a formatter change to the query's internal spacing
+    // (e.g. `prefers-reduced-motion:reduce`) can't fail this for a reason
+    // unrelated to the cascade bug it guards.
+    const beforeGuard = cssWithoutComments.slice(0, guardStart);
+    const mediaQueryMatches = [
+      ...beforeGuard.matchAll(
+        /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/g,
+      ),
+    ];
+    const lastMediaQueryMatch = mediaQueryMatches.at(-1);
+    expect(
+      lastMediaQueryMatch,
+      "guard rule is not preceded by a prefers-reduced-motion media query",
+    ).toBeDefined();
+    const mediaQueryStart = lastMediaQueryMatch!.index!;
+
+    const betweenMediaAndGuard = cssWithoutComments.slice(
+      mediaQueryStart,
+      guardStart,
+    );
+    const openBraceDepth =
+      countOccurrences(betweenMediaAndGuard, "{") -
+      countOccurrences(betweenMediaAndGuard, "}");
+    expect(
+      openBraceDepth,
+      "guard rule must still be inside an open prefers-reduced-motion block, not after it closed",
+    ).toBe(1);
+  });
+});
+
 // .colorful-btn resets the UA button outline (border:none, padding:0), so
 // without an explicit rule every colorful button — including the footer's
 // bare rave toggle, which carries no other class — shows no keyboard focus

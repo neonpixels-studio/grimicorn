@@ -215,6 +215,18 @@ main[tabindex="-1"]:focus {
   animation-iteration-count: infinite;
 }
 
+/* Must come after .colorful-btn:hover above, not inside the earlier
+   reduced-motion block: this selector carries the same specificity as the
+   hover rule it resets, so with equal specificity the cascade falls back to
+   source order and an earlier declaration would lose to the later one
+   regardless of the @media wrapper. Placing the guard after the rule it
+   overrides is what makes the reset actually win. */
+@media (prefers-reduced-motion: reduce) {
+  .colorful-btn:hover {
+    animation: none;
+  }
+}
+
 /* The pause control is a genuine accessibility affordance, not the footer's
    decorative easter egg, so its resting color must clear WCAG 1.4.3 (4.5:1) on
    the dark terminal chrome — the base .colorful-btn #6f6c66 does not. It keeps
