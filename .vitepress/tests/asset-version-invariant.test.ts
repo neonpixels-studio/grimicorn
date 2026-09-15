@@ -3,8 +3,8 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { mount, type VueWrapper } from "@vue/test-utils";
 
-import config from "../config";
 import GrimicornPage from "@components/GrimicornPage.vue";
+import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -87,9 +87,7 @@ function listImmutableAssetUrlPaths(): string[] {
 
 // A head entry is [tag, attributes?, innerText?]; collect every string value that
 // could carry an asset URL (link/meta attributes plus inline JSON-LD text).
-function headEntryStrings(
-  entry: NonNullable<typeof config.head>[number],
-): string[] {
+function headEntryStrings(entry: HeadEntry): string[] {
   const [, attributes, innerText] = entry as [
     string,
     Record<string, string>?,
@@ -102,8 +100,8 @@ function headEntryStrings(
   return [...attributeValues, ...innerValues];
 }
 
-function headReferenceStrings(): string[] {
-  return (config.head ?? []).flatMap(headEntryStrings);
+function headReferenceStrings(head: HeadEntry[]): string[] {
+  return head.flatMap(headEntryStrings);
 }
 
 // A full mount renders child components too, so an asset reference stays covered even
@@ -178,9 +176,13 @@ function toAssetReferences(
   );
 }
 
-function collectAssetReferences(): AssetReference[] {
+async function collectAssetReferences(): Promise<AssetReference[]> {
+  const indexablePageHead = await resolveHeadForPage({ isNotFound: false });
   return [
-    ...toAssetReferences("config head", headReferenceStrings()),
+    ...toAssetReferences(
+      "config head",
+      headReferenceStrings(indexablePageHead),
+    ),
     ...toAssetReferences("GrimicornPage render", componentReferenceStrings()),
     ...toAssetReferences("theme stylesheet", themeStyleReferenceStrings()),
     ...toAssetReferences("site.webmanifest icons", manifestReferenceStrings()),
@@ -191,8 +193,8 @@ const immutableAssetUrlPaths = listImmutableAssetUrlPaths();
 let assetReferences: AssetReference[];
 let versionedAssetPaths: Set<string>;
 
-beforeAll(() => {
-  assetReferences = collectAssetReferences();
+beforeAll(async () => {
+  assetReferences = await collectAssetReferences();
   versionedAssetPaths = new Set(
     assetReferences
       .filter((reference) => versionOf(reference) !== "")
