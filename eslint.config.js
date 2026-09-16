@@ -54,7 +54,12 @@ export default [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "vue/no-v-html": "off",
+      // v-html bypasses Vue's escaping and is a standing XSS footgun. Nothing
+      // in this codebase uses it today, but the rule stays wired at "error"
+      // (not the plugin's default "warn", which wouldn't fail `npm run lint`
+      // here since it isn't run with --max-warnings 0) so the first future
+      // usage is caught before it lands.
+      "vue/no-v-html": "error",
     },
   },
   prettier,
