@@ -741,7 +741,7 @@ describe("Open Graph image metadata", () => {
     // always match itself) and compares it against the live stylesheet, so a
     // --color-bg change shipped without regenerating the banner — or a
     // generator regression that pads with the wrong color — fails here.
-    const bannerPath = resolveMetaImagePath("og:image");
+    const bannerPath = resolveMetaImagePath(indexableHead, "og:image");
     const actualChannels = await readCornerPixelChannels(bannerPath);
     const brandBackground = readBrandBackgroundColor();
     const expectedChannels = hexColorChannels(brandBackground);
