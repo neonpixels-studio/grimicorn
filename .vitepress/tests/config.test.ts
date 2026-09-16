@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import sharp from "sharp";
 
 import config from "../config";
 import {
@@ -10,6 +11,16 @@ import {
 } from "../../og-banner-spec.mjs";
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
+import {
+  BRAND_BG_CUSTOM_PROPERTY,
+  extractBrandBackgroundColor,
+  normalizeHexColor,
+  readBrandBackgroundColor,
+} from "../../brand-color.mjs";
+import {
+  extractSingleCapture,
+  stripBlockComments,
+} from "../../text-extract.mjs";
 import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
@@ -17,26 +28,6 @@ const PUBLIC_DIR = resolve(process.cwd(), "public");
 // Pinned from the SITE_URL constant in config.ts. That constant is not exported,
 // so the expected value lives here; every on-site URL in the head must match it.
 const EXPECTED_SITE_URL = "https://grimicorn.dev";
-
-// theme-color must track the brand dark background, whose source of truth is the
-// --color-bg custom property in the theme stylesheet — assert against that, not a
-// second copy of the literal.
-const THEME_STYLESHEET = resolve(process.cwd(), ".vitepress/theme/style.css");
-const BRAND_BG_CUSTOM_PROPERTY = "--color-bg";
-// Anchored to a declaration boundary: the char before the property must be a
-// non-identifier char (start of input, whitespace, `{`, or `;`), so a sibling whose
-// name ends with the full `--color-bg` token (e.g. `--accent--color-bg`) can't match
-// on a substring. The value runs to the next `;`, block-closing `}`, or end of input,
-// so a final declaration that omits its trailing semicolon still matches. The lazy
-// value group plus trailing `\s*` stop the capture from absorbing the whitespace
-// before a `}` or EOF terminator.
-const BRAND_BG_PATTERN = new RegExp(
-  `(?<![\\w-])${BRAND_BG_CUSTOM_PROPERTY}\\s*:\\s*([^;}]+?)\\s*(?:;|}|$)`,
-  "g",
-);
-// The stylesheet and theme-color both use 6-digit hex; anything else fails loud
-// rather than being silently normalized into a false match.
-const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 const JSON_LD_MIME = "application/ld+json";
 
@@ -128,6 +119,17 @@ const MAX_IMAGE_ALT_LENGTH = 420;
 const OG_IMAGE_FILE = "grimicorn-og.png";
 const OG_EXPECTED_WIDTH = 1200;
 const OG_EXPECTED_HEIGHT = 630;
+// Measured directly against the shipped banner: a flat fill this dominant (most of
+// the 1200x630 canvas outside the centered hero square) survives PNG palette
+// quantization (.png({ palette: true }) in the generator) with zero channel drift,
+// so the shipped-banner drift check below requires an exact match.
+const BACKGROUND_COLOR_CHANNEL_TOLERANCE = 0;
+const BACKGROUND_COLOR_CHANNEL_NAMES = ["red", "green", "blue"];
+// Kept distinct from BACKGROUND_COLOR_CHANNEL_NAMES.length: that array exists to
+// label assertion failures, not to define how many channels a usable RGB decode
+// needs, so a future unrelated addition to it (e.g. "alpha") can't silently change
+// this guard's threshold.
+const MIN_RGB_CHANNELS = 3;
 
 // The generator must import the shared spec, not re-inline the dimensions, or the
 // producer can drift from config even though config tracks the spec.
@@ -140,19 +142,41 @@ const OG_GENERATOR_SCRIPT = resolve(
 const SHARED_SPEC_IMPORT_PATTERN =
   /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/og-banner-spec\.mjs["']/;
 const REQUIRED_SPEC_BINDINGS = ["OG_WIDTH", "OG_HEIGHT", "OG_IMAGE_FILENAME"];
-
-// CSS has block comments only, so the stylesheet scan strips just `/* ... */` — a
-// commented-out `--color-bg` must not be counted. Kept separate from the line-comment
-// rule because `^\s*//` would delete legal CSS (e.g. a protocol-relative `//cdn…` URL
-// on its own line), so each caller strips only the grammar its source actually uses.
-function stripBlockComments(source: string) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "");
-}
+// The generator must import the brand background color from the shared CSS parser
+// (brand-color.mjs), not re-inline a hex literal, or the padding can drift from the
+// theme stylesheet even though every other consumer (manifest, theme-color) tracks it.
+// Anchored to the exact relative specifier (mirroring SHARED_SPEC_IMPORT_PATTERN
+// above) so an unrelated module merely ending in "brand-color.mjs" can't satisfy it.
+const BRAND_COLOR_IMPORT_PATTERN =
+  /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/brand-color\.mjs["']/;
+const REQUIRED_BRAND_COLOR_BINDING = "readBrandBackgroundColor";
+// A quoted color literal in the generator would be a re-inlined copy of the theme
+// background; the shared parser is the only place that literal should live. Requires
+// surrounding quotes (a real string literal, which is how sharp's `background`
+// option is always written) rather than a bare `#` run, so it can't be tripped by
+// an unrelated `#` elsewhere in the source. Covers every hex shorthand (3/4/6/8
+// digits, with or without alpha) and the rgb()/hsl() functional notations, since
+// any of these — not just a 6-digit hex — would satisfy sharp's `background` option.
+const HEX_LITERAL_PATTERN = /["'`]#[0-9a-fA-F]{3,8}\b/;
+const COLOR_FUNCTION_PATTERN = /["'`](?:rgba?|hsla?)\(/i;
+const NO_HEX_LITERAL_MESSAGE =
+  "the generator must derive its background from brand-color.mjs, not carry a hex literal";
+const NO_COLOR_FUNCTION_MESSAGE =
+  "the generator must derive its background from brand-color.mjs, not carry an rgb()/hsl() literal";
 
 // JS/TS sources (the generator-import scan) also carry `//` line comments; a
 // commented-out import must not satisfy the drift assertion.
 function stripComments(source: string) {
   return stripBlockComments(source).replace(/^\s*\/\/.*$/gm, "");
+}
+
+// Every "does this file import the shared module, not re-inline it" drift guard
+// (spec import, brand-color import, hero-spec import) needs the same "strip
+// comments, match the import pattern, split the binding list" sequence, so it
+// lives once here rather than forked per guard.
+function importedBindings(source: string, pattern: RegExp) {
+  const [, bindingList = ""] = stripComments(source).match(pattern) ?? [];
+  return bindingList.split(",").map((binding) => binding.trim());
 }
 
 // robots.txt and llms.txt carry literal site URLs and marketing copy with no
@@ -188,6 +212,32 @@ function readPngDimensions(filePath: string) {
     width: buffer.readUInt32BE(PNG_WIDTH_OFFSET),
     height: buffer.readUInt32BE(PNG_HEIGHT_OFFSET),
   };
+}
+
+// Splits a 6-digit hex color into its red/green/blue byte values, so a decoded
+// PNG pixel's raw channels can be compared against it directly.
+function hexColorChannels(hexColor: string) {
+  const digits = hexColor.replace(/^#/, "");
+  return [0, 2, 4].map((offset) =>
+    parseInt(digits.slice(offset, offset + 2), 16),
+  );
+}
+
+// Reads the raw RGB channels of a PNG's top-left pixel. The OG banner pads to a
+// flat background color, so this corner is always background, never hero art.
+// Fails loud on a non-RGB decode (e.g. a grayscale PNG) instead of silently
+// comparing against `undefined` channels, which would surface as a confusing NaN.
+async function readCornerPixelChannels(filePath: string) {
+  const { data, info } = await sharp(filePath)
+    .extract({ left: 0, top: 0, width: 1, height: 1 })
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (info.channels < MIN_RGB_CHANNELS) {
+    throw new Error(
+      `${filePath} decoded to ${info.channels} channel(s), expected at least ${MIN_RGB_CHANNELS} (RGB)`,
+    );
+  }
+  return [data[0], data[1], data[2]];
 }
 
 // The subset of config.head that never varies by page (favicons, theme-color,
@@ -386,67 +436,11 @@ function readStructuredData(head: HeadEntry[]) {
   return parsed as { url: string; image: string };
 }
 
-// One hex contract for both sides of the comparison: the CSS source and the
-// manifest/meta colors are all held to a 6-digit literal, so `#fff` vs `#ffffff`
-// (identical to a browser) fails loud with a clear message instead of a confusing diff.
-function normalizeHexColor(value: unknown, description: string) {
-  if (typeof value !== "string") {
-    throw new Error(`${description} is not a string color: ${String(value)}`);
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!HEX_COLOR_PATTERN.test(normalized)) {
-    throw new Error(
-      `${description} is not a 6-digit hex literal: ${normalized}`,
-    );
-  }
-  return normalized;
-}
-
 // Missing/typo'd manifest color keys are exactly the desync this suite guards
 // against; normalizeHexColor fails loud on the missing value with a keyed
 // message, so a dropped color surfaces as a readable failure, not a crash.
 function readManifestColor(manifest: Record<string, unknown>, key: string) {
   return normalizeHexColor(manifest[key], `manifest ${key}`);
-}
-
-// Parse the single brand background literal out of a stylesheet source. Comments
-// must be stripped first; otherwise a commented-out `/* --color-bg: ... */`
-// declaration counts as a real match and trips the "exactly one" guard. Pure over
-// its input (source and label) so the comment-stripping can be exercised in
-// isolation, and so failures name the source the caller actually passed.
-function extractBrandBackgroundColor(stylesheet: string, sourceLabel: string) {
-  const value = extractSingleCapture(
-    stripBlockComments(stylesheet),
-    BRAND_BG_PATTERN,
-    `${BRAND_BG_CUSTOM_PROPERTY} declaration in ${sourceLabel}`,
-  );
-  return normalizeHexColor(
-    value,
-    `${BRAND_BG_CUSTOM_PROPERTY} in ${sourceLabel}`,
-  );
-}
-
-function readBrandBackgroundColor() {
-  return extractBrandBackgroundColor(
-    readFileSync(THEME_STYLESHEET, "utf8"),
-    THEME_STYLESHEET,
-  );
-}
-
-// Duplicate directives (two Sitemap lines, two Home links) are exactly the drift
-// this guards against, so every extraction insists on exactly one match.
-function extractSingleCapture(
-  source: string,
-  pattern: RegExp,
-  description: string,
-) {
-  const matches = [...source.matchAll(pattern)];
-  if (matches.length !== 1) {
-    throw new Error(
-      `Expected exactly one ${description}, found ${matches.length}`,
-    );
-  }
-  return matches[0][1].trim();
 }
 
 function extractMarkdownLinkUrl(source: string, label: string) {
@@ -721,11 +715,44 @@ describe("Open Graph image metadata", () => {
 
   it("has the generator import the shared spec instead of re-inlining it", () => {
     const code = stripComments(readFileSync(OG_GENERATOR_SCRIPT, "utf8"));
-    const [, bindingList = ""] = code.match(SHARED_SPEC_IMPORT_PATTERN) ?? [];
-    const imported = bindingList.split(",").map((binding) => binding.trim());
+    const imported = importedBindings(code, SHARED_SPEC_IMPORT_PATTERN);
     for (const binding of REQUIRED_SPEC_BINDINGS) {
       expect(imported, binding).toContain(binding);
     }
+  });
+
+  it("has the generator source its padding background from the theme stylesheet, not a hardcoded literal", () => {
+    // Same drift guard as the spec-import check above, but for the theme
+    // background: the generator must derive its background from style.css via
+    // the shared brand-color parser rather than carrying its own copy of the hex
+    // literal, or the banner padding can silently go stale after a rebrand.
+    const code = stripComments(readFileSync(OG_GENERATOR_SCRIPT, "utf8"));
+    const imported = importedBindings(code, BRAND_COLOR_IMPORT_PATTERN);
+    expect(imported, REQUIRED_BRAND_COLOR_BINDING).toContain(
+      REQUIRED_BRAND_COLOR_BINDING,
+    );
+    expect(code, NO_HEX_LITERAL_MESSAGE).not.toMatch(HEX_LITERAL_PATTERN);
+    expect(code, NO_COLOR_FUNCTION_MESSAGE).not.toMatch(COLOR_FUNCTION_PATTERN);
+  });
+
+  it("bakes the exact theme background into the shipped banner's padding", async () => {
+    // Reads the real pixel the committed PNG was padded with (rather than
+    // re-deriving the same value the generator would, which would trivially
+    // always match itself) and compares it against the live stylesheet, so a
+    // --color-bg change shipped without regenerating the banner — or a
+    // generator regression that pads with the wrong color — fails here.
+    const bannerPath = resolveMetaImagePath(indexableHead, "og:image");
+    const actualChannels = await readCornerPixelChannels(bannerPath);
+    const brandBackground = readBrandBackgroundColor();
+    const expectedChannels = hexColorChannels(brandBackground);
+    const remediation =
+      "run `npm run generate:og`, bump the asset-version token, then `npm run lock:assets`";
+    BACKGROUND_COLOR_CHANNEL_NAMES.forEach((channelName, index) => {
+      expect(
+        Math.abs(actualChannels[index] - expectedChannels[index]),
+        `${channelName} channel: banner corner is rgb(${actualChannels}) but ${BRAND_BG_CUSTOM_PROPERTY} (${brandBackground}) is rgb(${expectedChannels}) — ${remediation}`,
+      ).toBeLessThanOrEqual(BACKGROUND_COLOR_CHANNEL_TOLERANCE);
+    });
   });
 
   it("declares usable alt text for og:image and twitter:image", () => {
@@ -792,9 +819,7 @@ describe("Hero avif path shared source of truth", () => {
   const HERO_SPEC_BINDING = "HERO_AVIF_HREF";
 
   function importsHeroSpec(source: string) {
-    const [, bindingList = ""] =
-      stripComments(source).match(HERO_SPEC_IMPORT_PATTERN) ?? [];
-    return bindingList.split(",").map((binding) => binding.trim());
+    return importedBindings(source, HERO_SPEC_IMPORT_PATTERN);
   }
 
   it("exports a single hero avif base path under /assets", () => {
@@ -993,6 +1018,22 @@ describe("brand background color parsing", () => {
     expect(
       extractBrandBackgroundColor(stylesheetWithSemicolon, FIXTURE_LABEL),
     ).toBe("#0a0a0b");
+  });
+});
+
+describe("extractSingleCapture pattern guards", () => {
+  const FIXTURE_LABEL = "<fixture>";
+
+  it("rejects a non-global pattern, which matchAll would otherwise reject with a less specific error", () => {
+    expect(() => extractSingleCapture("a", /(a)/, FIXTURE_LABEL)).toThrow(
+      `Pattern for ${FIXTURE_LABEL} must use the global flag`,
+    );
+  });
+
+  it("rejects a pattern with no capture group instead of returning an undefined value", () => {
+    expect(() => extractSingleCapture("a", /a/g, FIXTURE_LABEL)).toThrow(
+      `Pattern for ${FIXTURE_LABEL} has no capture group`,
+    );
   });
 });
 
