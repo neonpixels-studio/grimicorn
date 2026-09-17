@@ -248,7 +248,9 @@ export function changedAssetPaths(previousAssets, nextAssets) {
 // to tell whether it also changed, so treating every drop as requiring a token bump is
 // the only way to close that blind spot.
 export function droppedAssetPaths(previousAssets, nextAssets) {
-  return Object.keys(previousAssets).filter((path) => !(path in nextAssets));
+  return Object.keys(previousAssets).filter(
+    (path) => !Object.hasOwn(nextAssets, path),
+  );
 }
 
 // Splits a token into its date and revision for comparison. A bare token (no -N

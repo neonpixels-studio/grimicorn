@@ -343,24 +343,27 @@ describe("assertTokenBumpedForChangedAssets", () => {
     }).toThrow(/dropped from VERSIONED_ASSET_FILES/);
   });
 
-  it("throws when an asset is changed and then dropped from the fingerprint in the same PR", () => {
-    // The exact gap from issue #174: an asset's bytes change and its path is removed
-    // from VERSIONED_ASSET_FILES in the same PR, so the stale bytes never show up as
-    // "changed" — only as "dropped".
+  it("throws with both reasons when one asset is changed and a different asset is dropped in the same PR", () => {
+    // The exact gap from issue #174: a PR can change one asset's bytes AND remove a
+    // different asset's path from VERSIONED_ASSET_FILES in the same change. Both must
+    // surface in the error, proving the "changed" and "dropped" reasons are combined
+    // rather than one silently overwriting the other.
     const twoAssetLock = {
       token: "?v=20260816",
       assets: { "a.png": "hash-a", "b.png": "hash-b" },
     };
-    // "a.png" changed on disk but its dropped path means the fingerprint never
-    // records the new bytes at all; "b.png" stays put.
-    const fingerprint = { "b.png": "hash-b" };
+    // "a.png" is dropped from the fingerprint (removed from VERSIONED_ASSET_FILES);
+    // "b.png" stays tracked but its bytes changed.
+    const fingerprint = { "b.png": "hash-b-new" };
     expect(() => {
       assertTokenBumpedForChangedAssets(
         twoAssetLock,
         twoAssetLock.token,
         fingerprint,
       );
-    }).toThrow(/dropped from VERSIONED_ASSET_FILES \(a\.png\)/);
+    }).toThrow(
+      /Asset bytes changed \(b\.png\) and dropped from VERSIONED_ASSET_FILES \(a\.png\)/,
+    );
   });
 
   it("passes when a dropped asset is paired with a newer token", () => {
