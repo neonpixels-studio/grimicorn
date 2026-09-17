@@ -342,3 +342,73 @@ describe("colorful button focus ring", () => {
     expect(hasStaticClass(pauseToggleTag![0], "colorful-btn")).toBe(true);
   });
 });
+
+// The footer rave toggle carries no class besides `colorful-btn` (unlike the
+// pause control, which used to layer its own compliant color on top), so its
+// WCAG 1.4.3 resting-state contrast against the page's --color-bg depends
+// entirely on the shared base rule's own color. #6f6c66 measured ~3.78:1
+// there — under the 4.5:1 AA minimum — until this guard's fix.
+describe("colorful button resting contrast", () => {
+  // Stripped, like the sibling enclosure checks above (reduced motion guards,
+  // colorful-btn focus-visible): this stylesheet's own comments quote
+  // selectors and declarations verbatim, so matching against the raw source
+  // risks landing inside a comment instead of the real rule.
+  const css = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
+
+  function srgbChannelToLinear(channel: number) {
+    const normalized = channel / 255;
+    if (normalized <= 0.03928) {
+      return normalized / 12.92;
+    }
+    return ((normalized + 0.055) / 1.055) ** 2.4;
+  }
+
+  function relativeLuminance(hexColor: string) {
+    const hexDigits = hexColor.replace("#", "");
+    const red = parseInt(hexDigits.slice(0, 2), 16);
+    const green = parseInt(hexDigits.slice(2, 4), 16);
+    const blue = parseInt(hexDigits.slice(4, 6), 16);
+    return (
+      0.2126 * srgbChannelToLinear(red) +
+      0.7152 * srgbChannelToLinear(green) +
+      0.0722 * srgbChannelToLinear(blue)
+    );
+  }
+
+  function contrastRatio(foregroundHex: string, backgroundHex: string) {
+    const foregroundLuminance = relativeLuminance(foregroundHex);
+    const backgroundLuminance = relativeLuminance(backgroundHex);
+    const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+    const darker = Math.min(foregroundLuminance, backgroundLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  function readThemeToken(tokenName: string) {
+    const themeBlock = css.match(/@theme\b[^{]*\{([\s\S]*?)\}/);
+    expect(themeBlock, "@theme block not found").not.toBeNull();
+    const tokenMatch = themeBlock![1].match(
+      new RegExp(`${tokenName}:\\s*(#[0-9a-fA-F]{6})\\s*;`),
+    );
+    expect(tokenMatch, `${tokenName} not found in @theme block`).not.toBeNull();
+    return tokenMatch![1];
+  }
+
+  const WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST = 4.5;
+
+  it("resolves .colorful-btn's resting color from --color-fg-muted, not a literal", () => {
+    const colorfulBtnBlock = css.match(
+      /(?:^|\})\s*\.colorful-btn\s*\{([^}]*)\}/m,
+    );
+    expect(colorfulBtnBlock, ".colorful-btn rule not found").not.toBeNull();
+    const declarations = stripWhitespace(colorfulBtnBlock![1]);
+    expect(declarations).toContain("color:var(--color-fg-muted)");
+    expect(declarations).not.toContain("#6f6c66");
+  });
+
+  it("meets WCAG 1.4.3 (>= 4.5:1) for .colorful-btn's resting color on --color-bg", () => {
+    const fgMuted = readThemeToken("--color-fg-muted");
+    const colorBg = readThemeToken(BRAND_BG_TOKEN);
+    const ratio = contrastRatio(fgMuted, colorBg);
+    expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST);
+  });
+});
