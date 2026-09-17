@@ -541,15 +541,30 @@ describe("syncManifestCacheBustTokens", () => {
     );
   });
 
-  it("leaves a src with an unrelated trailing query param untouched, rather than swallowing it", () => {
-    // MANIFEST_TOKEN_PATTERN's replacement scope stops at "&"/"#" so a real (if
-    // unusual) extra param on an icon src can't be silently deleted along with the
-    // cache-bust token — same as the pre-change behavior, which never matched such a
-    // src at all and so never touched it either.
+  it("fails loud instead of silently leaving an icon src with an extra query param unsynced", () => {
+    // MANIFEST_TOKEN_PATTERN's replacement scope stops at "&"/"#", so a src carrying
+    // an extra param the rewrite doesn't recognize (e.g. "&size=2x") never matches
+    // the rewrite at all. That used to be a silent no-op, letting the icon drift
+    // stale behind a year-long immutable cache with no error anywhere. It must now
+    // throw instead of returning the source unchanged.
     const manifestSource = '{"src":"/images/icon.png?v=20260101&size=2x"}';
-    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
-      manifestSource,
-    );
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/don't match the cache-bust rewrite pattern/);
+  });
+
+  it("fails loud on an uppercase file extension the rewrite pattern can't match", () => {
+    const manifestSource = '{"src":"/images/icon.PNG?v=20260101"}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/don't match the cache-bust rewrite pattern/);
+  });
+
+  it("fails loud on a .gif extension the rewrite pattern can't match", () => {
+    const manifestSource = '{"src":"/images/icon.gif?v=20260101"}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/don't match the cache-bust rewrite pattern/);
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {
