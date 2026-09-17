@@ -553,7 +553,7 @@ describe("syncManifestCacheBustTokens", () => {
     ]) {
       expect(() =>
         syncManifestCacheBustTokens(`{"src":"${unsyncableSrc}"}`, NEW_TOKEN),
-      ).toThrow(/don't carry the live token/);
+      ).toThrow(/weren't reached by the rewrite/);
     }
   });
 
@@ -610,6 +610,39 @@ describe("syncManifestCacheBustTokens", () => {
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       manifestSource,
     );
+  });
+
+  it("leaves a cross-origin icon src with no query untouched, rather than appending a token to it", () => {
+    // With no query at all, this src's shape otherwise matches MANIFEST_TOKEN_PATTERN
+    // (a recognized extension right before the closing quote) — the exemption must
+    // be checked inside the rewrite itself, not only in the post-rewrite audit, or a
+    // cross-origin icon like this one gets a "?v=" appended despite not being a
+    // same-origin asset this repo's cache-bust convention applies to.
+    const manifestSource =
+      '{"icons":[{"src":"https://cdn.example.com/icon.png"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+
+  it("leaves a protocol-relative icon src untouched, rather than treating it as unsynced", () => {
+    const manifestSource = '{"icons":[{"src":"//cdn.example.com/icon.png"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+
+  it("fails loud on an unreachable src even when its stale query already ends with the live token", () => {
+    // A suffix check ("does this src end with the live token") can be fooled: a
+    // .gif the rewrite can never reach still passes if nothing has bumped the token
+    // since the last regen, deferring the failure to whichever future bump changes
+    // it — exactly the "nothing in the pipeline notices" drift this guard exists to
+    // close today, not eventually. The audit must track which srcs the rewrite
+    // itself actually touched, not just compare strings.
+    const manifestSource = `{"icons":[{"src":"/images/icon.gif${NEW_TOKEN}"}]}`;
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/weren't reached by the rewrite/);
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {
@@ -746,7 +779,7 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
     withTempManifest(staleManifest, (manifestPath) => {
       expect(() =>
         syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath),
-      ).toThrow(/don't carry the live token/);
+      ).toThrow(/weren't reached by the rewrite/);
       expect(readFileSync(manifestPath, "utf8")).toBe(staleManifest);
     });
   });
