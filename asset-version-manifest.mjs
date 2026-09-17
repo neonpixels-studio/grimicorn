@@ -239,6 +239,18 @@ export function changedAssetPaths(previousAssets, nextAssets) {
   });
 }
 
+// Assets the base lock tracked that the current fingerprint no longer has an entry
+// for — i.e. their path was removed from VERSIONED_ASSET_FILES. changedAssetPaths()
+// alone can't see this: it only walks nextAssets' keys, so a path changed and then
+// dropped from VERSIONED_ASSET_FILES in the same PR vanishes from the fingerprint
+// entirely and never gets compared. Flagging any drop (not only a proven byte change)
+// is deliberately conservative — once a path stops being fingerprinted there is no way
+// to tell whether it also changed, so treating every drop as requiring a token bump is
+// the only way to close that blind spot.
+export function droppedAssetPaths(previousAssets, nextAssets) {
+  return Object.keys(previousAssets).filter((path) => !(path in nextAssets));
+}
+
 // Splits a token into its date and revision for comparison. A bare token (no -N
 // suffix) is the day's implicit first revision (DEFAULT_TOKEN_REVISION); an explicit
 // "-1" (or "-0") is rejected as malformed, since TOKEN_REVISION_PATTERN_SOURCE starts
@@ -275,13 +287,15 @@ export function compareAssetCacheBustTokens(tokenA, tokenB) {
   return parsedA.revision - parsedB.revision;
 }
 
-// The core guard: if any existing asset's bytes moved, the shared token must move
-// *forward*, or a year-long immutable cache keeps serving stale bytes behind an
-// unchanged URL. The token is a YYYYMMDD date with an optional same-day -N revision
-// suffix, so a parsed comparison (date, then revision) enforces monotonicity and
-// rejects a same-token no-op and an accidental downgrade alike — including a
-// same-day revision downgrade a plain string comparison would miss. Pure so both the
-// regen script and the tests exercise the exact enforcement logic.
+// The core guard: if any existing asset's bytes moved, or an asset the lock tracked
+// dropped out of the fingerprint entirely (removed from VERSIONED_ASSET_FILES — see
+// droppedAssetPaths() above), the shared token must move *forward*, or a year-long
+// immutable cache keeps serving stale bytes behind an unchanged URL. The token is a
+// YYYYMMDD date with an optional same-day -N revision suffix, so a parsed comparison
+// (date, then revision) enforces monotonicity and rejects a same-token no-op and an
+// accidental downgrade alike — including a same-day revision downgrade a plain string
+// comparison would miss. Pure so both the regen script and the tests exercise the
+// exact enforcement logic.
 export function assertTokenBumpedForChangedAssets(
   previousLock,
   token,
@@ -291,14 +305,22 @@ export function assertTokenBumpedForChangedAssets(
     return;
   }
   const changed = changedAssetPaths(previousLock.assets, fingerprint);
-  if (changed.length === 0) {
+  const dropped = droppedAssetPaths(previousLock.assets, fingerprint);
+  if (changed.length === 0 && dropped.length === 0) {
     return;
   }
   if (compareAssetCacheBustTokens(token, previousLock.token) > 0) {
     return;
   }
+  const reasons = [];
+  if (changed.length > 0) {
+    reasons.push(`bytes changed (${changed.join(", ")})`);
+  }
+  if (dropped.length > 0) {
+    reasons.push(`dropped from VERSIONED_ASSET_FILES (${dropped.join(", ")})`);
+  }
   throw new Error(
-    `Asset bytes changed (${changed.join(", ")}) but ASSET_CACHE_BUST (${token}) is not newer ` +
+    `Asset ${reasons.join(" and ")} but ASSET_CACHE_BUST (${token}) is not newer ` +
       `than the locked ${previousLock.token}. Bump the token in ${ASSET_CACHE_BUST_SOURCE} before ` +
       `regenerating the lock so the ?v= query moves forward with the content.`,
   );

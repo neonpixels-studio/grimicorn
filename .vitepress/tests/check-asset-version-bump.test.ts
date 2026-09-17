@@ -70,6 +70,28 @@ describe("checkAssetVersionBump", () => {
     expect(run).toThrow(/not newer/);
   });
 
+  it("fails when an asset changed and was dropped from VERSIONED_ASSET_FILES in the same PR without a token bump", () => {
+    // The gap from issue #174: checkAssetVersionBump only walks the *current*
+    // fingerprint, so a PR that both changes an asset's bytes and removes its path
+    // from VERSIONED_ASSET_FILES leaves no trace of "changed" in the fingerprint —
+    // only its absence. The base lock still has the entry; the current fingerprint
+    // does not.
+    const run = withFixture({
+      token: baseLock.token,
+      fingerprint: {},
+    });
+    expect(run).toThrow(/dropped from VERSIONED_ASSET_FILES/);
+  });
+
+  it("passes when a dropped asset is paired with a token bumped past the base branch's", () => {
+    const run = withFixture({
+      token: "?v=20260817",
+      fingerprint: {},
+    });
+    expect(run).not.toThrow();
+    expect(run()).toEqual({ skipped: false, comparedRef: MERGE_BASE_SHA });
+  });
+
   it("passes when no asset changed relative to the base branch, even with the same token", () => {
     const run = withFixture({
       token: baseLock.token,
