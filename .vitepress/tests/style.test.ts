@@ -33,6 +33,13 @@ function stripWhitespace(source: string) {
   return source.replace(/\s+/g, "");
 }
 
+// The stylesheet's own comments quote selectors and declarations verbatim, so
+// matching or counting braces against the raw source risks landing inside a
+// comment instead of real CSS.
+function stripComments(source: string) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
 function countOccurrences(haystack: string, needle: string) {
   return haystack.split(needle).length - 1;
 }
@@ -157,7 +164,7 @@ describe("skip link focus reveal", () => {
     // Land on the selector itself, not the matched prefix: the `\}` branch would
     // otherwise put the offset before a closing brace and undercount depth by one.
     const ruleStart = anchor!.index! + anchor![0].indexOf(".skip-link");
-    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
+    const beforeRule = stripComments(css.slice(0, ruleStart));
     const openBraceDepth =
       countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
     expect(
@@ -189,11 +196,9 @@ describe("skip link focus reveal", () => {
 // silently loses the cascade in a real browser) fails here too.
 describe("reduced motion guards", () => {
   // Stripped once, like the sibling enclosure checks above (skip-link focus,
-  // colorful-btn focus-visible): this stylesheet's own comments quote
-  // selectors and at-rules verbatim, so counting braces or searching for a
-  // literal against the raw source risks landing inside a comment instead of
-  // real CSS.
-  const cssWithoutComments = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
+  // colorful-btn focus-visible): comments can otherwise be mistaken for real
+  // CSS (see stripComments).
+  const cssWithoutComments = stripComments(readStyleCss());
 
   // Anchored on the preceding `{`, `}`, `,` (a grouped selector list), or
   // start of file, so a future compound selector ending in
@@ -304,7 +309,7 @@ describe("colorful button focus ring", () => {
     const anchor = css.match(/(?:^|\})\s*\.colorful-btn:focus-visible\s*\{/m);
     expect(anchor, ".colorful-btn:focus-visible rule not found").not.toBeNull();
     const ruleStart = anchor!.index! + anchor![0].indexOf(".colorful-btn");
-    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
+    const beforeRule = stripComments(css.slice(0, ruleStart));
     const openBraceDepth =
       countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
     expect(
@@ -350,10 +355,9 @@ describe("colorful button focus ring", () => {
 // there — under the 4.5:1 AA minimum — until this guard's fix.
 describe("colorful button resting contrast", () => {
   // Stripped, like the sibling enclosure checks above (reduced motion guards,
-  // colorful-btn focus-visible): this stylesheet's own comments quote
-  // selectors and declarations verbatim, so matching against the raw source
-  // risks landing inside a comment instead of the real rule.
-  const css = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
+  // colorful-btn focus-visible): comments can otherwise be mistaken for real
+  // CSS (see stripComments).
+  const css = stripComments(readStyleCss());
 
   function srgbChannelToLinear(channel: number) {
     const normalized = channel / 255;
@@ -395,20 +399,52 @@ describe("colorful button resting contrast", () => {
 
   const WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST = 4.5;
 
-  it("resolves .colorful-btn's resting color from --color-fg-muted, not a literal", () => {
-    const colorfulBtnBlock = css.match(
-      /(?:^|\})\s*\.colorful-btn\s*\{([^}]*)\}/m,
-    );
-    expect(colorfulBtnBlock, ".colorful-btn rule not found").not.toBeNull();
-    const declarations = stripWhitespace(colorfulBtnBlock![1]);
+  // Backgrounds every .colorful-btn instance actually sits on: the footer
+  // rave toggle paints straight onto the page (--color-bg), while the
+  // terminal-window pause toggle sits on the card's --color-surface.
+  const COLORFUL_BTN_BACKGROUND_TOKENS = [BRAND_BG_TOKEN, "--color-surface"];
+
+  // Same anchor alternation and `matchAll` approach as the reduced-motion
+  // guard's HOVER_RULE_PATTERN above: a plain first-match `css.match` would
+  // (a) miss a later `.colorful-btn { color: #6f6c66 }` rule that wins the
+  // cascade, and (b) not notice the rule being wrapped in an `@media`/`@layer`
+  // block, which the enclosure check below guards against separately.
+  const COLORFUL_BTN_RULE_PATTERN =
+    /(?:^|\}|\{|,)\s*\.colorful-btn\s*\{([^}]*)\}/g;
+
+  function selectorStart(match: RegExpMatchArray, selector: string) {
+    return match.index! + match[0].indexOf(selector);
+  }
+
+  it("resolves every .colorful-btn resting color from --color-fg-muted, not a literal", () => {
+    const colorfulBtnBlocks = [...css.matchAll(COLORFUL_BTN_RULE_PATTERN)];
+    expect(
+      colorfulBtnBlocks.length,
+      ".colorful-btn rule not found",
+    ).toBeGreaterThan(0);
+
+    colorfulBtnBlocks.forEach((block) => {
+      expect(stripWhitespace(block[1])).not.toContain("#6f6c66");
+    });
+    const declarations = stripWhitespace(colorfulBtnBlocks.at(-1)![1]);
     expect(declarations).toContain("color:var(--color-fg-muted)");
-    expect(declarations).not.toContain("#6f6c66");
+
+    const ruleStart = selectorStart(colorfulBtnBlocks[0], ".colorful-btn");
+    const openBraceDepth =
+      countOccurrences(css.slice(0, ruleStart), "{") -
+      countOccurrences(css.slice(0, ruleStart), "}");
+    expect(openBraceDepth, ".colorful-btn sits inside a nested at-rule").toBe(
+      0,
+    );
   });
 
-  it("meets WCAG 1.4.3 (>= 4.5:1) for .colorful-btn's resting color on --color-bg", () => {
+  it("meets WCAG 1.4.3 (>= 4.5:1) for .colorful-btn's resting color on every background it sits on", () => {
     const fgMuted = readThemeToken("--color-fg-muted");
-    const colorBg = readThemeToken(BRAND_BG_TOKEN);
-    const ratio = contrastRatio(fgMuted, colorBg);
-    expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST);
+    COLORFUL_BTN_BACKGROUND_TOKENS.forEach((backgroundToken) => {
+      const ratio = contrastRatio(fgMuted, readThemeToken(backgroundToken));
+      expect(ratio, `${fgMuted} on ${backgroundToken}`).toBeGreaterThanOrEqual(
+        WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST,
+      );
+    });
   });
 });
