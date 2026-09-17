@@ -85,8 +85,10 @@ describe("checkAssetVersionBump", () => {
   it("fails with both reasons when one asset changed and a different asset was dropped in the same PR", () => {
     // The exact combined gap from issue #174: a PR can change one asset's bytes AND
     // remove a different asset's path from VERSIONED_ASSET_FILES in the same change.
-    // Overrides the shared single-asset baseLock with a two-asset one so both the
-    // "changed" and "dropped" branches fire together against a real merge-base read.
+    // Overrides the shared single-asset baseLock with a two-asset one, through the
+    // injected findMergeBase/readLock seams (this suite never touches real git — see
+    // the file-level comment above), so both the "changed" and "dropped" branches
+    // fire together.
     const twoAssetBaseLock: AssetVersionLock = {
       token: "?v=20260816",
       assets: {

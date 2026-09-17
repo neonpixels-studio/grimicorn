@@ -246,10 +246,12 @@ export function changedAssetPaths(previousAssets, nextAssets) {
 // for — i.e. their path was removed from VERSIONED_ASSET_FILES. changedAssetPaths()
 // alone can't see this: it only walks nextAssets' keys, so a path changed and then
 // dropped from VERSIONED_ASSET_FILES in the same PR vanishes from the fingerprint
-// entirely and never gets compared. Flagging any drop (not only a proven byte change)
-// is deliberately conservative — once a path stops being fingerprinted there is no way
-// to tell whether it also changed, so treating every drop as requiring a token bump is
-// the only way to close that blind spot.
+// entirely and never gets compared. Flagging every drop (not only a provably changed
+// one) is a deliberate cost/benefit call, not the only possible fix: once a path stops
+// being fingerprinted there is no cheap way to tell whether it also changed, so this
+// errs toward a false-positive token bump (churning the shared cache for a plain
+// asset removal) over the false negative of a changed-then-dropped asset slipping
+// through unbumped.
 export function droppedAssetPaths(previousAssets, nextAssets) {
   return Object.keys(previousAssets).filter(
     (path) => !Object.hasOwn(nextAssets, path),

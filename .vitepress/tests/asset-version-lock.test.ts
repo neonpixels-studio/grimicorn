@@ -280,13 +280,24 @@ describe("assertTokenBumpedForChangedAssets", () => {
 
   it("throws when an existing asset changed but the token did not advance", () => {
     const fingerprint = { "a.png": "hash-a-new" };
-    expect(() => {
+    let thrownError: Error | undefined;
+    try {
       assertTokenBumpedForChangedAssets(
         previousLock,
         previousLock.token,
         fingerprint,
       );
-    }).toThrow(/not newer/);
+    } catch (error) {
+      thrownError = error as Error;
+    }
+    expect(thrownError?.message).toMatch(/not newer/);
+    // A changed-only failure has no drop involved, so the drop-specific remediation
+    // clause must not be tacked on — pinned in both directions against the drop
+    // test below so deleting either half of describeBumpFailure()'s branching in
+    // asset-version-manifest.mjs is caught.
+    expect(thrownError?.message).not.toMatch(
+      /bump the token or restore the path/,
+    );
   });
 
   it("throws when a changed asset is paired with an older (downgraded) token", () => {
@@ -334,13 +345,22 @@ describe("assertTokenBumpedForChangedAssets", () => {
     // appears in the fingerprint at all — changedAssetPaths() alone can't see this,
     // since it only walks the fingerprint's own keys.
     const fingerprint = {};
-    expect(() => {
+    let thrownError: Error | undefined;
+    try {
       assertTokenBumpedForChangedAssets(
         previousLock,
         previousLock.token,
         fingerprint,
       );
-    }).toThrow(/dropped from VERSIONED_ASSET_FILES/);
+    } catch (error) {
+      thrownError = error as Error;
+    }
+    expect(thrownError?.message).toMatch(/dropped from VERSIONED_ASSET_FILES/);
+    // A drop, unlike a proven byte change, has no self-evident reason a bump is
+    // required — the remediation clause is the only place that reasoning lives, so
+    // it must actually be in the thrown message, not just a dead branch in
+    // describeBumpFailure().
+    expect(thrownError?.message).toMatch(/bump the token or restore the path/);
   });
 
   it("throws with both reasons when one asset is changed and a different asset is dropped in the same PR", () => {
