@@ -567,12 +567,16 @@ describe("syncManifestCacheBustTokens", () => {
     expect(() =>
       syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
     ).toThrow('"/images/icon.gif?v=20260101"');
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).not.toThrow(/web-app-manifest-192x192/);
   });
 
   it("never returns a manifest where a surviving src doesn't carry the live token", () => {
     // The invariant the guard exists to enforce, checked directly rather than via a
     // specific bad-extension symptom: whatever comes back must be fully synced or
-    // the call must have thrown.
+    // the call must have thrown. Asserts the count first so this can't pass
+    // vacuously against a broken implementation that returns no "src" matches at all.
     const manifestSource = JSON.stringify({
       icons: [
         { src: "/images/icon.png?v=20260101" },
@@ -580,9 +584,32 @@ describe("syncManifestCacheBustTokens", () => {
       ],
     });
     const synced = syncManifestCacheBustTokens(manifestSource, NEW_TOKEN);
-    for (const match of synced.matchAll(/"src"\s*:\s*"([^"]*)"/g)) {
-      expect(match[1]).toContain(NEW_TOKEN);
+    const syncedSrcs = [...synced.matchAll(/"src"\s*:\s*"([^"]*)"/g)].map(
+      (match) => match[1],
+    );
+    expect(syncedSrcs).toHaveLength(2);
+    for (const src of syncedSrcs) {
+      expect(src).toContain(NEW_TOKEN);
     }
+  });
+
+  it("leaves a data: URI icon src untouched instead of treating it as unsynced", () => {
+    // A data: URI carries its bytes inline; there's no separate cached URL for a
+    // "?v=" to invalidate, and appending one would corrupt the base64 payload.
+    const manifestSource = '{"icons":[{"src":"data:image/png;base64,AAAA"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+
+  it("leaves a cross-origin icon src untouched instead of treating it as unsynced", () => {
+    // A CDN-hosted src isn't a same-origin asset this repo's immutable-cache rule
+    // applies to, even when it carries a query the rewrite can't parse as ?v=.
+    const manifestSource =
+      '{"icons":[{"src":"https://cdn.example.com/icon.jpg?w=1280"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {

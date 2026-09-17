@@ -109,6 +109,14 @@ const MANIFEST_TOKEN_PATTERN =
 // guard exists to close. Checking the post-condition (does every src now carry the
 // live token) is correct by construction instead.
 const MANIFEST_SRC_KEY_PATTERN = /"src"\s*:\s*"([^"]*)"/g;
+// A src that is legitimately out of scope for this cache-bust: a data: URI carries
+// its bytes inline in the manifest (no separate cached URL to invalidate, so
+// appending "?v=" would corrupt the base64 payload instead of doing anything
+// useful), and an absolute cross-origin URL (e.g. a CDN-hosted screenshot) isn't a
+// same-origin asset this repo's immutable-cache rule applies to. Checked before the
+// post-rewrite scan below so neither is mistaken for a src the rewrite failed to
+// reach.
+const EXEMPT_FROM_TOKEN_SRC_PATTERN = /^(?:data:|[a-z][a-z0-9+.-]*:\/\/)/i;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -172,7 +180,9 @@ export function syncManifestCacheBustTokens(manifestSource, token) {
   const synced = manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
   const unsyncedSrcs = [...synced.matchAll(MANIFEST_SRC_KEY_PATTERN)]
     .map((match) => match[1])
-    .filter((src) => !src.endsWith(token));
+    .filter(
+      (src) => !EXEMPT_FROM_TOKEN_SRC_PATTERN.test(src) && !src.endsWith(token),
+    );
   if (unsyncedSrcs.length > 0) {
     throw new Error(
       `Cannot sync ${SITE_WEBMANIFEST_FILE}: "src" value(s) ${unsyncedSrcs.map((src) => JSON.stringify(src)).join(", ")} don't carry the live token (${token}) after the rewrite — MANIFEST_TOKEN_PATTERN doesn't recognize this src shape (unrecognized extension or an unexpected query string). Fix the src or extend MANIFEST_TOKEN_PATTERN in asset-version-manifest.mjs before syncing, or it will silently drift stale behind the immutable asset cache.`,
