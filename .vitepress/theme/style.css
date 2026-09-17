@@ -6,7 +6,6 @@
   --color-fg-muted: #a7a39c;
   --color-fg-subtle: #8a8a93;
   --color-fg-dim: #7d7a72;
-  --color-surface: #08080a;
   --color-lime: #a3e635;
   --color-pink: #ff2d9b;
   --color-orange: #fb923c;
@@ -22,7 +21,15 @@
    .colorful-btn below) so the spectrum can't drift between them. --gx-rainbow
    repeats the leading pink stop at the tail so the 200% background-pan
    animation wraps seamlessly; --gx-rainbow-cta is the same spectrum without
-   that trailing stop, for the solid-fill CTA buttons. */
+   that trailing stop, for the solid-fill CTA buttons.
+
+   --color-surface lives here rather than in @theme above for the same reason
+   as the --gx-* tokens: its only consumer is a raw `var()` in a template
+   inline style (GrimicornPage.vue's terminal card background), not a
+   generated Tailwind utility or another declaration in this stylesheet.
+   Tailwind v4 only guarantees it emits @theme tokens that something in the
+   compiled CSS actually references, so a template-only consumer belongs in
+   plain :root instead. */
 :root {
   --gx-rainbow: linear-gradient(
     90deg,
@@ -43,6 +50,7 @@
     #22d3ee,
     #a855f7
   );
+  --color-surface: #08080a;
 }
 
 @keyframes gx-rainbow-pan {
@@ -197,8 +205,9 @@ main[tabindex="-1"]:focus {
 /* Resting color must clear WCAG 1.4.3 (4.5:1) against every background a
    .colorful-btn sits on, including the footer's bare rave toggle (page
    --color-bg, ~7.9:1) and the terminal-window pause toggle (its darker
-   #08080a card background, ~7.7:1), since the toggle carries no other class
-   to layer a compliant color on top. --color-fg-muted clears both. */
+   --color-surface card background, ~8.0:1), since the toggle carries no
+   other class to layer a compliant color on top. --color-fg-muted clears
+   both. */
 .colorful-btn {
   border: none;
   padding: 0;

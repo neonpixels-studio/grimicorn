@@ -387,13 +387,16 @@ describe("colorful button resting contrast", () => {
     return (lighter + 0.05) / (darker + 0.05);
   }
 
-  function readThemeToken(tokenName: string) {
-    const themeBlock = css.match(/@theme\b[^{]*\{([\s\S]*?)\}/);
-    expect(themeBlock, "@theme block not found").not.toBeNull();
-    const tokenMatch = themeBlock![1].match(
+  // Reads a token's hex literal from wherever it's declared (`@theme` or
+  // plain `:root` — --color-surface lives in the latter, alongside the other
+  // template-only-consumed --gx-* tokens). Matches only the declaration
+  // (`token: #hex;`), never a `var(token)` usage site, so it can search the
+  // whole stylesheet instead of being scoped to one block.
+  function readColorTokenHex(tokenName: string) {
+    const tokenMatch = css.match(
       new RegExp(`${tokenName}:\\s*(#[0-9a-fA-F]{6})\\s*;`),
     );
-    expect(tokenMatch, `${tokenName} not found in @theme block`).not.toBeNull();
+    expect(tokenMatch, `${tokenName} declaration not found`).not.toBeNull();
     return tokenMatch![1];
   }
 
@@ -406,9 +409,10 @@ describe("colorful button resting contrast", () => {
 
   // Same anchor alternation and `matchAll` approach as the reduced-motion
   // guard's HOVER_RULE_PATTERN above: a plain first-match `css.match` would
-  // (a) miss a later `.colorful-btn { color: #6f6c66 }` rule that wins the
-  // cascade, and (b) not notice the rule being wrapped in an `@media`/`@layer`
-  // block, which the enclosure check below guards against separately.
+  // miss a later `.colorful-btn { color: #6f6c66 }` rule that wins the
+  // cascade. The anchor alternation includes `{`, so a match can still be
+  // nested inside an at-rule — isTopLevelMatch below filters those out
+  // before either assertion below trusts a match.
   const COLORFUL_BTN_RULE_PATTERN =
     /(?:^|\}|\{|,)\s*\.colorful-btn\s*\{([^}]*)\}/g;
 
@@ -416,35 +420,53 @@ describe("colorful button resting contrast", () => {
     return match.index! + match[0].indexOf(selector);
   }
 
-  it("resolves every .colorful-btn resting color from --color-fg-muted, not a literal", () => {
-    const colorfulBtnBlocks = [...css.matchAll(COLORFUL_BTN_RULE_PATTERN)];
+  // A rule matched by COLORFUL_BTN_RULE_PATTERN can still be nested inside an
+  // at-rule (the anchor alternation includes `{`), so filter to rules that
+  // sit at the stylesheet's top level before trusting any of them.
+  function isTopLevelMatch(match: RegExpMatchArray, selector: string) {
+    const before = css.slice(0, selectorStart(match, selector));
+    return countOccurrences(before, "{") - countOccurrences(before, "}") === 0;
+  }
+
+  it("resolves every top-level .colorful-btn resting color from --color-fg-muted, not a literal", () => {
+    const topLevelBlocks = [...css.matchAll(COLORFUL_BTN_RULE_PATTERN)].filter(
+      (match) => isTopLevelMatch(match, ".colorful-btn"),
+    );
     expect(
-      colorfulBtnBlocks.length,
-      ".colorful-btn rule not found",
+      topLevelBlocks.length,
+      ".colorful-btn top-level rule not found",
     ).toBeGreaterThan(0);
 
-    colorfulBtnBlocks.forEach((block) => {
+    topLevelBlocks.forEach((block) => {
       expect(stripWhitespace(block[1])).not.toContain("#6f6c66");
     });
-    const declarations = stripWhitespace(colorfulBtnBlocks.at(-1)![1]);
-    expect(declarations).toContain("color:var(--color-fg-muted)");
-
-    const ruleStart = selectorStart(colorfulBtnBlocks[0], ".colorful-btn");
-    const openBraceDepth =
-      countOccurrences(css.slice(0, ruleStart), "{") -
-      countOccurrences(css.slice(0, ruleStart), "}");
-    expect(openBraceDepth, ".colorful-btn sits inside a nested at-rule").toBe(
-      0,
+    expect(stripWhitespace(topLevelBlocks.at(-1)![1])).toContain(
+      "color:var(--color-fg-muted)",
     );
   });
 
   it("meets WCAG 1.4.3 (>= 4.5:1) for .colorful-btn's resting color on every background it sits on", () => {
-    const fgMuted = readThemeToken("--color-fg-muted");
+    const fgMuted = readColorTokenHex("--color-fg-muted");
     COLORFUL_BTN_BACKGROUND_TOKENS.forEach((backgroundToken) => {
-      const ratio = contrastRatio(fgMuted, readThemeToken(backgroundToken));
+      const ratio = contrastRatio(fgMuted, readColorTokenHex(backgroundToken));
       expect(ratio, `${fgMuted} on ${backgroundToken}`).toBeGreaterThanOrEqual(
         WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST,
       );
     });
+  });
+
+  // Mirrors the "brand background token" describe's single-source-of-truth
+  // guard (:60-83) for the surface token this diff introduces: the literal
+  // must live in exactly one place, and its one consumer (the terminal card
+  // in GrimicornPage.vue) must reference it via var(), not repeat the hex
+  // value — otherwise the card can regress to a hardcoded literal and only a
+  // snapshot (routinely regenerated with `-u`) would notice.
+  it("keeps --color-surface's literal in exactly one place and consumed via var()", () => {
+    const surfaceHex = readColorTokenHex("--color-surface");
+    expect(countOccurrences(css, surfaceHex)).toBe(1);
+
+    const grimicornPage = readFileSync(GRIMICORN_PAGE_PATH, "utf8");
+    expect(grimicornPage).toContain("var(--color-surface)");
+    expect(grimicornPage).not.toContain(surfaceHex);
   });
 });
