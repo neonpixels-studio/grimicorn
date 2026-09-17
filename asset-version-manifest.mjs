@@ -102,19 +102,13 @@ const DEFAULT_TOKEN_REVISION = 1;
 const MANIFEST_TOKEN_PATTERN =
   /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"&#]*)?"/g;
 // Enumerates every "src" value in the manifest regardless of shape, so
-// syncManifestCacheBustTokens() below can tell a src the rewrite above legitimately
-// skipped (nothing to do) apart from one it silently failed to reach (an unrecognized
-// case MANIFEST_TOKEN_PATTERN's rewrite doesn't match at all — an uppercase or
-// unlisted extension, or a query string that isn't ?v= — the src would then drift
-// stale behind a year-long immutable cache with no error anywhere in the pipeline).
+// syncManifestCacheBustTokens() below can verify the rewrite's own output rather than
+// re-deriving which shapes it accepts — a second pattern describing "what
+// MANIFEST_TOKEN_PATTERN matches" would inevitably drift from MANIFEST_TOKEN_PATTERN
+// itself (edit one, forget the other) and reopen exactly the silent-skip bug this
+// guard exists to close. Checking the post-condition (does every src now carry the
+// live token) is correct by construction instead.
 const MANIFEST_SRC_KEY_PATTERN = /"src"\s*:\s*"([^"]*)"/g;
-// What MANIFEST_TOKEN_PATTERN is actually able to rewrite: a lowercase-listed
-// extension followed by nothing, or by a ?v= query. Kept independent of
-// MANIFEST_TOKEN_PATTERN itself (rather than reusing its source) so this stays a
-// plain description of "is this value shaped the way the rewrite expects", not a
-// second copy of the rewrite's own capture-group plumbing.
-const SYNCABLE_ICON_SRC_PATTERN =
-  /^[^"]*\.(?:png|jpe?g|svg|ico|webp|avif)(?:\?v=[^"&#]*)?$/;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -175,15 +169,16 @@ export function syncManifestCacheBustTokens(manifestSource, token) {
       `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_DATE_AND_REVISION_PATTERN}.`,
     );
   }
-  const unsyncableSrcs = [...manifestSource.matchAll(MANIFEST_SRC_KEY_PATTERN)]
+  const synced = manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
+  const unsyncedSrcs = [...synced.matchAll(MANIFEST_SRC_KEY_PATTERN)]
     .map((match) => match[1])
-    .filter((src) => !SYNCABLE_ICON_SRC_PATTERN.test(src));
-  if (unsyncableSrcs.length > 0) {
+    .filter((src) => !src.endsWith(token));
+  if (unsyncedSrcs.length > 0) {
     throw new Error(
-      `Cannot sync ${SITE_WEBMANIFEST_FILE}: "src" value(s) ${unsyncableSrcs.map((src) => JSON.stringify(src)).join(", ")} don't match the cache-bust rewrite pattern (unrecognized extension or an unexpected query string). Fix the src or extend MANIFEST_TOKEN_PATTERN/SYNCABLE_ICON_SRC_PATTERN in asset-version-manifest.mjs before syncing, or it will silently drift stale behind the immutable asset cache.`,
+      `Cannot sync ${SITE_WEBMANIFEST_FILE}: "src" value(s) ${unsyncedSrcs.map((src) => JSON.stringify(src)).join(", ")} don't carry the live token (${token}) after the rewrite — MANIFEST_TOKEN_PATTERN doesn't recognize this src shape (unrecognized extension or an unexpected query string). Fix the src or extend MANIFEST_TOKEN_PATTERN in asset-version-manifest.mjs before syncing, or it will silently drift stale behind the immutable asset cache.`,
     );
   }
-  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
+  return synced;
 }
 
 // Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when

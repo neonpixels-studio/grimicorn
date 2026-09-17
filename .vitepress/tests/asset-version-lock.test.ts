@@ -541,30 +541,48 @@ describe("syncManifestCacheBustTokens", () => {
     );
   });
 
-  it("fails loud instead of silently leaving an icon src with an extra query param unsynced", () => {
-    // MANIFEST_TOKEN_PATTERN's replacement scope stops at "&"/"#", so a src carrying
-    // an extra param the rewrite doesn't recognize (e.g. "&size=2x") never matches
-    // the rewrite at all. That used to be a silent no-op, letting the icon drift
-    // stale behind a year-long immutable cache with no error anywhere. It must now
-    // throw instead of returning the source unchanged.
-    const manifestSource = '{"src":"/images/icon.png?v=20260101&size=2x"}';
-    expect(() =>
-      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
-    ).toThrow(/don't match the cache-bust rewrite pattern/);
+  it("fails loud on any icon src the rewrite pattern can't reach, instead of silently leaving it unsynced", () => {
+    // Each of these used to be a silent no-op: MANIFEST_TOKEN_PATTERN's replace()
+    // simply never matched, so the src passed through untouched with no error,
+    // letting the icon drift stale behind a year-long immutable cache with nothing
+    // in the pipeline noticing. They must now throw instead.
+    for (const unsyncableSrc of [
+      "/images/icon.png?v=20260101&size=2x", // extra query param past the boundary
+      "/images/icon.PNG?v=20260101", // uppercase extension
+      "/images/icon.gif?v=20260101", // unlisted extension
+    ]) {
+      expect(() =>
+        syncManifestCacheBustTokens(`{"src":"${unsyncableSrc}"}`, NEW_TOKEN),
+      ).toThrow(/don't carry the live token/);
+    }
   });
 
-  it("fails loud on an uppercase file extension the rewrite pattern can't match", () => {
-    const manifestSource = '{"src":"/images/icon.PNG?v=20260101"}';
+  it("fails loud on a mixed manifest, naming only the src it couldn't sync", () => {
+    const manifestSource = JSON.stringify({
+      icons: [
+        { src: "/images/web-app-manifest-192x192.png?v=20260101" },
+        { src: "/images/icon.gif?v=20260101" },
+      ],
+    });
     expect(() =>
       syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
-    ).toThrow(/don't match the cache-bust rewrite pattern/);
+    ).toThrow('"/images/icon.gif?v=20260101"');
   });
 
-  it("fails loud on a .gif extension the rewrite pattern can't match", () => {
-    const manifestSource = '{"src":"/images/icon.gif?v=20260101"}';
-    expect(() =>
-      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
-    ).toThrow(/don't match the cache-bust rewrite pattern/);
+  it("never returns a manifest where a surviving src doesn't carry the live token", () => {
+    // The invariant the guard exists to enforce, checked directly rather than via a
+    // specific bad-extension symptom: whatever comes back must be fully synced or
+    // the call must have thrown.
+    const manifestSource = JSON.stringify({
+      icons: [
+        { src: "/images/icon.png?v=20260101" },
+        { src: "/images/icon-2.webp" },
+      ],
+    });
+    const synced = syncManifestCacheBustTokens(manifestSource, NEW_TOKEN);
+    for (const match of synced.matchAll(/"src"\s*:\s*"([^"]*)"/g)) {
+      expect(match[1]).toContain(NEW_TOKEN);
+    }
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {
@@ -692,6 +710,18 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("leaves the on-disk manifest untouched when a src can't be synced", () => {
+    // syncManifestCacheBustTokens() throwing must abort before the write, not after
+    // a partial one — the tracked manifest must never end up half-rewritten.
+    const staleManifest = '{"icons":[{"src":"/images/icon.gif?v=20260101"}]}';
+    withTempManifest(staleManifest, (manifestPath) => {
+      expect(() =>
+        syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath),
+      ).toThrow(/don't carry the live token/);
+      expect(readFileSync(manifestPath, "utf8")).toBe(staleManifest);
+    });
   });
 });
 
