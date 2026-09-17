@@ -70,17 +70,38 @@ describe("checkAssetVersionBump", () => {
     expect(run).toThrow(/not newer/);
   });
 
-  it("fails when an asset changed and was dropped from VERSIONED_ASSET_FILES in the same PR without a token bump", () => {
+  it("fails when a tracked asset is dropped from the fingerprint without a token bump", () => {
     // The gap from issue #174: checkAssetVersionBump only walks the *current*
-    // fingerprint, so a PR that both changes an asset's bytes and removes its path
-    // from VERSIONED_ASSET_FILES leaves no trace of "changed" in the fingerprint —
-    // only its absence. The base lock still has the entry; the current fingerprint
-    // does not.
+    // fingerprint, so a PR that removes an asset's path from VERSIONED_ASSET_FILES
+    // leaves no trace of it in the fingerprint at all — only its absence. The base
+    // lock still has the entry; the current fingerprint does not.
     const run = withFixture({
       token: baseLock.token,
       fingerprint: {},
     });
     expect(run).toThrow(/dropped from VERSIONED_ASSET_FILES/);
+  });
+
+  it("fails with both reasons when one asset changed and a different asset was dropped in the same PR", () => {
+    // The exact combined gap from issue #174: a PR can change one asset's bytes AND
+    // remove a different asset's path from VERSIONED_ASSET_FILES in the same change.
+    // Overrides the shared single-asset baseLock with a two-asset one so both the
+    // "changed" and "dropped" branches fire together against a real merge-base read.
+    const twoAssetBaseLock: AssetVersionLock = {
+      token: "?v=20260816",
+      assets: {
+        "public/assets/grimicorn-hero.png": "hash-old",
+        "public/assets/grimicorn-og.png": "hash-og-old",
+      },
+    };
+    const run = withFixture({
+      token: twoAssetBaseLock.token,
+      fingerprint: { "public/assets/grimicorn-og.png": "hash-og-new" },
+      readLock: () => twoAssetBaseLock,
+    });
+    expect(run).toThrow(
+      /bytes changed \(public\/assets\/grimicorn-og\.png\) and dropped from VERSIONED_ASSET_FILES \(public\/assets\/grimicorn-hero\.png\)/,
+    );
   });
 
   it("passes when a dropped asset is paired with a token bumped past the base branch's", () => {

@@ -235,7 +235,10 @@ export function readAssetVersionLock() {
 // copies to invalidate — so it never forces a token bump on its own.
 export function changedAssetPaths(previousAssets, nextAssets) {
   return Object.keys(nextAssets).filter((path) => {
-    return path in previousAssets && previousAssets[path] !== nextAssets[path];
+    return (
+      Object.hasOwn(previousAssets, path) &&
+      previousAssets[path] !== nextAssets[path]
+    );
   });
 }
 
@@ -289,6 +292,28 @@ export function compareAssetCacheBustTokens(tokenA, tokenB) {
   return parsedA.revision - parsedB.revision;
 }
 
+// Builds the human-readable reason clause for a failed bump check, plus a
+// drop-specific explanation when any asset was dropped: unlike a proven byte change,
+// a drop's remedy ("bump the token") is not self-evident from "the content changed",
+// since by definition nothing is left to prove the content did or didn't change.
+// Separated from assertTokenBumpedForChangedAssets() so the guard itself stays a
+// plain detect/compare/throw and this formatting can be read (and extended) on its own.
+function describeBumpFailure(changed, dropped) {
+  const reasons = [];
+  if (changed.length > 0) {
+    reasons.push(`bytes changed (${changed.join(", ")})`);
+  }
+  if (dropped.length > 0) {
+    reasons.push(`dropped from VERSIONED_ASSET_FILES (${dropped.join(", ")})`);
+  }
+  const droppedClause =
+    dropped.length > 0
+      ? " Removing a path from VERSIONED_ASSET_FILES retires its fingerprint, so " +
+        "nothing can prove its bytes are unchanged; bump the token or restore the path."
+      : "";
+  return { reasonClause: reasons.join(" and "), droppedClause };
+}
+
 // The core guard: if any existing asset's bytes moved, or an asset the lock tracked
 // dropped out of the fingerprint entirely (removed from VERSIONED_ASSET_FILES — see
 // droppedAssetPaths() above), the shared token must move *forward*, or a year-long
@@ -314,16 +339,10 @@ export function assertTokenBumpedForChangedAssets(
   if (compareAssetCacheBustTokens(token, previousLock.token) > 0) {
     return;
   }
-  const reasons = [];
-  if (changed.length > 0) {
-    reasons.push(`bytes changed (${changed.join(", ")})`);
-  }
-  if (dropped.length > 0) {
-    reasons.push(`dropped from VERSIONED_ASSET_FILES (${dropped.join(", ")})`);
-  }
+  const { reasonClause, droppedClause } = describeBumpFailure(changed, dropped);
   throw new Error(
-    `Asset ${reasons.join(" and ")} but ASSET_CACHE_BUST (${token}) is not newer ` +
+    `Asset ${reasonClause} but ASSET_CACHE_BUST (${token}) is not newer ` +
       `than the locked ${previousLock.token}. Bump the token in ${ASSET_CACHE_BUST_SOURCE} before ` +
-      `regenerating the lock so the ?v= query moves forward with the content.`,
+      `regenerating the lock so the ?v= query moves forward with the content.${droppedClause}`,
   );
 }
