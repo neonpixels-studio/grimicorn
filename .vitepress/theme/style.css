@@ -21,7 +21,15 @@
    .colorful-btn below) so the spectrum can't drift between them. --gx-rainbow
    repeats the leading pink stop at the tail so the 200% background-pan
    animation wraps seamlessly; --gx-rainbow-cta is the same spectrum without
-   that trailing stop, for the solid-fill CTA buttons. */
+   that trailing stop, for the solid-fill CTA buttons.
+
+   --color-surface lives here rather than in @theme above for the same reason
+   as the --gx-* tokens: its only consumer is a raw `var()` in a template
+   inline style (GrimicornPage.vue's terminal card background), not a
+   generated Tailwind utility or another declaration in this stylesheet.
+   Tailwind v4 only guarantees it emits @theme tokens that something in the
+   compiled CSS actually references, so a template-only consumer belongs in
+   plain :root instead. */
 :root {
   --gx-rainbow: linear-gradient(
     90deg,
@@ -42,6 +50,7 @@
     #22d3ee,
     #a855f7
   );
+  --color-surface: #08080a;
 }
 
 @keyframes gx-rainbow-pan {
@@ -193,12 +202,18 @@ main[tabindex="-1"]:focus {
   outline: none;
 }
 
+/* Resting color must clear WCAG 1.4.3 (4.5:1) against every background a
+   .colorful-btn sits on, including the footer's bare rave toggle (page
+   --color-bg, ~7.9:1) and the terminal-window pause toggle (its darker
+   --color-surface card background, ~8.0:1), since the toggle carries no
+   other class to layer a compliant color on top. --color-fg-muted clears
+   both. */
 .colorful-btn {
   border: none;
   padding: 0;
   font: inherit;
   cursor: pointer;
-  color: #6f6c66;
+  color: var(--color-fg-muted);
   background-image: var(--gx-rainbow);
   background-size: 200% auto;
   background-color: transparent;
@@ -225,15 +240,6 @@ main[tabindex="-1"]:focus {
   .colorful-btn:hover {
     animation: none;
   }
-}
-
-/* The pause control is a genuine accessibility affordance, not the footer's
-   decorative easter egg, so its resting color must clear WCAG 1.4.3 (4.5:1) on
-   the dark terminal chrome — the base .colorful-btn #6f6c66 does not. It keeps
-   the shared rainbow hover for visual consistency (only ever shown when the
-   stream is running; it's hidden under reduced motion). */
-.pause-toggle {
-  color: var(--color-fg-muted);
 }
 
 /* Give sighted visitors a resting-state confirmation the stream is paused,
