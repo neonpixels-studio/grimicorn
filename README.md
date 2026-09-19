@@ -59,9 +59,9 @@ Two guardrails fail the build loud rather than shipping a broken policy:
 
 **Do not add a `Content-Security-Policy` to `netlify.toml`.** For a shared header name, `netlify.toml` takes precedence over `_headers`, so a static CSP there would silently override the hashed policy and break the site. This is why `netlify.toml` carries only an explanatory comment marking the deliberate omission instead of a `Content-Security-Policy` directive.
 
-### 2. First-party-only origins are scanned in the built output
+### 2. First-party origins are scanned in the built output
 
-The site is first-party-only: the CSP (`headers.ts`) allows no third-party origins. `.vitepress/origins.ts` holds the `DISALLOWED_ORIGINS` list (the Google Fonts origins the site used before self-hosting) as the single source of truth.
+The site is first-party apart from one deliberate exception, Google Analytics (GA4): the gtag loader (`googletagmanager.com`) and its measurement beacons (`google-analytics.com`, `region1.google-analytics.com`) are the only third-party origins the CSP (`headers.ts`) allows, added to `script-src`/`img-src`/`connect-src` for the GA head entries in `config.ts`. **GA and those origins load only on the Netlify production deploy** (gated by `ANALYTICS_ENABLED = process.env.CONTEXT === "production"` in `config.ts`, threaded into `buildContentSecurityPolicy`); `vitepress dev`, local builds, deploy previews, and branch deploys ship neither the GA tag nor the Google origins, so they stay strictly first-party and dev traffic never reaches the GA property. `.vitepress/origins.ts` holds the `DISALLOWED_ORIGINS` list (the Google Fonts origins the site used before self-hosting) as the single source of truth.
 
 Two scans guard it against drift:
 

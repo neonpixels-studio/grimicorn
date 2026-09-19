@@ -20,6 +20,16 @@ const UNSAFE_INLINE = "'unsafe-inline'";
 const DATA_SCHEME = "data:";
 const SCRIPT_SRC_DIRECTIVE = "script-src";
 
+// Google Analytics (GA4) is the one deliberate third-party exception to the
+// otherwise first-party CSP (see the GA head entries in config.ts): the gtag
+// loader is fetched from googletagmanager.com and measurement beacons are sent to
+// google-analytics.com, with region1.google-analytics.com covering the regional
+// (e.g. EU) collection endpoints. googletagmanager.com also appears in
+// connect-src/img-src because gtag can fetch config from and beacon to it.
+const GOOGLE_TAG_MANAGER_ORIGIN = "https://www.googletagmanager.com";
+const GOOGLE_ANALYTICS_ORIGIN = "https://www.google-analytics.com";
+const GOOGLE_ANALYTICS_REGION_ORIGIN = "https://region1.google-analytics.com";
+
 // The attribute capture stops at the first '>', which assumes no unencoded '>'
 // inside a quoted attribute value. VitePress only emits simple attributes here
 // (id, type), so this holds; a raw '>' in an attribute would misalign the capture.
@@ -91,16 +101,36 @@ export function collectScriptHashes(htmlDocuments: string[]) {
   return [...new Set(hashes)].sort();
 }
 
-export function buildContentSecurityPolicy(scriptHashes: string[]) {
+// Google Analytics is production-only (see ANALYTICS_ENABLED in config.ts), so its
+// origins are added to the CSP only when analytics ships. Every non-production
+// build then stays strictly first-party rather than advertising origins nothing
+// loads from.
+export function buildContentSecurityPolicy(
+  scriptHashes: string[],
+  includeAnalytics = false,
+) {
+  const analyticsScriptOrigins = includeAnalytics
+    ? [GOOGLE_TAG_MANAGER_ORIGIN]
+    : [];
+  const analyticsImageOrigins = includeAnalytics
+    ? [GOOGLE_TAG_MANAGER_ORIGIN, GOOGLE_ANALYTICS_ORIGIN]
+    : [];
+  const analyticsConnectOrigins = includeAnalytics
+    ? [
+        GOOGLE_TAG_MANAGER_ORIGIN,
+        GOOGLE_ANALYTICS_ORIGIN,
+        GOOGLE_ANALYTICS_REGION_ORIGIN,
+      ]
+    : [];
   const directives: Array<[string, string[]]> = [
     ["default-src", [SELF]],
-    [SCRIPT_SRC_DIRECTIVE, [SELF, ...scriptHashes]],
+    [SCRIPT_SRC_DIRECTIVE, [SELF, ...analyticsScriptOrigins, ...scriptHashes]],
     // Fonts are self-hosted from /public/fonts (see .vitepress/theme/fonts.css), so
     // style-src and font-src stay first-party-only — no Google Fonts origins.
     ["style-src", [SELF, UNSAFE_INLINE]],
     ["font-src", [SELF]],
-    ["img-src", [SELF, DATA_SCHEME]],
-    ["connect-src", [SELF]],
+    ["img-src", [SELF, DATA_SCHEME, ...analyticsImageOrigins]],
+    ["connect-src", [SELF, ...analyticsConnectOrigins]],
     ["object-src", [NONE]],
     ["base-uri", [SELF]],
     ["frame-ancestors", [NONE]],
