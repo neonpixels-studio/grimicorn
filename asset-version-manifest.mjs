@@ -90,17 +90,35 @@ const DEFAULT_TOKEN_REVISION = 1;
 // convention. Scoped to the "src" key specifically (not any string in the file) so
 // the sync can never rewrite an unrelated URL query, e.g. a "start_url" or "scope"
 // version marker. The query is optional (`(?:\?v=[^"&#]*)?`) so a newly added icon
-// with no ?v= at all gets one appended, not just an existing one rewritten. Captures
-// through the extension (group 1) so the replacement can restore everything up to
-// that point ahead of the new token and the closing quote. Matches any run of
-// characters after "?v=" up to the next "&", "#", or the closing quote (not the
-// token grammar itself) so a malformed existing token — a wrong digit count, a
-// dangling "-" with no revision, stray letters — gets replaced wholesale with the
-// valid live token instead of partially overwritten or silently left in place. The
-// "&"/"#" boundary keeps this from swallowing an unrelated trailing query param
-// (e.g. "?v=20260101&size=2x") that isn't part of the cache-bust token at all.
+// with no ?v= at all gets one appended, not just an existing one rewritten. Two
+// capture groups — the "src":" key prefix (group 1) and the src's path up to the
+// extension (group 2) — so the replace() callback in syncManifestCacheBustTokens()
+// below can both rebuild the match and record exactly which src (path only, no key
+// noise) it rewrote. Matches any run of characters after "?v=" up to the next "&",
+// "#", or the closing quote (not the token grammar itself) so a malformed existing
+// token — a wrong digit count, a dangling "-" with no revision, stray letters — gets
+// replaced wholesale with the valid live token instead of partially overwritten or
+// silently left in place. The "&"/"#" boundary keeps this from swallowing an
+// unrelated trailing query param (e.g. "?v=20260101&size=2x") that isn't part of the
+// cache-bust token at all.
 const MANIFEST_TOKEN_PATTERN =
-  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"&#]*)?"/g;
+  /("src"\s*:\s*")([^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"&#]*)?"/g;
+// Enumerates every "src" value in the manifest regardless of shape, so
+// assertEverySrcSynced() below can verify the rewrite's own output rather than
+// re-deriving which shapes it accepts — a second pattern describing "what
+// MANIFEST_TOKEN_PATTERN matches" would inevitably drift from MANIFEST_TOKEN_PATTERN
+// itself (edit one, forget the other) and reopen exactly the silent-skip bug this
+// guard exists to close.
+const MANIFEST_SRC_KEY_PATTERN = /"src"\s*:\s*"([^"]*)"/g;
+// A src that is legitimately out of scope for this cache-bust: a data: URI carries
+// its bytes inline in the manifest (no separate cached URL to invalidate, so
+// appending "?v=" would corrupt the base64 payload instead of doing anything
+// useful), and an absolute or protocol-relative cross-origin URL (e.g. a CDN-hosted
+// screenshot) isn't a same-origin asset this repo's immutable-cache rule applies to.
+// Checked inside the rewrite callback itself (not just the post-rewrite audit) so an
+// exempt src is left completely untouched rather than still getting a token
+// appended.
+const EXEMPT_FROM_TOKEN_SRC_PATTERN = /^(?:data:|\/\/|[a-z][a-z0-9+.-]*:\/\/)/i;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -148,6 +166,29 @@ export function readAssetCacheBustToken(
   return match[1];
 }
 
+// Confirms every "src" in the rewrite's own output was actually reached by it —
+// either freshly token-stamped (present in `rewrittenSrcs`) or deliberately exempt.
+// Checking membership in the set the rewrite callback itself populated (rather than
+// re-testing the resulting string's shape, e.g. "does it end with the token") can't
+// be fooled by a src the rewrite never touched whose stale, unrelated query happens
+// to already end in a string that matches today's live token.
+function assertEverySrcSynced(syncedManifestSource, rewrittenSrcs) {
+  const unsyncedSrcs = [
+    ...syncedManifestSource.matchAll(MANIFEST_SRC_KEY_PATTERN),
+  ]
+    .map((match) => match[1])
+    .filter(
+      (src) =>
+        !EXEMPT_FROM_TOKEN_SRC_PATTERN.test(src) && !rewrittenSrcs.has(src),
+    );
+  if (unsyncedSrcs.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Cannot sync ${SITE_WEBMANIFEST_FILE}: "src" value(s) ${unsyncedSrcs.map((src) => JSON.stringify(src)).join(", ")} weren't reached by the rewrite — MANIFEST_TOKEN_PATTERN doesn't recognize this src shape (unrecognized extension or an unexpected query string). Fix the src or extend MANIFEST_TOKEN_PATTERN in asset-version-manifest.mjs before syncing, or it will silently drift stale behind the immutable asset cache.`,
+  );
+}
+
 // Rewrites (or adds) the ?v= query on every image "src" in manifest JSON source to
 // the live token. Pure string logic (no file I/O) so the regen script and its test
 // exercise identical rewrite behaviour regardless of how the result gets persisted.
@@ -161,7 +202,19 @@ export function syncManifestCacheBustTokens(manifestSource, token) {
       `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_DATE_AND_REVISION_PATTERN}.`,
     );
   }
-  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
+  const rewrittenSrcs = new Set();
+  const synced = manifestSource.replace(
+    MANIFEST_TOKEN_PATTERN,
+    (fullMatch, srcKeyPrefix, srcPath) => {
+      if (EXEMPT_FROM_TOKEN_SRC_PATTERN.test(srcPath)) {
+        return fullMatch;
+      }
+      rewrittenSrcs.add(`${srcPath}${token}`);
+      return `${srcKeyPrefix}${srcPath}${token}"`;
+    },
+  );
+  assertEverySrcSynced(synced, rewrittenSrcs);
+  return synced;
 }
 
 // Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when
@@ -235,8 +288,27 @@ export function readAssetVersionLock() {
 // copies to invalidate — so it never forces a token bump on its own.
 export function changedAssetPaths(previousAssets, nextAssets) {
   return Object.keys(nextAssets).filter((path) => {
-    return path in previousAssets && previousAssets[path] !== nextAssets[path];
+    return (
+      Object.hasOwn(previousAssets, path) &&
+      previousAssets[path] !== nextAssets[path]
+    );
   });
+}
+
+// Assets the base lock tracked that the current fingerprint no longer has an entry
+// for — i.e. their path was removed from VERSIONED_ASSET_FILES. changedAssetPaths()
+// alone can't see this: it only walks nextAssets' keys, so a path changed and then
+// dropped from VERSIONED_ASSET_FILES in the same PR vanishes from the fingerprint
+// entirely and never gets compared. Flagging every drop (not only a provably changed
+// one) is a deliberate cost/benefit call, not the only possible fix: once a path stops
+// being fingerprinted there is no cheap way to tell whether it also changed, so this
+// errs toward a false-positive token bump (churning the shared cache for a plain
+// asset removal) over the false negative of a changed-then-dropped asset slipping
+// through unbumped.
+export function droppedAssetPaths(previousAssets, nextAssets) {
+  return Object.keys(previousAssets).filter(
+    (path) => !Object.hasOwn(nextAssets, path),
+  );
 }
 
 // Splits a token into its date and revision for comparison. A bare token (no -N
@@ -275,13 +347,37 @@ export function compareAssetCacheBustTokens(tokenA, tokenB) {
   return parsedA.revision - parsedB.revision;
 }
 
-// The core guard: if any existing asset's bytes moved, the shared token must move
-// *forward*, or a year-long immutable cache keeps serving stale bytes behind an
-// unchanged URL. The token is a YYYYMMDD date with an optional same-day -N revision
-// suffix, so a parsed comparison (date, then revision) enforces monotonicity and
-// rejects a same-token no-op and an accidental downgrade alike — including a
-// same-day revision downgrade a plain string comparison would miss. Pure so both the
-// regen script and the tests exercise the exact enforcement logic.
+// Builds the human-readable reason clause for a failed bump check, plus a
+// drop-specific explanation when any asset was dropped: unlike a proven byte change,
+// a drop's remedy ("bump the token") is not self-evident from "the content changed",
+// since by definition nothing is left to prove the content did or didn't change.
+// Separated from assertTokenBumpedForChangedAssets() so the guard itself stays a
+// plain detect/compare/throw and this formatting can be read (and extended) on its own.
+function describeBumpFailure(changed, dropped) {
+  const reasons = [];
+  if (changed.length > 0) {
+    reasons.push(`bytes changed (${changed.join(", ")})`);
+  }
+  if (dropped.length > 0) {
+    reasons.push(`dropped from VERSIONED_ASSET_FILES (${dropped.join(", ")})`);
+  }
+  const droppedClause =
+    dropped.length > 0
+      ? " Removing a path from VERSIONED_ASSET_FILES retires its fingerprint, so " +
+        "nothing can prove its bytes are unchanged; bump the token or restore the path."
+      : "";
+  return { reasonClause: reasons.join(" and "), droppedClause };
+}
+
+// The core guard: if any existing asset's bytes moved, or an asset the lock tracked
+// dropped out of the fingerprint entirely (removed from VERSIONED_ASSET_FILES — see
+// droppedAssetPaths() above), the shared token must move *forward*, or a year-long
+// immutable cache keeps serving stale bytes behind an unchanged URL. The token is a
+// YYYYMMDD date with an optional same-day -N revision suffix, so a parsed comparison
+// (date, then revision) enforces monotonicity and rejects a same-token no-op and an
+// accidental downgrade alike — including a same-day revision downgrade a plain string
+// comparison would miss. Pure so both the regen script and the tests exercise the
+// exact enforcement logic.
 export function assertTokenBumpedForChangedAssets(
   previousLock,
   token,
@@ -291,15 +387,17 @@ export function assertTokenBumpedForChangedAssets(
     return;
   }
   const changed = changedAssetPaths(previousLock.assets, fingerprint);
-  if (changed.length === 0) {
+  const dropped = droppedAssetPaths(previousLock.assets, fingerprint);
+  if (changed.length === 0 && dropped.length === 0) {
     return;
   }
   if (compareAssetCacheBustTokens(token, previousLock.token) > 0) {
     return;
   }
+  const { reasonClause, droppedClause } = describeBumpFailure(changed, dropped);
   throw new Error(
-    `Asset bytes changed (${changed.join(", ")}) but ASSET_CACHE_BUST (${token}) is not newer ` +
+    `Asset ${reasonClause} but ASSET_CACHE_BUST (${token}) is not newer ` +
       `than the locked ${previousLock.token}. Bump the token in ${ASSET_CACHE_BUST_SOURCE} before ` +
-      `regenerating the lock so the ?v= query moves forward with the content.`,
+      `regenerating the lock so the ?v= query moves forward with the content.${droppedClause}`,
   );
 }

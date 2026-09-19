@@ -21,6 +21,7 @@ import {
   assertTokenBumpedForChangedAssets,
   changedAssetPaths,
   compareAssetCacheBustTokens,
+  droppedAssetPaths,
   fingerprintAssets,
   hashAssetBytes,
   parseAssetCacheBustToken,
@@ -170,6 +171,26 @@ describe("changedAssetPaths", () => {
   });
 });
 
+describe("droppedAssetPaths", () => {
+  it("reports a previously tracked asset that no longer has a fingerprint entry", () => {
+    const previous = { "a.png": "hash-a", "b.png": "hash-b" };
+    const next = { "a.png": "hash-a" };
+    expect(droppedAssetPaths(previous, next)).toEqual(["b.png"]);
+  });
+
+  it("ignores an asset that is still tracked, changed or not", () => {
+    const previous = { "a.png": "hash-a" };
+    const next = { "a.png": "hash-a-new" };
+    expect(droppedAssetPaths(previous, next)).toEqual([]);
+  });
+
+  it("ignores a newly tracked asset that has no previous entry to drop", () => {
+    const previous = { "a.png": "hash-a" };
+    const next = { "a.png": "hash-a", "new.png": "hash-new" };
+    expect(droppedAssetPaths(previous, next)).toEqual([]);
+  });
+});
+
 describe("readAssetCacheBustToken", () => {
   // Exercises the real file read against a throwaway fixture (never the committed
   // asset-cache-bust.ts), proving TOKEN_PATTERN itself extracts a same-day revision
@@ -259,13 +280,24 @@ describe("assertTokenBumpedForChangedAssets", () => {
 
   it("throws when an existing asset changed but the token did not advance", () => {
     const fingerprint = { "a.png": "hash-a-new" };
-    expect(() => {
+    let thrownError: Error | undefined;
+    try {
       assertTokenBumpedForChangedAssets(
         previousLock,
         previousLock.token,
         fingerprint,
       );
-    }).toThrow(/not newer/);
+    } catch (error) {
+      thrownError = error as Error;
+    }
+    expect(thrownError?.message).toMatch(/not newer/);
+    // A changed-only failure has no drop involved, so the drop-specific remediation
+    // clause must not be tacked on — pinned in both directions against the drop
+    // test below so deleting either half of describeBumpFailure()'s branching in
+    // asset-version-manifest.mjs is caught.
+    expect(thrownError?.message).not.toMatch(
+      /bump the token or restore the path/,
+    );
   });
 
   it("throws when a changed asset is paired with an older (downgraded) token", () => {
@@ -305,6 +337,63 @@ describe("assertTokenBumpedForChangedAssets", () => {
     const fingerprint = { "a.png": "hash-a" };
     expect(() => {
       assertTokenBumpedForChangedAssets(null, previousLock.token, fingerprint);
+    }).not.toThrow();
+  });
+
+  it("throws when a previously tracked asset is dropped from the fingerprint under an unbumped token", () => {
+    // The asset was removed from VERSIONED_ASSET_FILES entirely, so it no longer
+    // appears in the fingerprint at all — changedAssetPaths() alone can't see this,
+    // since it only walks the fingerprint's own keys.
+    const fingerprint = {};
+    let thrownError: Error | undefined;
+    try {
+      assertTokenBumpedForChangedAssets(
+        previousLock,
+        previousLock.token,
+        fingerprint,
+      );
+    } catch (error) {
+      thrownError = error as Error;
+    }
+    expect(thrownError?.message).toMatch(/dropped from VERSIONED_ASSET_FILES/);
+    // A drop, unlike a proven byte change, has no self-evident reason a bump is
+    // required — the remediation clause is the only place that reasoning lives, so
+    // it must actually be in the thrown message, not just a dead branch in
+    // describeBumpFailure().
+    expect(thrownError?.message).toMatch(/bump the token or restore the path/);
+  });
+
+  it("throws with both reasons when one asset is changed and a different asset is dropped in the same PR", () => {
+    // The exact gap from issue #174: a PR can change one asset's bytes AND remove a
+    // different asset's path from VERSIONED_ASSET_FILES in the same change. Both must
+    // surface in the error, proving the "changed" and "dropped" reasons are combined
+    // rather than one silently overwriting the other.
+    const twoAssetLock = {
+      token: "?v=20260816",
+      assets: { "a.png": "hash-a", "b.png": "hash-b" },
+    };
+    // "a.png" is dropped from the fingerprint (removed from VERSIONED_ASSET_FILES);
+    // "b.png" stays tracked but its bytes changed.
+    const fingerprint = { "b.png": "hash-b-new" };
+    expect(() => {
+      assertTokenBumpedForChangedAssets(
+        twoAssetLock,
+        twoAssetLock.token,
+        fingerprint,
+      );
+    }).toThrow(
+      /Asset bytes changed \(b\.png\) and dropped from VERSIONED_ASSET_FILES \(a\.png\)/,
+    );
+  });
+
+  it("passes when a dropped asset is paired with a newer token", () => {
+    const fingerprint = {};
+    expect(() => {
+      assertTokenBumpedForChangedAssets(
+        previousLock,
+        BUMPED_TOKEN,
+        fingerprint,
+      );
     }).not.toThrow();
   });
 
@@ -541,15 +630,108 @@ describe("syncManifestCacheBustTokens", () => {
     );
   });
 
-  it("leaves a src with an unrelated trailing query param untouched, rather than swallowing it", () => {
-    // MANIFEST_TOKEN_PATTERN's replacement scope stops at "&"/"#" so a real (if
-    // unusual) extra param on an icon src can't be silently deleted along with the
-    // cache-bust token — same as the pre-change behavior, which never matched such a
-    // src at all and so never touched it either.
-    const manifestSource = '{"src":"/images/icon.png?v=20260101&size=2x"}';
+  it("fails loud on any icon src the rewrite pattern can't reach, instead of silently leaving it unsynced", () => {
+    // Each of these used to be a silent no-op: MANIFEST_TOKEN_PATTERN's replace()
+    // simply never matched, so the src passed through untouched with no error,
+    // letting the icon drift stale behind a year-long immutable cache with nothing
+    // in the pipeline noticing. They must now throw instead.
+    for (const unsyncableSrc of [
+      "/images/icon.png?v=20260101&size=2x", // extra query param past the boundary
+      "/images/icon.PNG?v=20260101", // uppercase extension
+      "/images/icon.gif?v=20260101", // unlisted extension
+    ]) {
+      expect(() =>
+        syncManifestCacheBustTokens(`{"src":"${unsyncableSrc}"}`, NEW_TOKEN),
+      ).toThrow(/weren't reached by the rewrite/);
+    }
+  });
+
+  it("fails loud on a mixed manifest, naming only the src it couldn't sync", () => {
+    const manifestSource = JSON.stringify({
+      icons: [
+        { src: "/images/web-app-manifest-192x192.png?v=20260101" },
+        { src: "/images/icon.gif?v=20260101" },
+      ],
+    });
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow('"/images/icon.gif?v=20260101"');
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).not.toThrow(/web-app-manifest-192x192/);
+  });
+
+  it("never returns a manifest where a surviving src doesn't carry the live token", () => {
+    // The invariant the guard exists to enforce, checked directly rather than via a
+    // specific bad-extension symptom: whatever comes back must be fully synced or
+    // the call must have thrown. Asserts the count first so this can't pass
+    // vacuously against a broken implementation that returns no "src" matches at all.
+    const manifestSource = JSON.stringify({
+      icons: [
+        { src: "/images/icon.png?v=20260101" },
+        { src: "/images/icon-2.webp" },
+      ],
+    });
+    const synced = syncManifestCacheBustTokens(manifestSource, NEW_TOKEN);
+    const syncedSrcs = [...synced.matchAll(/"src"\s*:\s*"([^"]*)"/g)].map(
+      (match) => match[1],
+    );
+    expect(syncedSrcs).toHaveLength(2);
+    for (const src of syncedSrcs) {
+      expect(src).toContain(NEW_TOKEN);
+    }
+  });
+
+  it("leaves a data: URI icon src untouched instead of treating it as unsynced", () => {
+    // A data: URI carries its bytes inline; there's no separate cached URL for a
+    // "?v=" to invalidate, and appending one would corrupt the base64 payload.
+    const manifestSource = '{"icons":[{"src":"data:image/png;base64,AAAA"}]}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       manifestSource,
     );
+  });
+
+  it("leaves a cross-origin icon src untouched instead of treating it as unsynced", () => {
+    // A CDN-hosted src isn't a same-origin asset this repo's immutable-cache rule
+    // applies to, even when it carries a query the rewrite can't parse as ?v=.
+    const manifestSource =
+      '{"icons":[{"src":"https://cdn.example.com/icon.jpg?w=1280"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+
+  it("leaves a cross-origin icon src with no query untouched, rather than appending a token to it", () => {
+    // With no query at all, this src's shape otherwise matches MANIFEST_TOKEN_PATTERN
+    // (a recognized extension right before the closing quote) — the exemption must
+    // be checked inside the rewrite itself, not only in the post-rewrite audit, or a
+    // cross-origin icon like this one gets a "?v=" appended despite not being a
+    // same-origin asset this repo's cache-bust convention applies to.
+    const manifestSource =
+      '{"icons":[{"src":"https://cdn.example.com/icon.png"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+
+  it("leaves a protocol-relative icon src untouched, rather than treating it as unsynced", () => {
+    const manifestSource = '{"icons":[{"src":"//cdn.example.com/icon.png"}]}';
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      manifestSource,
+    );
+  });
+
+  it("fails loud on an unreachable src even when its stale query already ends with the live token", () => {
+    // A suffix check ("does this src end with the live token") can be fooled: a
+    // .gif the rewrite can never reach still passes if nothing has bumped the token
+    // since the last regen, deferring the failure to whichever future bump changes
+    // it — exactly the "nothing in the pipeline notices" drift this guard exists to
+    // close today, not eventually. The audit must track which srcs the rewrite
+    // itself actually touched, not just compare strings.
+    const manifestSource = `{"icons":[{"src":"/images/icon.gif${NEW_TOKEN}"}]}`;
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/weren't reached by the rewrite/);
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {
@@ -677,6 +859,18 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("leaves the on-disk manifest untouched when a src can't be synced", () => {
+    // syncManifestCacheBustTokens() throwing must abort before the write, not after
+    // a partial one — the tracked manifest must never end up half-rewritten.
+    const staleManifest = '{"icons":[{"src":"/images/icon.gif?v=20260101"}]}';
+    withTempManifest(staleManifest, (manifestPath) => {
+      expect(() =>
+        syncWebManifestCacheBustTokensOnDisk(NEW_TOKEN, manifestPath),
+      ).toThrow(/weren't reached by the rewrite/);
+      expect(readFileSync(manifestPath, "utf8")).toBe(staleManifest);
+    });
   });
 });
 

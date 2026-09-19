@@ -12,7 +12,17 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
+    # The preload directive only takes effect once the domain is submitted at
+    # hstspreload.org (manual, one-time, human follow-up — not automated here);
+    # until then this directive is inert (HSTS itself is still fully enforced
+    # after a browser's first successful HTTPS response, per usual trust-on-
+    # first-use behavior). Removal from the browser-baked preload list is slow
+    # (rides browser release trains), and includeSubDomains means every current
+    # and future subdomain of the apex must serve valid HTTPS before submitting,
+    # or it becomes unreachable with no server-side override. Submission also
+    # requires Netlify's "Force HTTPS" domain setting to be on (HTTP->HTTPS
+    # redirect on the apex); that setting is not configurable from this file.
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
     # Content-Security-Policy is intentionally NOT set here. It carries per-build
     # 'sha256-...' hashes for VitePress's inline bootstrap scripts (dark-mode/mac-os
     # detection, __VP_SITE_DATA__) so script-src can drop 'unsafe-inline', which a

@@ -651,7 +651,7 @@ onUnmounted(() => {
           <div
             class="overflow-hidden rounded-xl border border-white/[0.08] text-[#d4d4d8]"
             style="
-              background: #08080a;
+              background: var(--color-surface);
               box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
             "
           >

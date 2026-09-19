@@ -33,6 +33,13 @@ function stripWhitespace(source: string) {
   return source.replace(/\s+/g, "");
 }
 
+// The stylesheet's own comments quote selectors and declarations verbatim, so
+// matching or counting braces against the raw source risks landing inside a
+// comment instead of real CSS.
+function stripComments(source: string) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
 function countOccurrences(haystack: string, needle: string) {
   return haystack.split(needle).length - 1;
 }
@@ -157,7 +164,7 @@ describe("skip link focus reveal", () => {
     // Land on the selector itself, not the matched prefix: the `\}` branch would
     // otherwise put the offset before a closing brace and undercount depth by one.
     const ruleStart = anchor!.index! + anchor![0].indexOf(".skip-link");
-    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
+    const beforeRule = stripComments(css.slice(0, ruleStart));
     const openBraceDepth =
       countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
     expect(
@@ -189,11 +196,9 @@ describe("skip link focus reveal", () => {
 // silently loses the cascade in a real browser) fails here too.
 describe("reduced motion guards", () => {
   // Stripped once, like the sibling enclosure checks above (skip-link focus,
-  // colorful-btn focus-visible): this stylesheet's own comments quote
-  // selectors and at-rules verbatim, so counting braces or searching for a
-  // literal against the raw source risks landing inside a comment instead of
-  // real CSS.
-  const cssWithoutComments = readStyleCss().replace(/\/\*[\s\S]*?\*\//g, "");
+  // colorful-btn focus-visible): comments can otherwise be mistaken for real
+  // CSS (see stripComments).
+  const cssWithoutComments = stripComments(readStyleCss());
 
   // Anchored on the preceding `{`, `}`, `,` (a grouped selector list), or
   // start of file, so a future compound selector ending in
@@ -304,7 +309,7 @@ describe("colorful button focus ring", () => {
     const anchor = css.match(/(?:^|\})\s*\.colorful-btn:focus-visible\s*\{/m);
     expect(anchor, ".colorful-btn:focus-visible rule not found").not.toBeNull();
     const ruleStart = anchor!.index! + anchor![0].indexOf(".colorful-btn");
-    const beforeRule = css.slice(0, ruleStart).replace(/\/\*[\s\S]*?\*\//g, "");
+    const beforeRule = stripComments(css.slice(0, ruleStart));
     const openBraceDepth =
       countOccurrences(beforeRule, "{") - countOccurrences(beforeRule, "}");
     expect(
@@ -340,5 +345,128 @@ describe("colorful button focus ring", () => {
     );
     expect(pauseToggleTag, "pause toggle button not found").not.toBeNull();
     expect(hasStaticClass(pauseToggleTag![0], "colorful-btn")).toBe(true);
+  });
+});
+
+// The footer rave toggle carries no class besides `colorful-btn` (unlike the
+// pause control, which used to layer its own compliant color on top), so its
+// WCAG 1.4.3 resting-state contrast against the page's --color-bg depends
+// entirely on the shared base rule's own color. #6f6c66 measured ~3.78:1
+// there — under the 4.5:1 AA minimum — until this guard's fix.
+describe("colorful button resting contrast", () => {
+  // Stripped, like the sibling enclosure checks above (reduced motion guards,
+  // colorful-btn focus-visible): comments can otherwise be mistaken for real
+  // CSS (see stripComments).
+  const css = stripComments(readStyleCss());
+
+  function srgbChannelToLinear(channel: number) {
+    const normalized = channel / 255;
+    if (normalized <= 0.03928) {
+      return normalized / 12.92;
+    }
+    return ((normalized + 0.055) / 1.055) ** 2.4;
+  }
+
+  function relativeLuminance(hexColor: string) {
+    const hexDigits = hexColor.replace("#", "");
+    const red = parseInt(hexDigits.slice(0, 2), 16);
+    const green = parseInt(hexDigits.slice(2, 4), 16);
+    const blue = parseInt(hexDigits.slice(4, 6), 16);
+    return (
+      0.2126 * srgbChannelToLinear(red) +
+      0.7152 * srgbChannelToLinear(green) +
+      0.0722 * srgbChannelToLinear(blue)
+    );
+  }
+
+  function contrastRatio(foregroundHex: string, backgroundHex: string) {
+    const foregroundLuminance = relativeLuminance(foregroundHex);
+    const backgroundLuminance = relativeLuminance(backgroundHex);
+    const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+    const darker = Math.min(foregroundLuminance, backgroundLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  // Reads a token's hex literal from wherever it's declared (`@theme` or
+  // plain `:root` — --color-surface lives in the latter, alongside the other
+  // template-only-consumed --gx-* tokens). Matches only the declaration
+  // (`token: #hex;`), never a `var(token)` usage site, so it can search the
+  // whole stylesheet instead of being scoped to one block.
+  function readColorTokenHex(tokenName: string) {
+    const tokenMatch = css.match(
+      new RegExp(`${tokenName}:\\s*(#[0-9a-fA-F]{6})\\s*;`),
+    );
+    expect(tokenMatch, `${tokenName} declaration not found`).not.toBeNull();
+    return tokenMatch![1];
+  }
+
+  const WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST = 4.5;
+
+  // Backgrounds every .colorful-btn instance actually sits on: the footer
+  // rave toggle paints straight onto the page (--color-bg), while the
+  // terminal-window pause toggle sits on the card's --color-surface.
+  const COLORFUL_BTN_BACKGROUND_TOKENS = [BRAND_BG_TOKEN, "--color-surface"];
+
+  // Same anchor alternation and `matchAll` approach as the reduced-motion
+  // guard's HOVER_RULE_PATTERN above: a plain first-match `css.match` would
+  // miss a later `.colorful-btn { color: #6f6c66 }` rule that wins the
+  // cascade. The anchor alternation includes `{`, so a match can still be
+  // nested inside an at-rule — isTopLevelMatch below filters those out
+  // before either assertion below trusts a match.
+  const COLORFUL_BTN_RULE_PATTERN =
+    /(?:^|\}|\{|,)\s*\.colorful-btn\s*\{([^}]*)\}/g;
+
+  function selectorStart(match: RegExpMatchArray, selector: string) {
+    return match.index! + match[0].indexOf(selector);
+  }
+
+  // A rule matched by COLORFUL_BTN_RULE_PATTERN can still be nested inside an
+  // at-rule (the anchor alternation includes `{`), so filter to rules that
+  // sit at the stylesheet's top level before trusting any of them.
+  function isTopLevelMatch(match: RegExpMatchArray, selector: string) {
+    const before = css.slice(0, selectorStart(match, selector));
+    return countOccurrences(before, "{") - countOccurrences(before, "}") === 0;
+  }
+
+  it("resolves every top-level .colorful-btn resting color from --color-fg-muted, not a literal", () => {
+    const topLevelBlocks = [...css.matchAll(COLORFUL_BTN_RULE_PATTERN)].filter(
+      (match) => isTopLevelMatch(match, ".colorful-btn"),
+    );
+    expect(
+      topLevelBlocks.length,
+      ".colorful-btn top-level rule not found",
+    ).toBeGreaterThan(0);
+
+    topLevelBlocks.forEach((block) => {
+      expect(stripWhitespace(block[1])).not.toContain("#6f6c66");
+    });
+    expect(stripWhitespace(topLevelBlocks.at(-1)![1])).toContain(
+      "color:var(--color-fg-muted)",
+    );
+  });
+
+  it("meets WCAG 1.4.3 (>= 4.5:1) for .colorful-btn's resting color on every background it sits on", () => {
+    const fgMuted = readColorTokenHex("--color-fg-muted");
+    COLORFUL_BTN_BACKGROUND_TOKENS.forEach((backgroundToken) => {
+      const ratio = contrastRatio(fgMuted, readColorTokenHex(backgroundToken));
+      expect(ratio, `${fgMuted} on ${backgroundToken}`).toBeGreaterThanOrEqual(
+        WCAG_AA_NORMAL_TEXT_MINIMUM_CONTRAST,
+      );
+    });
+  });
+
+  // Mirrors the "brand background token" describe's single-source-of-truth
+  // guard (:60-83) for the surface token this diff introduces: the literal
+  // must live in exactly one place, and its one consumer (the terminal card
+  // in GrimicornPage.vue) must reference it via var(), not repeat the hex
+  // value — otherwise the card can regress to a hardcoded literal and only a
+  // snapshot (routinely regenerated with `-u`) would notice.
+  it("keeps --color-surface's literal in exactly one place and consumed via var()", () => {
+    const surfaceHex = readColorTokenHex("--color-surface");
+    expect(countOccurrences(css, surfaceHex)).toBe(1);
+
+    const grimicornPage = readFileSync(GRIMICORN_PAGE_PATH, "utf8");
+    expect(grimicornPage).toContain("var(--color-surface)");
+    expect(grimicornPage).not.toContain(surfaceHex);
   });
 });
