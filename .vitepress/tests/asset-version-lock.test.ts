@@ -21,6 +21,7 @@ import {
   assertTokenBumpedForChangedAssets,
   changedAssetPaths,
   compareAssetCacheBustTokens,
+  droppedAssetPaths,
   fingerprintAssets,
   hashAssetBytes,
   parseAssetCacheBustToken,
@@ -170,6 +171,26 @@ describe("changedAssetPaths", () => {
   });
 });
 
+describe("droppedAssetPaths", () => {
+  it("reports a previously tracked asset that no longer has a fingerprint entry", () => {
+    const previous = { "a.png": "hash-a", "b.png": "hash-b" };
+    const next = { "a.png": "hash-a" };
+    expect(droppedAssetPaths(previous, next)).toEqual(["b.png"]);
+  });
+
+  it("ignores an asset that is still tracked, changed or not", () => {
+    const previous = { "a.png": "hash-a" };
+    const next = { "a.png": "hash-a-new" };
+    expect(droppedAssetPaths(previous, next)).toEqual([]);
+  });
+
+  it("ignores a newly tracked asset that has no previous entry to drop", () => {
+    const previous = { "a.png": "hash-a" };
+    const next = { "a.png": "hash-a", "new.png": "hash-new" };
+    expect(droppedAssetPaths(previous, next)).toEqual([]);
+  });
+});
+
 describe("readAssetCacheBustToken", () => {
   // Exercises the real file read against a throwaway fixture (never the committed
   // asset-cache-bust.ts), proving TOKEN_PATTERN itself extracts a same-day revision
@@ -259,13 +280,24 @@ describe("assertTokenBumpedForChangedAssets", () => {
 
   it("throws when an existing asset changed but the token did not advance", () => {
     const fingerprint = { "a.png": "hash-a-new" };
-    expect(() => {
+    let thrownError: Error | undefined;
+    try {
       assertTokenBumpedForChangedAssets(
         previousLock,
         previousLock.token,
         fingerprint,
       );
-    }).toThrow(/not newer/);
+    } catch (error) {
+      thrownError = error as Error;
+    }
+    expect(thrownError?.message).toMatch(/not newer/);
+    // A changed-only failure has no drop involved, so the drop-specific remediation
+    // clause must not be tacked on — pinned in both directions against the drop
+    // test below so deleting either half of describeBumpFailure()'s branching in
+    // asset-version-manifest.mjs is caught.
+    expect(thrownError?.message).not.toMatch(
+      /bump the token or restore the path/,
+    );
   });
 
   it("throws when a changed asset is paired with an older (downgraded) token", () => {
@@ -305,6 +337,63 @@ describe("assertTokenBumpedForChangedAssets", () => {
     const fingerprint = { "a.png": "hash-a" };
     expect(() => {
       assertTokenBumpedForChangedAssets(null, previousLock.token, fingerprint);
+    }).not.toThrow();
+  });
+
+  it("throws when a previously tracked asset is dropped from the fingerprint under an unbumped token", () => {
+    // The asset was removed from VERSIONED_ASSET_FILES entirely, so it no longer
+    // appears in the fingerprint at all — changedAssetPaths() alone can't see this,
+    // since it only walks the fingerprint's own keys.
+    const fingerprint = {};
+    let thrownError: Error | undefined;
+    try {
+      assertTokenBumpedForChangedAssets(
+        previousLock,
+        previousLock.token,
+        fingerprint,
+      );
+    } catch (error) {
+      thrownError = error as Error;
+    }
+    expect(thrownError?.message).toMatch(/dropped from VERSIONED_ASSET_FILES/);
+    // A drop, unlike a proven byte change, has no self-evident reason a bump is
+    // required — the remediation clause is the only place that reasoning lives, so
+    // it must actually be in the thrown message, not just a dead branch in
+    // describeBumpFailure().
+    expect(thrownError?.message).toMatch(/bump the token or restore the path/);
+  });
+
+  it("throws with both reasons when one asset is changed and a different asset is dropped in the same PR", () => {
+    // The exact gap from issue #174: a PR can change one asset's bytes AND remove a
+    // different asset's path from VERSIONED_ASSET_FILES in the same change. Both must
+    // surface in the error, proving the "changed" and "dropped" reasons are combined
+    // rather than one silently overwriting the other.
+    const twoAssetLock = {
+      token: "?v=20260816",
+      assets: { "a.png": "hash-a", "b.png": "hash-b" },
+    };
+    // "a.png" is dropped from the fingerprint (removed from VERSIONED_ASSET_FILES);
+    // "b.png" stays tracked but its bytes changed.
+    const fingerprint = { "b.png": "hash-b-new" };
+    expect(() => {
+      assertTokenBumpedForChangedAssets(
+        twoAssetLock,
+        twoAssetLock.token,
+        fingerprint,
+      );
+    }).toThrow(
+      /Asset bytes changed \(b\.png\) and dropped from VERSIONED_ASSET_FILES \(a\.png\)/,
+    );
+  });
+
+  it("passes when a dropped asset is paired with a newer token", () => {
+    const fingerprint = {};
+    expect(() => {
+      assertTokenBumpedForChangedAssets(
+        previousLock,
+        BUMPED_TOKEN,
+        fingerprint,
+      );
     }).not.toThrow();
   });
 

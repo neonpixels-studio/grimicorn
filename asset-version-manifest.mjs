@@ -235,8 +235,27 @@ export function readAssetVersionLock() {
 // copies to invalidate — so it never forces a token bump on its own.
 export function changedAssetPaths(previousAssets, nextAssets) {
   return Object.keys(nextAssets).filter((path) => {
-    return path in previousAssets && previousAssets[path] !== nextAssets[path];
+    return (
+      Object.hasOwn(previousAssets, path) &&
+      previousAssets[path] !== nextAssets[path]
+    );
   });
+}
+
+// Assets the base lock tracked that the current fingerprint no longer has an entry
+// for — i.e. their path was removed from VERSIONED_ASSET_FILES. changedAssetPaths()
+// alone can't see this: it only walks nextAssets' keys, so a path changed and then
+// dropped from VERSIONED_ASSET_FILES in the same PR vanishes from the fingerprint
+// entirely and never gets compared. Flagging every drop (not only a provably changed
+// one) is a deliberate cost/benefit call, not the only possible fix: once a path stops
+// being fingerprinted there is no cheap way to tell whether it also changed, so this
+// errs toward a false-positive token bump (churning the shared cache for a plain
+// asset removal) over the false negative of a changed-then-dropped asset slipping
+// through unbumped.
+export function droppedAssetPaths(previousAssets, nextAssets) {
+  return Object.keys(previousAssets).filter(
+    (path) => !Object.hasOwn(nextAssets, path),
+  );
 }
 
 // Splits a token into its date and revision for comparison. A bare token (no -N
@@ -275,13 +294,37 @@ export function compareAssetCacheBustTokens(tokenA, tokenB) {
   return parsedA.revision - parsedB.revision;
 }
 
-// The core guard: if any existing asset's bytes moved, the shared token must move
-// *forward*, or a year-long immutable cache keeps serving stale bytes behind an
-// unchanged URL. The token is a YYYYMMDD date with an optional same-day -N revision
-// suffix, so a parsed comparison (date, then revision) enforces monotonicity and
-// rejects a same-token no-op and an accidental downgrade alike — including a
-// same-day revision downgrade a plain string comparison would miss. Pure so both the
-// regen script and the tests exercise the exact enforcement logic.
+// Builds the human-readable reason clause for a failed bump check, plus a
+// drop-specific explanation when any asset was dropped: unlike a proven byte change,
+// a drop's remedy ("bump the token") is not self-evident from "the content changed",
+// since by definition nothing is left to prove the content did or didn't change.
+// Separated from assertTokenBumpedForChangedAssets() so the guard itself stays a
+// plain detect/compare/throw and this formatting can be read (and extended) on its own.
+function describeBumpFailure(changed, dropped) {
+  const reasons = [];
+  if (changed.length > 0) {
+    reasons.push(`bytes changed (${changed.join(", ")})`);
+  }
+  if (dropped.length > 0) {
+    reasons.push(`dropped from VERSIONED_ASSET_FILES (${dropped.join(", ")})`);
+  }
+  const droppedClause =
+    dropped.length > 0
+      ? " Removing a path from VERSIONED_ASSET_FILES retires its fingerprint, so " +
+        "nothing can prove its bytes are unchanged; bump the token or restore the path."
+      : "";
+  return { reasonClause: reasons.join(" and "), droppedClause };
+}
+
+// The core guard: if any existing asset's bytes moved, or an asset the lock tracked
+// dropped out of the fingerprint entirely (removed from VERSIONED_ASSET_FILES — see
+// droppedAssetPaths() above), the shared token must move *forward*, or a year-long
+// immutable cache keeps serving stale bytes behind an unchanged URL. The token is a
+// YYYYMMDD date with an optional same-day -N revision suffix, so a parsed comparison
+// (date, then revision) enforces monotonicity and rejects a same-token no-op and an
+// accidental downgrade alike — including a same-day revision downgrade a plain string
+// comparison would miss. Pure so both the regen script and the tests exercise the
+// exact enforcement logic.
 export function assertTokenBumpedForChangedAssets(
   previousLock,
   token,
@@ -291,15 +334,17 @@ export function assertTokenBumpedForChangedAssets(
     return;
   }
   const changed = changedAssetPaths(previousLock.assets, fingerprint);
-  if (changed.length === 0) {
+  const dropped = droppedAssetPaths(previousLock.assets, fingerprint);
+  if (changed.length === 0 && dropped.length === 0) {
     return;
   }
   if (compareAssetCacheBustTokens(token, previousLock.token) > 0) {
     return;
   }
+  const { reasonClause, droppedClause } = describeBumpFailure(changed, dropped);
   throw new Error(
-    `Asset bytes changed (${changed.join(", ")}) but ASSET_CACHE_BUST (${token}) is not newer ` +
+    `Asset ${reasonClause} but ASSET_CACHE_BUST (${token}) is not newer ` +
       `than the locked ${previousLock.token}. Bump the token in ${ASSET_CACHE_BUST_SOURCE} before ` +
-      `regenerating the lock so the ?v= query moves forward with the content.`,
+      `regenerating the lock so the ?v= query moves forward with the content.${droppedClause}`,
   );
 }
