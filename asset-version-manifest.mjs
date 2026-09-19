@@ -90,17 +90,35 @@ const DEFAULT_TOKEN_REVISION = 1;
 // convention. Scoped to the "src" key specifically (not any string in the file) so
 // the sync can never rewrite an unrelated URL query, e.g. a "start_url" or "scope"
 // version marker. The query is optional (`(?:\?v=[^"&#]*)?`) so a newly added icon
-// with no ?v= at all gets one appended, not just an existing one rewritten. Captures
-// through the extension (group 1) so the replacement can restore everything up to
-// that point ahead of the new token and the closing quote. Matches any run of
-// characters after "?v=" up to the next "&", "#", or the closing quote (not the
-// token grammar itself) so a malformed existing token — a wrong digit count, a
-// dangling "-" with no revision, stray letters — gets replaced wholesale with the
-// valid live token instead of partially overwritten or silently left in place. The
-// "&"/"#" boundary keeps this from swallowing an unrelated trailing query param
-// (e.g. "?v=20260101&size=2x") that isn't part of the cache-bust token at all.
+// with no ?v= at all gets one appended, not just an existing one rewritten. Two
+// capture groups — the "src":" key prefix (group 1) and the src's path up to the
+// extension (group 2) — so the replace() callback in syncManifestCacheBustTokens()
+// below can both rebuild the match and record exactly which src (path only, no key
+// noise) it rewrote. Matches any run of characters after "?v=" up to the next "&",
+// "#", or the closing quote (not the token grammar itself) so a malformed existing
+// token — a wrong digit count, a dangling "-" with no revision, stray letters — gets
+// replaced wholesale with the valid live token instead of partially overwritten or
+// silently left in place. The "&"/"#" boundary keeps this from swallowing an
+// unrelated trailing query param (e.g. "?v=20260101&size=2x") that isn't part of the
+// cache-bust token at all.
 const MANIFEST_TOKEN_PATTERN =
-  /("src"\s*:\s*"[^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"&#]*)?"/g;
+  /("src"\s*:\s*")([^"]*\.(?:png|jpe?g|svg|ico|webp|avif))(?:\?v=[^"&#]*)?"/g;
+// Enumerates every "src" value in the manifest regardless of shape, so
+// assertEverySrcSynced() below can verify the rewrite's own output rather than
+// re-deriving which shapes it accepts — a second pattern describing "what
+// MANIFEST_TOKEN_PATTERN matches" would inevitably drift from MANIFEST_TOKEN_PATTERN
+// itself (edit one, forget the other) and reopen exactly the silent-skip bug this
+// guard exists to close.
+const MANIFEST_SRC_KEY_PATTERN = /"src"\s*:\s*"([^"]*)"/g;
+// A src that is legitimately out of scope for this cache-bust: a data: URI carries
+// its bytes inline in the manifest (no separate cached URL to invalidate, so
+// appending "?v=" would corrupt the base64 payload instead of doing anything
+// useful), and an absolute or protocol-relative cross-origin URL (e.g. a CDN-hosted
+// screenshot) isn't a same-origin asset this repo's immutable-cache rule applies to.
+// Checked inside the rewrite callback itself (not just the post-rewrite audit) so an
+// exempt src is left completely untouched rather than still getting a token
+// appended.
+const EXEMPT_FROM_TOKEN_SRC_PATTERN = /^(?:data:|\/\/|[a-z][a-z0-9+.-]*:\/\/)/i;
 
 export function hashAssetBytes(bytes) {
   return createHash(HASH_ALGORITHM).update(bytes).digest("hex");
@@ -148,6 +166,29 @@ export function readAssetCacheBustToken(
   return match[1];
 }
 
+// Confirms every "src" in the rewrite's own output was actually reached by it —
+// either freshly token-stamped (present in `rewrittenSrcs`) or deliberately exempt.
+// Checking membership in the set the rewrite callback itself populated (rather than
+// re-testing the resulting string's shape, e.g. "does it end with the token") can't
+// be fooled by a src the rewrite never touched whose stale, unrelated query happens
+// to already end in a string that matches today's live token.
+function assertEverySrcSynced(syncedManifestSource, rewrittenSrcs) {
+  const unsyncedSrcs = [
+    ...syncedManifestSource.matchAll(MANIFEST_SRC_KEY_PATTERN),
+  ]
+    .map((match) => match[1])
+    .filter(
+      (src) =>
+        !EXEMPT_FROM_TOKEN_SRC_PATTERN.test(src) && !rewrittenSrcs.has(src),
+    );
+  if (unsyncedSrcs.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Cannot sync ${SITE_WEBMANIFEST_FILE}: "src" value(s) ${unsyncedSrcs.map((src) => JSON.stringify(src)).join(", ")} weren't reached by the rewrite — MANIFEST_TOKEN_PATTERN doesn't recognize this src shape (unrecognized extension or an unexpected query string). Fix the src or extend MANIFEST_TOKEN_PATTERN in asset-version-manifest.mjs before syncing, or it will silently drift stale behind the immutable asset cache.`,
+  );
+}
+
 // Rewrites (or adds) the ?v= query on every image "src" in manifest JSON source to
 // the live token. Pure string logic (no file I/O) so the regen script and its test
 // exercise identical rewrite behaviour regardless of how the result gets persisted.
@@ -161,7 +202,19 @@ export function syncManifestCacheBustTokens(manifestSource, token) {
       `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_DATE_AND_REVISION_PATTERN}.`,
     );
   }
-  return manifestSource.replace(MANIFEST_TOKEN_PATTERN, `$1${token}"`);
+  const rewrittenSrcs = new Set();
+  const synced = manifestSource.replace(
+    MANIFEST_TOKEN_PATTERN,
+    (fullMatch, srcKeyPrefix, srcPath) => {
+      if (EXEMPT_FROM_TOKEN_SRC_PATTERN.test(srcPath)) {
+        return fullMatch;
+      }
+      rewrittenSrcs.add(`${srcPath}${token}`);
+      return `${srcKeyPrefix}${srcPath}${token}"`;
+    },
+  );
+  assertEverySrcSynced(synced, rewrittenSrcs);
+  return synced;
 }
 
 // Applies syncManifestCacheBustTokens() to the manifest on disk, writing back only when
