@@ -6,6 +6,11 @@ const NETLIFY_CONFIG_PATH = resolve(process.cwd(), "netlify.toml");
 
 // One year is the recommended HSTS floor for an HTTPS-only site; we serve two.
 const HSTS_MIN_MAX_AGE_SECONDS = 31536000;
+// hstspreload.org rejects submissions under one year, independent of the
+// general HSTS floor above — kept separate so relaxing one never silently
+// breaks the other's requirement.
+const HSTS_PRELOAD_MIN_MAX_AGE_SECONDS = 31536000;
+const HSTS_HEADER_NAME = "Strict-Transport-Security";
 
 const STATIC_HEADERS = {
   "X-Frame-Options": "DENY",
@@ -87,6 +92,11 @@ const FONT_CACHE_MIN_MAX_AGE_SECONDS = 31536000;
 const ASSET_CACHE_MIN_MAX_AGE_SECONDS = 31536000;
 
 const globalHeadersBlock = readHeadersBlockFor(GLOBAL_HEADERS_PATH);
+// Lazy so a missing header fails only the tests that read it (readBlockHeader
+// throws) instead of throwing during module evaluation, which would abort
+// collection for the whole file and silently skip every other test below.
+const readHstsHeaderValue = () =>
+  readBlockHeader(globalHeadersBlock, HSTS_HEADER_NAME);
 
 describe("netlify security headers", () => {
   it.each(Object.entries(STATIC_HEADERS))(
@@ -97,17 +107,21 @@ describe("netlify security headers", () => {
   );
 
   it("sends an HSTS max-age of at least one year", () => {
-    const maxAge = parseHstsMaxAge(
-      readBlockHeader(globalHeadersBlock, "Strict-Transport-Security"),
-    );
+    const maxAge = parseHstsMaxAge(readHstsHeaderValue());
     expect(maxAge).toBeGreaterThanOrEqual(HSTS_MIN_MAX_AGE_SECONDS);
   });
 
   it("extends HSTS to all subdomains", () => {
-    const directives = parseDirectives(
-      readBlockHeader(globalHeadersBlock, "Strict-Transport-Security"),
-    );
+    const directives = parseDirectives(readHstsHeaderValue());
     expect(directives).toContain("includesubdomains");
+  });
+
+  it("opts in to the HSTS preload list", () => {
+    const directives = parseDirectives(readHstsHeaderValue());
+    expect(directives).toContain("preload");
+    expect(parseHstsMaxAge(readHstsHeaderValue())).toBeGreaterThanOrEqual(
+      HSTS_PRELOAD_MIN_MAX_AGE_SECONDS,
+    );
   });
 });
 
