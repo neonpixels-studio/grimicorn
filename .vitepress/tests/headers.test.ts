@@ -104,6 +104,7 @@ describe("collectScriptHashes", () => {
 
 describe("buildContentSecurityPolicy", () => {
   const hashes = [hashInlineScript(BOOTSTRAP_SCRIPT)];
+  // Default (analytics disabled) is the non-production build: strictly first-party.
   const directives = parseDirectives(buildContentSecurityPolicy(hashes));
 
   it("declares no directives beyond the reviewed set", () => {
@@ -123,7 +124,7 @@ describe("buildContentSecurityPolicy", () => {
     expect(directives.get("font-src")).toEqual(["'self'"]);
   });
 
-  it("keeps images and network requests same-origin", () => {
+  it("keeps images and network requests same-origin when analytics is disabled", () => {
     expect(directives.get("img-src")).toEqual(["'self'", "data:"]);
     expect(directives.get("connect-src")).toEqual(["'self'"]);
     expect(directives.get("default-src")).toEqual(["'self'"]);
@@ -134,6 +135,47 @@ describe("buildContentSecurityPolicy", () => {
     expect(directives.get("object-src")).toEqual(["'none'"]);
     expect(directives.get("base-uri")).toEqual(["'self'"]);
     expect(directives.get("form-action")).toEqual(["'self'"]);
+  });
+});
+
+describe("buildContentSecurityPolicy with analytics enabled", () => {
+  const hashes = [hashInlineScript(BOOTSTRAP_SCRIPT)];
+  const directives = parseDirectives(buildContentSecurityPolicy(hashes, true));
+
+  it("declares no directives beyond the reviewed set", () => {
+    expect([...directives.keys()].sort()).toEqual(
+      [...EXPECTED_DIRECTIVES].sort(),
+    );
+  });
+
+  it("allows the GA loader origin in script-src alongside the hashes", () => {
+    expect(directives.get("script-src")).toEqual([
+      "'self'",
+      "https://www.googletagmanager.com",
+      ...hashes,
+    ]);
+  });
+
+  it("opens img-src and connect-src to the GA endpoints only", () => {
+    expect(directives.get("img-src")).toEqual([
+      "'self'",
+      "data:",
+      "https://www.googletagmanager.com",
+      "https://www.google-analytics.com",
+    ]);
+    expect(directives.get("connect-src")).toEqual([
+      "'self'",
+      "https://www.googletagmanager.com",
+      "https://www.google-analytics.com",
+      "https://region1.google-analytics.com",
+    ]);
+  });
+
+  it("leaves style, font, and lockdown directives first-party", () => {
+    expect(directives.get("style-src")).toEqual(["'self'", "'unsafe-inline'"]);
+    expect(directives.get("font-src")).toEqual(["'self'"]);
+    expect(directives.get("default-src")).toEqual(["'self'"]);
+    expect(directives.get("frame-ancestors")).toEqual(["'none'"]);
   });
 });
 

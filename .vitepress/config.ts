@@ -8,6 +8,40 @@ import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 
 const SITE_URL = "https://grimicorn.dev";
+// Google Analytics (GA4) measurement ID. This is the one deliberate third-party
+// integration on an otherwise first-party site: the gtag loader is fetched from
+// googletagmanager.com and measurement beacons go to google-analytics.com, which
+// is why headers.ts widens script-src/connect-src/img-src to those origins.
+const GA_MEASUREMENT_ID = "G-0R2LBBYFB7";
+// GA loads only on the Netlify production deploy. Netlify sets CONTEXT to
+// "production" for the live site and to "deploy-preview"/"branch-deploy"
+// otherwise; it is unset in `vitepress dev` and a bare local build. Gating on it
+// keeps dev, preview, and branch traffic out of the GA property. When disabled,
+// buildEnd tells headers.ts to omit the Google origins too, so every
+// non-production build stays strictly first-party.
+const ANALYTICS_ENABLED = process.env.CONTEXT === "production";
+
+// The gtag loader is external (covered by script-src's googletagmanager.com
+// origin); the inline config script carries no hash here because
+// collectScriptHashes hashes it out of the built HTML at build time, exactly like
+// VitePress's own inline bootstrap scripts. Empty when analytics is disabled so no
+// GA tag reaches dev/preview/branch output.
+const GA_HEAD_ENTRIES: HeadConfig[] = ANALYTICS_ENABLED
+  ? [
+      [
+        "script",
+        {
+          async: "",
+          src: `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`,
+        },
+      ],
+      [
+        "script",
+        {},
+        `window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\n\ngtag('config', '${GA_MEASUREMENT_ID}');`,
+      ],
+    ]
+  : [];
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
 // Shared by og:title and twitter:title, which must stay identical — extracted so
@@ -181,6 +215,11 @@ export default defineConfig({
       "link",
       { rel: "manifest", href: withAssetCacheBust("/images/site.webmanifest") },
     ],
+    // Google Analytics (GA4), production-only (see ANALYTICS_ENABLED / GA_HEAD_ENTRIES
+    // above). Spread here so it lands in the static `head` — rendered on every page
+    // including the 404, which we want to measure — rather than transformHead, which
+    // is scoped per page.
+    ...GA_HEAD_ENTRIES,
   ],
   // Scope the hero preload and INDEXABLE_HEAD_ENTRIES (see rationale above) to
   // every page except the 404. AppLayout shows NotFound (no hero) when
@@ -215,7 +254,7 @@ export default defineConfig({
     plugins: [tailwindcss()] as any,
   },
   buildEnd(siteConfig: SiteConfig) {
-    writeCspHeaders(siteConfig.outDir);
+    writeCspHeaders(siteConfig.outDir, ANALYTICS_ENABLED);
     // Guard the rendered output too: the source-level scan can't see an origin a
     // dependency or plugin injects into the built HTML/CSS/JS (see scan-origins.ts).
     assertBuildOutputHasNoDisallowedOrigins(siteConfig.outDir);
