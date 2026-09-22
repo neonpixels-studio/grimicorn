@@ -27,6 +27,7 @@ import {
   callTransformPageData,
   type HeadEntry,
 } from "./head-test-helpers";
+import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -1155,6 +1156,121 @@ describe("404 page noindex", () => {
 
   it("does not carry a robots meta tag on indexable pages", () => {
     expect(hasMetaTag(indexableHead, "robots")).toBe(false);
+  });
+});
+
+describe("404 page title and meta description", () => {
+  // VitePress has no 404.md in this repo, so every 404 render falls back to
+  // VitePress's own internal notFoundPageData object (title "404 | <site>",
+  // description "Not Found") — see config.ts and not-found-meta.ts for the
+  // full explanation. NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION are imported from
+  // the same shared module config.ts and AppLayout.vue import, so these
+  // tests can't silently pass against a stale copy.
+  const SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML = `<title>404 | ${config.title}</title>`;
+  // Named distinctly from config.ts's own TITLE_TAG_PATTERN ([\s\S], not .)
+  // so a reader can't assume the two are the same pattern.
+  const TITLE_CONTENT_PATTERN = /<title>(.*?)<\/title>/;
+  // A realistic multi-tag <head>, not just a bare title tag, so the rewrite
+  // test proves the replace targets only the <title> tag inside a real
+  // document rather than happening to match a single-tag string.
+  const SAMPLE_FULL_DOCUMENT_HTML = [
+    "<!DOCTYPE html>",
+    '<html lang="en-US">',
+    "  <head>",
+    '    <meta charset="utf-8">',
+    `    ${SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML}`,
+    '    <meta name="description" content="Not Found">',
+    '    <meta name="generator" content="VitePress">',
+    "  </head>",
+    "  <body></body>",
+    "</html>",
+  ].join("\n");
+  const NO_TITLE_TAG_HTML = '<head><meta charset="utf-8"></head>';
+
+  function resolveTransformHtml() {
+    const transformHtml = config.transformHtml;
+    if (typeof transformHtml !== "function") {
+      // Fail loud rather than letting these tests silently check nothing if
+      // the hook is ever removed from config.ts.
+      throw new Error(
+        "config.transformHtml is not a function — the 404 <title> override would silently go unchecked",
+      );
+    }
+    return transformHtml;
+  }
+
+  // pageData.isNotFound, not a page-id string match: the same signal
+  // transformHead and AppLayout.vue's client-side override key off, so a
+  // context built any other way (e.g. matching "404.md") could silently
+  // disagree with the other two about what counts as the 404 page.
+  const NOT_FOUND_PAGE_DATA = { isNotFound: true, relativePath: "404.md" };
+  const FOUND_PAGE_DATA = { isNotFound: false, relativePath: "index.md" };
+
+  it("rewrites VitePress's generic fallback <title> to the owned 404 title", async () => {
+    const transformHtml = resolveTransformHtml();
+    const context = { pageData: NOT_FOUND_PAGE_DATA } as Parameters<
+      typeof transformHtml
+    >[2];
+    const html = await transformHtml(
+      SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
+      "404.html",
+      context,
+    );
+    const [, title] = (html ?? "").match(TITLE_CONTENT_PATTERN) ?? [];
+    expect(title).toBe(NOT_FOUND_TITLE);
+    expect(title).not.toBe(config.title);
+  });
+
+  it("rewrites the <title> inside a realistic multi-tag document, leaving everything else untouched", async () => {
+    const transformHtml = resolveTransformHtml();
+    const context = { pageData: NOT_FOUND_PAGE_DATA } as Parameters<
+      typeof transformHtml
+    >[2];
+    const html = await transformHtml(
+      SAMPLE_FULL_DOCUMENT_HTML,
+      "404.html",
+      context,
+    );
+    // Built via a plain string replace (independent of transformHtml's own
+    // regex/replacer), so this can't pass just because both sides share the
+    // same matching logic.
+    expect(html).toBe(
+      SAMPLE_FULL_DOCUMENT_HTML.replace(
+        SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
+        `<title>${NOT_FOUND_TITLE}</title>`,
+      ),
+    );
+  });
+
+  it("fails loud instead of silently shipping the fallback title when the 404 HTML has no <title> tag", () => {
+    const transformHtml = resolveTransformHtml();
+    const context = { pageData: NOT_FOUND_PAGE_DATA } as Parameters<
+      typeof transformHtml
+    >[2];
+    expect(() => transformHtml(NO_TITLE_TAG_HTML, "404.html", context)).toThrow(
+      /no <title> tag found/,
+    );
+  });
+
+  it("only rewrites the <title> for the 404 page, leaving every other page untouched", async () => {
+    const transformHtml = resolveTransformHtml();
+    const context = { pageData: FOUND_PAGE_DATA } as Parameters<
+      typeof transformHtml
+    >[2];
+    const html = await transformHtml(
+      SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
+      "index.html",
+      context,
+    );
+    expect(html).toBe(SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML);
+  });
+
+  it("gives the 404 its own meta description, distinct from the homepage and VitePress's generic fallback", () => {
+    expect(findMetaContent(notFoundHead, "description")).toBe(
+      NOT_FOUND_DESCRIPTION,
+    );
+    expect(NOT_FOUND_DESCRIPTION).not.toBe(config.description);
+    expect(NOT_FOUND_DESCRIPTION).not.toBe("Not Found");
   });
 });
 

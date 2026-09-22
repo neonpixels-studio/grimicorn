@@ -6,6 +6,11 @@ import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
+import {
+  SITE_TITLE,
+  NOT_FOUND_TITLE,
+  NOT_FOUND_DESCRIPTION,
+} from "./not-found-meta";
 
 const SITE_URL = "https://grimicorn.dev";
 // Google Analytics (GA4) measurement ID. This is the one deliberate third-party
@@ -110,9 +115,8 @@ const JSON_LD = JSON.stringify({
 // Open Graph: X, Slack, and Discord all fall back to `twitter:*` when `og:*` is
 // absent, so leaving them static would still preview the 404 as the homepage.
 // This covers the tags in the issue's acceptance criteria (canonical, OG,
-// Twitter, JSON-LD); it doesn't touch the page `<title>`/meta description, which
-// VitePress derives from `siteData` for every page including the 404 and aren't
-// covered by this fix.
+// Twitter, JSON-LD). The page `<title>`/meta description are a separate concern
+// (see NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION below and transformHtml).
 const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
   ["link", { rel: "canonical", href: SITE_URL }],
   ["meta", { property: "og:type", content: "website" }],
@@ -139,8 +143,33 @@ const NOT_FOUND_ROBOTS_HEAD_ENTRY: HeadConfig = [
   { name: "robots", content: "noindex, follow" },
 ];
 
+// VitePress has no 404.md in this repo (AppLayout.vue renders NotFound.vue
+// purely off `page.isNotFound`, the current non-deprecated pattern — see
+// vitepress's own `Theme.NotFound` deprecation notice), so every 404 render
+// — static build and client-side soft-404 alike — falls back to VitePress's
+// internal `notFoundPageData` object, which hardcodes title "404" and
+// description "Not Found". Those two values happen to already differ from
+// the homepage's, but they're an accident of VitePress internals, not a
+// deliberate, owned page description — and "Not Found" gives a scraper or
+// search result no real information. NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION
+// (imported from ./not-found-meta, shared with AppLayout.vue's client-side
+// override) are this page's actual, owned copy.
+//
+// Added via transformHead below. VitePress's own HTML template skips its
+// auto-generated `<meta name="description">` whenever the merged head already
+// carries one (see `isDescriptionOverridden` in vitepress's renderPage), so
+// this replaces, rather than duplicates, the generic "Not Found" fallback.
+const NOT_FOUND_DESCRIPTION_HEAD_ENTRY: HeadConfig = [
+  "meta",
+  { name: "description", content: NOT_FOUND_DESCRIPTION },
+];
+
+// [\s\S] (not `.`) so a <title> VitePress ever wraps across a newline still
+// matches. Used by transformHtml below.
+const TITLE_TAG_PATTERN = /<title>[\s\S]*?<\/title>/;
+
 export default defineConfig({
-  title: "Grimicorn",
+  title: SITE_TITLE,
   description: DESCRIPTION,
   lang: "en-US",
   sitemap: {
@@ -286,9 +315,37 @@ export default defineConfig({
   // against, so the practical risk is low.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
-      return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
+      return [NOT_FOUND_ROBOTS_HEAD_ENTRY, NOT_FOUND_DESCRIPTION_HEAD_ENTRY];
     }
     return [HERO_PRELOAD_HEAD_ENTRY];
+  },
+  // The <title> tag has no equivalent override seam: it's written directly by
+  // VitePress's renderPage from `createTitle(siteData, pageData)`, and unlike
+  // the description meta tag, nothing skips or overrides it based on the head
+  // array. transformHtml — the one hook that sees the fully-assembled HTML
+  // string before it's written to disk — is therefore the only supported way
+  // to give the 404 its own title. Checks `pageData.isNotFound`, the same
+  // signal transformHead and AppLayout.vue's client-side override use
+  // (rather than matching the page id string), so all three can't disagree
+  // about what counts as the 404.
+  transformHtml: (code, _id, { pageData }) => {
+    if (!pageData.isNotFound) {
+      return code;
+    }
+    if (!TITLE_TAG_PATTERN.test(code)) {
+      // Fail loud: a silent no-op here would ship the generic VitePress
+      // fallback title with no signal that the override stopped applying.
+      throw new Error(
+        `404 transformHtml: no <title> tag found to override in ${pageData.relativePath}`,
+      );
+    }
+    // A replacer function, not a template-string second argument, so a
+    // literal "$" in NOT_FOUND_TITLE can never be read as a replacement
+    // pattern token (e.g. "$&", "$1") by String.prototype.replace.
+    return code.replace(
+      TITLE_TAG_PATTERN,
+      () => `<title>${NOT_FOUND_TITLE}</title>`,
+    );
   },
   vite: {
     // tailwindcss() is typed against the top-level `vite` package, which npm
