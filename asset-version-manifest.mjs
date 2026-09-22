@@ -1,6 +1,17 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fchmodSync,
+  fsyncSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +33,93 @@ export function runGit(args) {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, LC_ALL: "C" },
   });
+}
+
+function temporaryPathFor(filePath) {
+  return `${filePath}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`;
+}
+
+// ENOENT means the temp file was never created (openSync itself failed) — nothing
+// to clean up. Any other error removing it is logged, not swallowed, so a stuck
+// leftover temp file is never silent.
+function removeTemporaryFileIfPresent(temporaryPath) {
+  try {
+    unlinkSync(temporaryPath);
+  } catch (cleanupError) {
+    if (cleanupError.code === "ENOENT") {
+      return;
+    }
+    console.error(
+      `Failed to remove leftover temp file ${temporaryPath}: ${cleanupError.message}`,
+    );
+  }
+}
+
+// A close failure (e.g. a delayed write-back error surfacing on close) must never
+// mask the original error from writeFileSync/fsyncSync: a throw here inside a
+// `finally` would silently replace whatever the try block already threw. Logged,
+// not swallowed, same as removeTemporaryFileIfPresent() above.
+function closeFileDescriptorQuietly(fileDescriptor, temporaryPath) {
+  try {
+    closeSync(fileDescriptor);
+  } catch (closeError) {
+    console.error(
+      `Failed to close temp file descriptor for ${temporaryPath}: ${closeError.message}`,
+    );
+  }
+}
+
+// Writes `contents` to a sibling temp file, fsyncs it so the bytes are actually on
+// disk (not just buffered), then renames it over `filePath`. The rename is the one
+// step that touches `filePath` at all, and a rename is a single atomic filesystem
+// operation, so a process kill or disk-full error at any point before it leaves
+// `filePath` completely untouched — never truncated or half-written. The fsync
+// closes the gap a bare write-then-rename still has under an OS crash or power
+// loss: without it, the rename can reach disk before the temp file's data does,
+// and a fresh mount could then show the renamed file as empty. This does not (and
+// cannot) protect against the file being hand-edited or deleted after the fact.
+//
+// Carries the existing file's mode onto the temp file via fchmodSync (openSync's
+// own `mode` argument is still masked by the process umask, so passing the
+// existing mode there would silently narrow it, e.g. 0o666 -> 0o644 under a 022
+// umask) so a rename-replace doesn't silently reset `filePath`'s permissions — a
+// plain writeFileSync(filePath, ...) would have written through the existing file
+// and left its mode alone. A brand-new `filePath` has no prior mode to carry over,
+// so it's left to the normal umask-masked openSync default.
+function writeFileDurably(filePath, temporaryPath, contents) {
+  const existingMode = existsSync(filePath)
+    ? statSync(filePath).mode & 0o777
+    : null;
+  const fileDescriptor = openSync(temporaryPath, "w");
+  try {
+    if (existingMode !== null) {
+      fchmodSync(fileDescriptor, existingMode);
+    }
+    // writeSync is not guaranteed to write every byte in one call; the fd form of
+    // writeFileSync loops until `contents` is fully written, so a short write can
+    // never get fsynced and renamed into place as a truncated file.
+    writeFileSync(fileDescriptor, contents);
+    fsyncSync(fileDescriptor);
+  } finally {
+    closeFileDescriptorQuietly(fileDescriptor, temporaryPath);
+  }
+}
+
+// Writes `contents` to `filePath` without ever leaving a truncated/partial file in
+// its place, even if the write is interrupted. The temp file is created in the same
+// directory as `filePath` (never os.tmpdir()) specifically so the rename is a
+// same-filesystem rename — a cross-filesystem rename is not atomic. Readers of
+// `filePath` never see anything mid-write: either the previous complete contents,
+// or the new complete contents, never a partial mix of the two.
+export function atomicWriteFileSync(filePath, contents) {
+  const temporaryPath = temporaryPathFor(filePath);
+  try {
+    writeFileDurably(filePath, temporaryPath, contents);
+    renameSync(temporaryPath, filePath);
+  } catch (error) {
+    removeTemporaryFileIfPresent(temporaryPath);
+    throw error;
+  }
 }
 
 // Every static asset whose cache-bust ?v= is the shared ASSET_CACHE_BUST token

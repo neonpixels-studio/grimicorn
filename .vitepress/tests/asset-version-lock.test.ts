@@ -1,15 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
@@ -19,6 +22,7 @@ import {
   SITE_WEBMANIFEST_FILE,
   VERSIONED_ASSET_FILES,
   assertTokenBumpedForChangedAssets,
+  atomicWriteFileSync,
   changedAssetPaths,
   compareAssetCacheBustTokens,
   droppedAssetPaths,
@@ -874,6 +878,95 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
   });
 });
 
+describe("atomicWriteFileSync", () => {
+  // Exercises the real file I/O against a throwaway temp directory, never a file
+  // tracked in the repo.
+  function withTempDir(run: (_tempDir: string) => void) {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "atomic-write-"));
+    try {
+      run(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  it("writes the contents to the target path", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      atomicWriteFileSync(targetPath, "hello");
+      expect(readFileSync(targetPath, "utf8")).toBe("hello");
+    });
+  });
+
+  it("replaces existing content wholesale via rename, never a truncated in-place write", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      writeFileSync(targetPath, "x".repeat(10_000));
+      const inodeBeforeWrite = statSync(targetPath).ino;
+      atomicWriteFileSync(targetPath, "short");
+      // A truncate-then-write reuses the original file (same inode) and could leave
+      // "short" followed by leftover "x" bytes if interrupted; a rename instead
+      // gives the target a brand-new inode, proving the whole file was swapped in
+      // one step rather than edited in place.
+      expect(statSync(targetPath).ino).not.toBe(inodeBeforeWrite);
+      expect(readFileSync(targetPath, "utf8")).toBe("short");
+    });
+  });
+
+  it("leaves no temp file behind in the target directory after a successful write", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      atomicWriteFileSync(targetPath, "hello");
+      expect(readdirSync(tempDir)).toEqual(["lock.json"]);
+    });
+  });
+
+  it("cleans up the temp file and rethrows when the rename fails, leaving the original target untouched", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      // Occupies the target path with a directory so renameSync(tempPath,
+      // targetPath) fails (EISDIR) after the temp file was already written —
+      // simulating a write interrupted between "temp file complete" and "renamed
+      // into place".
+      mkdirSync(targetPath);
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello");
+      }).toThrow();
+      // Only the pre-existing target directory remains — the temp file was
+      // removed, and the target was never replaced with a partial file.
+      expect(readdirSync(tempDir)).toEqual(["lock.json"]);
+      expect(statSync(targetPath).isDirectory()).toBe(true);
+    });
+  });
+
+  it("cleans up after a write failure too (before any rename is attempted), leaving nothing behind", () => {
+    withTempDir((tempDir) => {
+      // The parent directory doesn't exist, so the temp file write itself fails
+      // (ENOENT) before renameSync is ever reached — the other failure branch from
+      // the rename-fails case above.
+      const targetPath = resolve(tempDir, "missing-dir", "lock.json");
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello");
+      }).toThrow(expect.objectContaining({ code: "ENOENT" }));
+      expect(readdirSync(tempDir)).toEqual([]);
+    });
+  });
+
+  it("carries the target's existing file mode onto the replacement, rather than resetting it to the umask default", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      writeFileSync(targetPath, "old");
+      chmodSync(targetPath, 0o600);
+      atomicWriteFileSync(targetPath, "new");
+      // 0o600 (owner read/write only, no group/other access) is stricter than any
+      // plausible umask default (typically 0o644 or 0o664) — a mode that fell back
+      // to the umask-masked openSync default instead of the carried-over mode would
+      // fail this assertion.
+      expect(statSync(targetPath).mode & 0o777).toBe(0o600);
+    });
+  });
+});
+
 describe("regenerateLock", () => {
   const STALE_TOKEN = "?v=20260101";
   const LIVE_TOKEN = "?v=20990101";
@@ -933,6 +1026,33 @@ describe("regenerateLock", () => {
       const lock = JSON.parse(readFileSync(lockPath, "utf8"));
       expect(lock.token).toBe(LIVE_TOKEN);
       expect(lock.assets).toEqual({ [SITE_WEBMANIFEST_FILE]: "fake-hash" });
+    });
+  });
+
+  // A real-world integration check that regenerateLock()'s actual lock write goes
+  // through the atomic path, not just that atomicWriteFileSync is atomic in
+  // isolation (proven separately above): a pre-existing lock file gets a brand-new
+  // inode (a rename, not an in-place writeFileSync) and the directory ends up
+  // holding only the final lock file, no stray ".tmp" artifact.
+  it("writes the lock via rename, leaving no temp file behind", () => {
+    withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
+      writeFileSync(lockPath, "placeholder");
+      const inodeBeforeRegenerate = statSync(lockPath).ino;
+      regenerateLock({
+        token: LIVE_TOKEN,
+        manifestPath,
+        lockPath,
+        loadBaselineLock: () => null,
+        computeFingerprint: () => ({ [SITE_WEBMANIFEST_FILE]: "fake-hash" }),
+      });
+      expect(statSync(lockPath).ino).not.toBe(inodeBeforeRegenerate);
+      const lockDir = dirname(lockPath);
+      expect(readdirSync(lockDir)).toEqual(
+        expect.arrayContaining([basename(lockPath)]),
+      );
+      expect(readdirSync(lockDir).some((entry) => entry.endsWith(".tmp"))).toBe(
+        false,
+      );
     });
   });
 
