@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, symlinkSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -343,7 +349,9 @@ describe("ci.yml's ci job checkout", () => {
   // merge-base against it; without `fetch-depth: 0` the checkout is shallow and
   // findMergeBaseUsingGit() fails with "fatal: Not a valid object name origin/main"
   // for every PR. Reading the raw workflow (rather than asserting in prose) means a
-  // dropped `fetch-depth: 0` fails this test instead of only failing CI.
+  // dropped `fetch-depth: 0` fails this test instead of only failing CI. (See
+  // .github/actions/setup-node-project/action.yml for why checkout is its own
+  // step here rather than living inside that composite action.)
   it("sets fetch-depth: 0 so check:asset-version-bump can diff against the base branch", () => {
     const ciYamlPath = resolve(
       TEST_FILE_DIRECTORY,
@@ -374,5 +382,79 @@ describe("ci.yml's ci job checkout", () => {
     expect(
       checkoutOptionLines.some((line) => /^\s+fetch-depth:\s*0\s*$/.test(line)),
     ).toBe(true);
+  });
+});
+
+// Anchored to the start of a step's `uses:` line (an optional `- ` list marker
+// and optional quotes, then `uses:` immediately — never a `#`-commented line
+// or a substring inside prose) so neither regex can be satisfied by a comment
+// mentioning either action.
+const LOCAL_SETUP_ACTION_PATTERN =
+  /^\s*(-\s+)?uses:\s*["']?\.\/\.github\/actions\/setup-node-project/;
+const CHECKOUT_ACTION_PATTERN = /^\s*(-\s+)?uses:\s*["']?actions\/checkout/;
+
+function splitWorkflowIntoJobs(lines: string[]): string[][] {
+  const jobsLineIndex = lines.findIndex((line) => /^jobs:\s*$/.test(line));
+  const linesUnderJobs =
+    jobsLineIndex === -1 ? [] : lines.slice(jobsLineIndex + 1);
+  // Top-level job names sit at exactly two-space indent under `jobs:` (e.g.
+  // `  ci:`, optionally with a trailing comment); `[^\s#]` excludes both
+  // deeper-indented step lines (whose third character is a space) and a
+  // commented-out `  # ci:`. Scoped to start after `jobs:` so a same-indent key
+  // under `on:` (`  push:`, `  pull_request:`) can't be mistaken for a job.
+  const jobNameLineIndexes = linesUnderJobs
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^ {2}[^\s#][^:]*:\s*(#.*)?$/.test(line))
+    .map(({ index }) => index);
+  const boundaries = [...jobNameLineIndexes, linesUnderJobs.length];
+  return jobNameLineIndexes.map((start, position) =>
+    linesUnderJobs.slice(start, boundaries[position + 1]),
+  );
+}
+
+function findStepIndex(jobLines: string[], pattern: RegExp): number {
+  return jobLines.findIndex((line) => pattern.test(line));
+}
+
+function findJobsUsingLocalSetupAction(workflowPath: string): string[][] {
+  const source = readFileSync(workflowPath, "utf8");
+  const jobs = splitWorkflowIntoJobs(source.split("\n"));
+  return jobs.filter(
+    (jobLines) => findStepIndex(jobLines, LOCAL_SETUP_ACTION_PATTERN) !== -1,
+  );
+}
+
+function expectCheckoutBeforeLocalSetupAction(jobLines: string[]): void {
+  const localActionStart = findStepIndex(jobLines, LOCAL_SETUP_ACTION_PATTERN);
+  const checkoutStart = findStepIndex(jobLines, CHECKOUT_ACTION_PATTERN);
+  expect(checkoutStart).toBeGreaterThanOrEqual(0);
+  expect(checkoutStart).toBeLessThan(localActionStart);
+}
+
+describe("workflows using the setup-node-project composite action", () => {
+  // Guards the constraint documented on .github/actions/setup-node-project's
+  // description: a job referencing the local composite action (`uses: ./...`)
+  // must check out the repo first, or the runner fails with "Can't find
+  // 'action.yml' ... under '.../.github/actions/setup-node-project'" before any
+  // step runs. Reads every workflow file (not a hardcoded list) so a future
+  // workflow adopting the action is covered automatically.
+  it("checks out the repo before using the local composite action, in every job that uses it", () => {
+    const workflowsDirectory = resolve(
+      TEST_FILE_DIRECTORY,
+      "../../.github/workflows",
+    );
+    const workflowFiles = readdirSync(workflowsDirectory).filter((name) =>
+      /\.ya?ml$/.test(name),
+    );
+    expect(workflowFiles.length).toBeGreaterThan(0);
+
+    const jobsUsingLocalAction = workflowFiles.flatMap((workflowFile) =>
+      findJobsUsingLocalSetupAction(join(workflowsDirectory, workflowFile)),
+    );
+    // Proves the assertions below actually run against real jobs: without
+    // this, a regex drifting out of sync with the workflow YAML would leave
+    // this list empty and the test would pass having checked nothing.
+    expect(jobsUsingLocalAction.length).toBeGreaterThan(0);
+    jobsUsingLocalAction.forEach(expectCheckoutBeforeLocalSetupAction);
   });
 });
