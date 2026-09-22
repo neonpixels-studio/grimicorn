@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Landing page for grimicorn.dev",
   "type": "module",
+  "engines": {
+    "node": ">=24.16.0"
+  },
   "scripts": {
     "dev": "vitepress dev",
     "build": "vitepress build",
