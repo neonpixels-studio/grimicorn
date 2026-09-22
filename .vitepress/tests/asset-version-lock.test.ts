@@ -901,10 +901,13 @@ describe("atomicWriteFileSync", () => {
     withTempDir((tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
       writeFileSync(targetPath, "x".repeat(10_000));
+      const inodeBeforeWrite = statSync(targetPath).ino;
       atomicWriteFileSync(targetPath, "short");
-      // A truncate-then-write would be able to leave "short" followed by leftover
-      // "x" bytes if interrupted; reading back exactly "short" (not a longer string
-      // padded with old bytes) proves the target became the *new* file wholesale.
+      // A truncate-then-write reuses the original file (same inode) and could leave
+      // "short" followed by leftover "x" bytes if interrupted; a rename instead
+      // gives the target a brand-new inode, proving the whole file was swapped in
+      // one step rather than edited in place.
+      expect(statSync(targetPath).ino).not.toBe(inodeBeforeWrite);
       expect(readFileSync(targetPath, "utf8")).toBe("short");
     });
   });
@@ -932,6 +935,19 @@ describe("atomicWriteFileSync", () => {
       // removed, and the target was never replaced with a partial file.
       expect(readdirSync(tempDir)).toEqual(["lock.json"]);
       expect(statSync(targetPath).isDirectory()).toBe(true);
+    });
+  });
+
+  it("cleans up after a write failure too (before any rename is attempted), leaving nothing behind", () => {
+    withTempDir((tempDir) => {
+      // The parent directory doesn't exist, so the temp file write itself fails
+      // (ENOENT) before renameSync is ever reached — the other failure branch from
+      // the rename-fails case above.
+      const targetPath = resolve(tempDir, "missing-dir", "lock.json");
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello");
+      }).toThrow(expect.objectContaining({ code: "ENOENT" }));
+      expect(readdirSync(tempDir)).toEqual([]);
     });
   });
 });
@@ -998,9 +1014,9 @@ describe("regenerateLock", () => {
     });
   });
 
-  // Proves regenerateLock() goes through atomicWriteFileSync end-to-end (not just
-  // that atomicWriteFileSync itself is atomic in isolation): the lock directory
-  // holds only the final lock file, no leftover ".tmp" artifact from the write.
+  // A real-world integration check: regenerateLock()'s actual lock write leaves the
+  // directory holding only the final lock file, no stray ".tmp" artifact — atomicity
+  // itself is proven at the unit level by the atomicWriteFileSync tests above.
   it("leaves no temp file behind in the lock's directory after writing", () => {
     withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
       regenerateLock({

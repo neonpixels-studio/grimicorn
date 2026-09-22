@@ -1,11 +1,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
+  openSync,
   readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,37 +34,58 @@ export function runGit(args) {
   });
 }
 
-// Writes `contents` to `filePath` without ever leaving a truncated/partial file in
-// its place if the write is interrupted (process killed, disk full mid-write, etc.):
-// the bytes land in a sibling temp file first, and only a rename() — a single atomic
-// filesystem operation — puts them at `filePath`. The temp file is created in the
-// same directory as `filePath` (never os.tmpdir()) specifically so that rename is a
-// same-filesystem rename and therefore atomic; a cross-filesystem rename is not.
-// readers of `filePath` never see anything mid-write: either the previous complete
-// contents, or the new complete contents, never a partial mix of the two.
 function temporaryPathFor(filePath) {
   return `${filePath}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`;
 }
 
+// ENOENT means the temp file was never created (writeFileSync/fsyncSync failed
+// before it existed) — nothing to clean up. Any other error removing it is logged,
+// not swallowed, so a stuck leftover temp file is never silent.
+function removeTemporaryFileIfPresent(temporaryPath) {
+  try {
+    unlinkSync(temporaryPath);
+  } catch (cleanupError) {
+    if (cleanupError.code === "ENOENT") {
+      return;
+    }
+    console.error(
+      `Failed to remove leftover temp file ${temporaryPath}: ${cleanupError.message}`,
+    );
+  }
+}
+
+// Writes `contents` to a sibling temp file, fsyncs it so the bytes are actually on
+// disk (not just buffered), then renames it over `filePath`. The rename is the one
+// step that touches `filePath` at all, and a rename is a single atomic filesystem
+// operation, so a process kill or disk-full error at any point before it leaves
+// `filePath` completely untouched — never truncated or half-written. The fsync
+// closes the gap a bare write-then-rename still has under an OS crash or power
+// loss: without it, the rename can reach disk before the temp file's data does,
+// and a fresh mount could then show the renamed file as empty. This does not (and
+// cannot) protect against the file being hand-edited or deleted after the fact.
+function writeFileDurably(temporaryPath, contents) {
+  const fileDescriptor = openSync(temporaryPath, "w");
+  try {
+    writeSync(fileDescriptor, contents);
+    fsyncSync(fileDescriptor);
+  } finally {
+    closeSync(fileDescriptor);
+  }
+}
+
+// Writes `contents` to `filePath` without ever leaving a truncated/partial file in
+// its place, even if the write is interrupted. The temp file is created in the same
+// directory as `filePath` (never os.tmpdir()) specifically so the rename is a
+// same-filesystem rename — a cross-filesystem rename is not atomic. Readers of
+// `filePath` never see anything mid-write: either the previous complete contents,
+// or the new complete contents, never a partial mix of the two.
 export function atomicWriteFileSync(filePath, contents) {
   const temporaryPath = temporaryPathFor(filePath);
   try {
-    writeFileSync(temporaryPath, contents);
+    writeFileDurably(temporaryPath, contents);
     renameSync(temporaryPath, filePath);
   } catch (error) {
-    try {
-      unlinkSync(temporaryPath);
-    } catch (cleanupError) {
-      // The temp file may never have been created (writeFileSync itself failed) or
-      // may already be gone (renameSync failed after consuming it on some
-      // platforms) — either way there is nothing left to clean up, and swallowing
-      // this would hide it, so only ignore the expected "never existed" case.
-      if (cleanupError.code !== "ENOENT") {
-        console.error(
-          `Failed to remove leftover temp file ${temporaryPath}: ${cleanupError.message}`,
-        );
-      }
-    }
+    removeTemporaryFileIfPresent(temporaryPath);
     throw error;
   }
 }

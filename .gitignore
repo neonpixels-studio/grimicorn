@@ -7,3 +7,6 @@ test-results
 playwright-report
 playwright/.cache
 .lighthouseci
+# Leftover temp file from an atomic write (see atomicWriteFileSync in
+# asset-version-manifest.mjs) killed before it could rename into place or clean up.
+*.tmp
