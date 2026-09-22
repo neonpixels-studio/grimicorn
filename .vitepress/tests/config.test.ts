@@ -22,11 +22,7 @@ import {
   stripBlockComments,
 } from "../../text-extract.mjs";
 import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
-import {
-  NOT_FOUND_PAGE_ID,
-  NOT_FOUND_TITLE,
-  NOT_FOUND_DESCRIPTION,
-} from "../not-found-meta";
+import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -1161,11 +1157,13 @@ describe("404 page title and meta description", () => {
   // VitePress has no 404.md in this repo, so every 404 render falls back to
   // VitePress's own internal notFoundPageData object (title "404 | <site>",
   // description "Not Found") — see config.ts and not-found-meta.ts for the
-  // full explanation. NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION/NOT_FOUND_PAGE_ID
-  // are imported from the same shared module config.ts and AppLayout.vue
-  // import, so these tests can't silently pass against a stale copy.
+  // full explanation. NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION are imported from
+  // the same shared module config.ts and AppLayout.vue import, so these
+  // tests can't silently pass against a stale copy.
   const SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML = `<title>404 | ${config.title}</title>`;
-  const TITLE_TAG_PATTERN = /<title>(.*?)<\/title>/;
+  // Named distinctly from config.ts's own TITLE_TAG_PATTERN ([\s\S], not .)
+  // so a reader can't assume the two are the same pattern.
+  const TITLE_CONTENT_PATTERN = /<title>(.*?)<\/title>/;
   // A realistic multi-tag <head>, not just a bare title tag, so the rewrite
   // test proves the replace targets only the <title> tag inside a real
   // document rather than happening to match a single-tag string.
@@ -1195,9 +1193,16 @@ describe("404 page title and meta description", () => {
     return transformHtml;
   }
 
+  // pageData.isNotFound, not a page-id string match: the same signal
+  // transformHead and AppLayout.vue's client-side override key off, so a
+  // context built any other way (e.g. matching "404.md") could silently
+  // disagree with the other two about what counts as the 404 page.
+  const NOT_FOUND_PAGE_DATA = { isNotFound: true, relativePath: "404.md" };
+  const FOUND_PAGE_DATA = { isNotFound: false, relativePath: "index.md" };
+
   it("rewrites VitePress's generic fallback <title> to the owned 404 title", async () => {
     const transformHtml = resolveTransformHtml();
-    const context = { page: NOT_FOUND_PAGE_ID } as Parameters<
+    const context = { pageData: NOT_FOUND_PAGE_DATA } as Parameters<
       typeof transformHtml
     >[2];
     const html = await transformHtml(
@@ -1205,14 +1210,14 @@ describe("404 page title and meta description", () => {
       "404.html",
       context,
     );
-    const [, title] = (html ?? "").match(TITLE_TAG_PATTERN) ?? [];
+    const [, title] = (html ?? "").match(TITLE_CONTENT_PATTERN) ?? [];
     expect(title).toBe(NOT_FOUND_TITLE);
     expect(title).not.toBe(config.title);
   });
 
   it("rewrites the <title> inside a realistic multi-tag document, leaving everything else untouched", async () => {
     const transformHtml = resolveTransformHtml();
-    const context = { page: NOT_FOUND_PAGE_ID } as Parameters<
+    const context = { pageData: NOT_FOUND_PAGE_DATA } as Parameters<
       typeof transformHtml
     >[2];
     const html = await transformHtml(
@@ -1233,7 +1238,7 @@ describe("404 page title and meta description", () => {
 
   it("fails loud instead of silently shipping the fallback title when the 404 HTML has no <title> tag", () => {
     const transformHtml = resolveTransformHtml();
-    const context = { page: NOT_FOUND_PAGE_ID } as Parameters<
+    const context = { pageData: NOT_FOUND_PAGE_DATA } as Parameters<
       typeof transformHtml
     >[2];
     expect(() => transformHtml(NO_TITLE_TAG_HTML, "404.html", context)).toThrow(
@@ -1243,7 +1248,9 @@ describe("404 page title and meta description", () => {
 
   it("only rewrites the <title> for the 404 page, leaving every other page untouched", async () => {
     const transformHtml = resolveTransformHtml();
-    const context = { page: "index.md" } as Parameters<typeof transformHtml>[2];
+    const context = { pageData: FOUND_PAGE_DATA } as Parameters<
+      typeof transformHtml
+    >[2];
     const html = await transformHtml(
       SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
       "index.html",

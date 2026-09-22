@@ -8,7 +8,6 @@ import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 import {
   SITE_TITLE,
-  NOT_FOUND_PAGE_ID,
   NOT_FOUND_TITLE,
   NOT_FOUND_DESCRIPTION,
 } from "./not-found-meta";
@@ -279,20 +278,19 @@ export default defineConfig({
   // the description meta tag, nothing skips or overrides it based on the head
   // array. transformHtml — the one hook that sees the fully-assembled HTML
   // string before it's written to disk — is therefore the only supported way
-  // to give the 404 its own title. VitePress always renders this page under
-  // the literal page id NOT_FOUND_PAGE_ID (it unconditionally prepends
-  // "404.md" to the render list, whether or not that source file exists — see
-  // its `renderPage(["404.md", ...pages])` call), so matching on it targets
-  // exactly this one render and leaves every other page's <title> untouched.
-  transformHtml: (code, _id, { page }) => {
-    if (page !== NOT_FOUND_PAGE_ID) {
+  // to give the 404 its own title. Checks `pageData.isNotFound`, the same
+  // signal transformHead and AppLayout.vue's client-side override use
+  // (rather than matching the page id string), so all three can't disagree
+  // about what counts as the 404.
+  transformHtml: (code, _id, { pageData }) => {
+    if (!pageData.isNotFound) {
       return code;
     }
     if (!TITLE_TAG_PATTERN.test(code)) {
       // Fail loud: a silent no-op here would ship the generic VitePress
       // fallback title with no signal that the override stopped applying.
       throw new Error(
-        `404 transformHtml: no <title> tag found to override in ${page}`,
+        `404 transformHtml: no <title> tag found to override in ${pageData.relativePath}`,
       );
     }
     // A replacer function, not a template-string second argument, so a

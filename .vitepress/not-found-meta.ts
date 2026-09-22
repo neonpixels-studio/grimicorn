@@ -10,7 +10,6 @@
 // Also the site title config.ts passes to defineConfig's `title` field, so a
 // rebrand can't update every page's title except the 404's.
 export const SITE_TITLE = "Grimicorn";
-export const NOT_FOUND_PAGE_ID = "404.md";
 export const NOT_FOUND_TITLE = `404 – Page Not Found | ${SITE_TITLE}`;
 export const NOT_FOUND_DESCRIPTION =
   "This page doesn't exist — a gremlin broke it, renamed it, or it was never here. Head back to the Grimicorn homepage.";

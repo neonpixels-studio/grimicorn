@@ -9,13 +9,29 @@ import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 const { page } = useData();
 
 const DESCRIPTION_META_SELECTOR = 'meta[name="description"]';
+const DESCRIPTION_META_NAME = "description";
+
+// The static build always ships a description meta tag (either VitePress's
+// own fallback or NOT_FOUND_DESCRIPTION, added via transformHead in
+// config.ts), so in practice this tag always exists by the time this runs.
+// Creating it when missing anyway — mirroring VitePress's own client-side
+// head updater, which does the same for a page's description meta — means
+// applyNotFoundMeta always ends in the same state rather than silently
+// no-op'ing on the description in a case the static build wouldn't produce.
+function findOrCreateDescriptionMeta() {
+  const existing = document.querySelector(DESCRIPTION_META_SELECTOR);
+  if (existing) {
+    return existing;
+  }
+  const created = document.createElement("meta");
+  created.setAttribute("name", DESCRIPTION_META_NAME);
+  document.head.appendChild(created);
+  return created;
+}
 
 function applyNotFoundMeta() {
   document.title = NOT_FOUND_TITLE;
-  const descriptionElement = document.querySelector(DESCRIPTION_META_SELECTOR);
-  if (descriptionElement) {
-    descriptionElement.setAttribute("content", NOT_FOUND_DESCRIPTION);
-  }
+  findOrCreateDescriptionMeta().setAttribute("content", NOT_FOUND_DESCRIPTION);
 }
 
 // VitePress's own client-side head updater unconditionally resets

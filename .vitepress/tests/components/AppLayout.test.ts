@@ -163,6 +163,22 @@ describe("AppLayout", () => {
     wrapper.unmount();
   });
 
+  it("creates a description meta tag with the owned 404 description when none exists yet", async () => {
+    expect(document.querySelector('meta[name="description"]')).toBeNull();
+
+    pageState.isNotFound = true;
+    const wrapper = mount(AppLayout, { attachTo: document.body });
+    await wrapper.vm.$nextTick();
+
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    expect(descriptionMeta).not.toBeNull();
+    expect(descriptionMeta?.getAttribute("content")).toBe(
+      NOT_FOUND_DESCRIPTION,
+    );
+
+    wrapper.unmount();
+  });
+
   it("reapplies the owned title/description when the page transitions from found to not-found after mount", async () => {
     const descriptionMeta = document.createElement("meta");
     descriptionMeta.setAttribute("name", "description");
