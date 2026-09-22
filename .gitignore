@@ -9,4 +9,6 @@ playwright/.cache
 .lighthouseci
 # Leftover temp file from an atomic write (see atomicWriteFileSync in
 # asset-version-manifest.mjs) killed before it could rename into place or clean up.
-*.tmp
+# Scoped to the pattern temporaryPathFor() actually produces (<file>.<pid>-<hex>.tmp)
+# rather than a bare *.tmp, so it can't accidentally hide an unrelated .tmp file.
+.vitepress/asset-version-lock.json.*.tmp

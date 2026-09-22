@@ -1014,11 +1014,15 @@ describe("regenerateLock", () => {
     });
   });
 
-  // A real-world integration check: regenerateLock()'s actual lock write leaves the
-  // directory holding only the final lock file, no stray ".tmp" artifact — atomicity
-  // itself is proven at the unit level by the atomicWriteFileSync tests above.
-  it("leaves no temp file behind in the lock's directory after writing", () => {
+  // A real-world integration check that regenerateLock()'s actual lock write goes
+  // through the atomic path, not just that atomicWriteFileSync is atomic in
+  // isolation (proven separately above): a pre-existing lock file gets a brand-new
+  // inode (a rename, not an in-place writeFileSync) and the directory ends up
+  // holding only the final lock file, no stray ".tmp" artifact.
+  it("writes the lock via rename, leaving no temp file behind", () => {
     withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
+      writeFileSync(lockPath, "placeholder");
+      const inodeBeforeRegenerate = statSync(lockPath).ino;
       regenerateLock({
         token: LIVE_TOKEN,
         manifestPath,
@@ -1026,6 +1030,7 @@ describe("regenerateLock", () => {
         loadBaselineLock: () => null,
         computeFingerprint: () => ({ [SITE_WEBMANIFEST_FILE]: "fake-hash" }),
       });
+      expect(statSync(lockPath).ino).not.toBe(inodeBeforeRegenerate);
       const lockDir = dirname(lockPath);
       expect(readdirSync(lockDir)).toEqual(
         expect.arrayContaining([basename(lockPath)]),

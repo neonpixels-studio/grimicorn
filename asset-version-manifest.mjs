@@ -7,9 +7,9 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  statSync,
   unlinkSync,
   writeFileSync,
-  writeSync,
 } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +54,25 @@ function removeTemporaryFileIfPresent(temporaryPath) {
   }
 }
 
+// A close failure (e.g. a delayed write-back error surfacing on close) must never
+// mask the original error from writeFileSync/fsyncSync: a throw here inside a
+// `finally` would silently replace whatever the try block already threw. Logged,
+// not swallowed, same as removeTemporaryFileIfPresent() above.
+function closeFileDescriptorQuietly(fileDescriptor, temporaryPath) {
+  try {
+    closeSync(fileDescriptor);
+  } catch (closeError) {
+    console.error(
+      `Failed to close temp file descriptor for ${temporaryPath}: ${closeError.message}`,
+    );
+  }
+}
+
+// Mode to create the temp file with when `filePath` doesn't exist yet (first-ever
+// write) — Node's own default for openSync, kept explicit so it reads the same as
+// the "file already exists" branch below rather than relying on an implicit default.
+const DEFAULT_FILE_MODE = 0o666;
+
 // Writes `contents` to a sibling temp file, fsyncs it so the bytes are actually on
 // disk (not just buffered), then renames it over `filePath`. The rename is the one
 // step that touches `filePath` at all, and a rename is a single atomic filesystem
@@ -63,13 +82,24 @@ function removeTemporaryFileIfPresent(temporaryPath) {
 // loss: without it, the rename can reach disk before the temp file's data does,
 // and a fresh mount could then show the renamed file as empty. This does not (and
 // cannot) protect against the file being hand-edited or deleted after the fact.
-function writeFileDurably(temporaryPath, contents) {
-  const fileDescriptor = openSync(temporaryPath, "w");
+//
+// Carries the existing file's mode onto the temp file (rather than letting
+// openSync fall back to the process umask) so a rename-replace doesn't silently
+// reset `filePath`'s permissions — a plain writeFileSync(filePath, ...) would have
+// written through the existing file and left its mode alone.
+function writeFileDurably(filePath, temporaryPath, contents) {
+  const mode = existsSync(filePath)
+    ? statSync(filePath).mode & 0o777
+    : DEFAULT_FILE_MODE;
+  const fileDescriptor = openSync(temporaryPath, "w", mode);
   try {
-    writeSync(fileDescriptor, contents);
+    // writeSync is not guaranteed to write every byte in one call; the fd form of
+    // writeFileSync loops until `contents` is fully written, so a short write can
+    // never get fsynced and renamed into place as a truncated file.
+    writeFileSync(fileDescriptor, contents);
     fsyncSync(fileDescriptor);
   } finally {
-    closeSync(fileDescriptor);
+    closeFileDescriptorQuietly(fileDescriptor, temporaryPath);
   }
 }
 
@@ -82,7 +112,7 @@ function writeFileDurably(temporaryPath, contents) {
 export function atomicWriteFileSync(filePath, contents) {
   const temporaryPath = temporaryPathFor(filePath);
   try {
-    writeFileDurably(temporaryPath, contents);
+    writeFileDurably(filePath, temporaryPath, contents);
     renameSync(temporaryPath, filePath);
   } catch (error) {
     removeTemporaryFileIfPresent(temporaryPath);
