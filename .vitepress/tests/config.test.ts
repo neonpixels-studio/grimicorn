@@ -1179,7 +1179,12 @@ describe("Dev/build head parity", () => {
     expect(hasJsonLdScript(frontmatterHead)).toBe(true);
   });
 
-  it("omits the indexable tags from transformPageData on the 404, matching the build-only omission", async () => {
+  // VitePress never actually calls transformPageData with isNotFound: true today
+  // (see the comment above the guard in config.ts) — the 404 omits the indexable
+  // tags because it never reaches this hook at all, not because of this branch.
+  // This pins the guard's intent as a defensive no-op so a future refactor can't
+  // silently drop it, not a claim that this input occurs in the real pipeline.
+  it("short-circuits without adding indexable tags if isNotFound is ever true, though VitePress does not call this hook for today's 404", async () => {
     const resolvedPageData = await callTransformPageData(
       buildFixturePageData({ isNotFound: true }),
     );

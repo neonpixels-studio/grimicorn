@@ -236,15 +236,23 @@ export default defineConfig({
   // reintroduces the dev/build mismatch (transformHead) or the inability to omit
   // them on the 404 (static `head`, see rationale above).
   //
-  // pageData.isNotFound is only ever true on VitePress's built-in 404 fallback
-  // (client-side unmatched-route data, and the server-side stand-in used at build
-  // time when no custom 404.md exists — see notFoundPageData in VitePress's
-  // source). This repo has no 404.md, so that's the only path this guard needs to
-  // cover today; it mirrors transformHead's identical `pageData.isNotFound` check
-  // below rather than introducing a different one. If a custom 404.md is ever
-  // added, its real rendered pageData won't carry isNotFound at all (VitePress
-  // doesn't set it for a normally-rendered page), so this guard — like
-  // transformHead's — would need a path-based check too at that point.
+  // The isNotFound guard below is defensive, not what actually keeps the
+  // indexable tags off today's 404: this repo has no 404.md, so VitePress never
+  // runs transformPageData for the 404 at all — client-side it uses a hardcoded
+  // not-found pageData, and at build time a notFoundPageData stand-in, neither of
+  // which goes through this hook. (Confirmed by instrumenting this function and
+  // running `npm run build`: it fires only for index.md and README.md.) The 404
+  // omits the indexable tags simply because its frontmatter never gets
+  // INDEXABLE_HEAD_ENTRIES added to it. The guard mirrors transformHead's
+  // identical `pageData.isNotFound` check below so the two hooks agree on intent,
+  // and stops this hook from doing the wrong thing on the day a custom 404.md
+  // starts flowing through it — but on that day, a normally-rendered page's
+  // pageData won't carry isNotFound either (VitePress only sets it on the
+  // fallback objects above), so the guard would still need a
+  // `pageData.relativePath === "404.md"` check to actually catch it. That's the
+  // same gap transformHead already has for a hypothetical custom 404.md, tracked
+  // separately (see the in-flight 404-detection rework in PR #194) rather than
+  // fixed here.
   transformPageData(pageData) {
     if (pageData.isNotFound) {
       return;
