@@ -6,6 +6,7 @@ import {
   PROJECT_ROOT,
   SITE_WEBMANIFEST_FILE,
   assertTokenBumpedForChangedAssets,
+  atomicWriteFileSync,
   fingerprintAssets,
   parseAssetVersionLock,
   readAssetCacheBustToken,
@@ -113,7 +114,14 @@ export function regenerateLock({
       token,
       assets: fingerprint,
     };
-    writeFileSync(lockPath, `${JSON.stringify(lock, null, JSON_INDENT)}\n`);
+    // Temp-write-then-rename (see atomicWriteFileSync in asset-version-manifest.mjs)
+    // so an interrupted write (process killed, disk full mid-write) can never leave a
+    // truncated/partial lock on disk — independent of the manifest rollback above,
+    // which only protects site.webmanifest, not this file.
+    atomicWriteFileSync(
+      lockPath,
+      `${JSON.stringify(lock, null, JSON_INDENT)}\n`,
+    );
     console.log(`Wrote ${ASSET_VERSION_LOCK_FILE} for token ${token}.`);
   });
 }

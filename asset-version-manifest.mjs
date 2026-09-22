@@ -1,6 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,6 +28,41 @@ export function runGit(args) {
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, LC_ALL: "C" },
   });
+}
+
+// Writes `contents` to `filePath` without ever leaving a truncated/partial file in
+// its place if the write is interrupted (process killed, disk full mid-write, etc.):
+// the bytes land in a sibling temp file first, and only a rename() — a single atomic
+// filesystem operation — puts them at `filePath`. The temp file is created in the
+// same directory as `filePath` (never os.tmpdir()) specifically so that rename is a
+// same-filesystem rename and therefore atomic; a cross-filesystem rename is not.
+// readers of `filePath` never see anything mid-write: either the previous complete
+// contents, or the new complete contents, never a partial mix of the two.
+function temporaryPathFor(filePath) {
+  return `${filePath}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`;
+}
+
+export function atomicWriteFileSync(filePath, contents) {
+  const temporaryPath = temporaryPathFor(filePath);
+  try {
+    writeFileSync(temporaryPath, contents);
+    renameSync(temporaryPath, filePath);
+  } catch (error) {
+    try {
+      unlinkSync(temporaryPath);
+    } catch (cleanupError) {
+      // The temp file may never have been created (writeFileSync itself failed) or
+      // may already be gone (renameSync failed after consuming it on some
+      // platforms) — either way there is nothing left to clean up, and swallowing
+      // this would hide it, so only ignore the expected "never existed" case.
+      if (cleanupError.code !== "ENOENT") {
+        console.error(
+          `Failed to remove leftover temp file ${temporaryPath}: ${cleanupError.message}`,
+        );
+      }
+    }
+    throw error;
+  }
 }
 
 // Every static asset whose cache-bust ?v= is the shared ASSET_CACHE_BUST token

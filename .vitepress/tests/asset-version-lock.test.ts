@@ -1,15 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import { ASSET_CACHE_BUST } from "../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../hero-image-spec.mjs";
@@ -19,6 +21,7 @@ import {
   SITE_WEBMANIFEST_FILE,
   VERSIONED_ASSET_FILES,
   assertTokenBumpedForChangedAssets,
+  atomicWriteFileSync,
   changedAssetPaths,
   compareAssetCacheBustTokens,
   droppedAssetPaths,
@@ -874,6 +877,65 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
   });
 });
 
+describe("atomicWriteFileSync", () => {
+  // Exercises the real file I/O against a throwaway temp directory, never a file
+  // tracked in the repo.
+  function withTempDir(run: (_tempDir: string) => void) {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "atomic-write-"));
+    try {
+      run(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  it("writes the contents to the target path", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      atomicWriteFileSync(targetPath, "hello");
+      expect(readFileSync(targetPath, "utf8")).toBe("hello");
+    });
+  });
+
+  it("replaces existing content wholesale via rename, never a truncated in-place write", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      writeFileSync(targetPath, "x".repeat(10_000));
+      atomicWriteFileSync(targetPath, "short");
+      // A truncate-then-write would be able to leave "short" followed by leftover
+      // "x" bytes if interrupted; reading back exactly "short" (not a longer string
+      // padded with old bytes) proves the target became the *new* file wholesale.
+      expect(readFileSync(targetPath, "utf8")).toBe("short");
+    });
+  });
+
+  it("leaves no temp file behind in the target directory after a successful write", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      atomicWriteFileSync(targetPath, "hello");
+      expect(readdirSync(tempDir)).toEqual(["lock.json"]);
+    });
+  });
+
+  it("cleans up the temp file and rethrows when the rename fails, leaving the original target untouched", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      // Occupies the target path with a directory so renameSync(tempPath,
+      // targetPath) fails (EISDIR) after the temp file was already written —
+      // simulating a write interrupted between "temp file complete" and "renamed
+      // into place".
+      mkdirSync(targetPath);
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello");
+      }).toThrow();
+      // Only the pre-existing target directory remains — the temp file was
+      // removed, and the target was never replaced with a partial file.
+      expect(readdirSync(tempDir)).toEqual(["lock.json"]);
+      expect(statSync(targetPath).isDirectory()).toBe(true);
+    });
+  });
+});
+
 describe("regenerateLock", () => {
   const STALE_TOKEN = "?v=20260101";
   const LIVE_TOKEN = "?v=20990101";
@@ -933,6 +995,28 @@ describe("regenerateLock", () => {
       const lock = JSON.parse(readFileSync(lockPath, "utf8"));
       expect(lock.token).toBe(LIVE_TOKEN);
       expect(lock.assets).toEqual({ [SITE_WEBMANIFEST_FILE]: "fake-hash" });
+    });
+  });
+
+  // Proves regenerateLock() goes through atomicWriteFileSync end-to-end (not just
+  // that atomicWriteFileSync itself is atomic in isolation): the lock directory
+  // holds only the final lock file, no leftover ".tmp" artifact from the write.
+  it("leaves no temp file behind in the lock's directory after writing", () => {
+    withRegenerateLockFixture(STALE_MANIFEST, ({ manifestPath, lockPath }) => {
+      regenerateLock({
+        token: LIVE_TOKEN,
+        manifestPath,
+        lockPath,
+        loadBaselineLock: () => null,
+        computeFingerprint: () => ({ [SITE_WEBMANIFEST_FILE]: "fake-hash" }),
+      });
+      const lockDir = dirname(lockPath);
+      expect(readdirSync(lockDir)).toEqual(
+        expect.arrayContaining([basename(lockPath)]),
+      );
+      expect(readdirSync(lockDir).some((entry) => entry.endsWith(".tmp"))).toBe(
+        false,
+      );
     });
   });
 
