@@ -110,9 +110,8 @@ const JSON_LD = JSON.stringify({
 // Open Graph: X, Slack, and Discord all fall back to `twitter:*` when `og:*` is
 // absent, so leaving them static would still preview the 404 as the homepage.
 // This covers the tags in the issue's acceptance criteria (canonical, OG,
-// Twitter, JSON-LD); it doesn't touch the page `<title>`/meta description, which
-// VitePress derives from `siteData` for every page including the 404 and aren't
-// covered by this fix.
+// Twitter, JSON-LD). The page `<title>`/meta description are a separate concern
+// (see NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION below and transformHtml).
 const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
   ["link", { rel: "canonical", href: SITE_URL }],
   ["meta", { property: "og:type", content: "website" }],
@@ -137,6 +136,28 @@ const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
 const NOT_FOUND_ROBOTS_HEAD_ENTRY: HeadConfig = [
   "meta",
   { name: "robots", content: "noindex, follow" },
+];
+
+// VitePress has no 404.md in this repo (AppLayout.vue renders NotFound.vue
+// purely off `page.isNotFound`, the current non-deprecated pattern — see
+// vitepress's own `Theme.NotFound` deprecation notice), so every 404 render
+// — static build and client-side soft-404 alike — falls back to VitePress's
+// internal `notFoundPageData` object, which hardcodes title "404" and
+// description "Not Found". Those two values happen to already differ from
+// the homepage's, but they're an accident of VitePress internals, not a
+// deliberate, owned page description — and "Not Found" gives a scraper or
+// search result no real information. These two constants are this page's
+// actual, owned copy.
+const NOT_FOUND_DESCRIPTION =
+  "This page doesn't exist — a gremlin broke it, renamed it, or it was never here. Head back to the Grimicorn homepage.";
+const NOT_FOUND_TITLE = "404 – Page Not Found | Grimicorn";
+// Added via transformHead below. VitePress's own HTML template skips its
+// auto-generated `<meta name="description">` whenever the merged head already
+// carries one (see `isDescriptionOverridden` in vitepress's renderPage), so
+// this replaces, rather than duplicates, the generic "Not Found" fallback.
+const NOT_FOUND_DESCRIPTION_HEAD_ENTRY: HeadConfig = [
+  "meta",
+  { name: "description", content: NOT_FOUND_DESCRIPTION },
 ];
 
 export default defineConfig({
@@ -240,9 +261,28 @@ export default defineConfig({
   // `head` array; that reintroduces the bug this change fixes.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
-      return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
+      return [NOT_FOUND_ROBOTS_HEAD_ENTRY, NOT_FOUND_DESCRIPTION_HEAD_ENTRY];
     }
     return [HERO_PRELOAD_HEAD_ENTRY, ...INDEXABLE_HEAD_ENTRIES];
+  },
+  // The <title> tag has no equivalent override seam: it's written directly by
+  // VitePress's renderPage from `createTitle(siteData, pageData)`, and unlike
+  // the description meta tag, nothing skips or overrides it based on the head
+  // array. transformHtml — the one hook that sees the fully-assembled HTML
+  // string before it's written to disk — is therefore the only supported way
+  // to give the 404 its own title. VitePress always renders this page under
+  // the literal page id "404.md" (it unconditionally prepends "404.md" to the
+  // render list, whether or not that source file exists — see its
+  // `renderPage(["404.md", ...pages])` call), so matching on `page === "404.md"`
+  // targets exactly this one render and leaves every other page's <title> untouched.
+  transformHtml: (code, _id, { page }) => {
+    if (page !== "404.md") {
+      return code;
+    }
+    return code.replace(
+      /<title>.*?<\/title>/,
+      `<title>${NOT_FOUND_TITLE}</title>`,
+    );
   },
   vite: {
     // tailwindcss() is typed against the top-level `vite` package, which npm
