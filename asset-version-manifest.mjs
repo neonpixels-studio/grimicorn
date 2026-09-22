@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
+  fchmodSync,
   fsyncSync,
   openSync,
   readFileSync,
@@ -38,9 +39,9 @@ function temporaryPathFor(filePath) {
   return `${filePath}.${process.pid}-${randomBytes(6).toString("hex")}.tmp`;
 }
 
-// ENOENT means the temp file was never created (writeFileSync/fsyncSync failed
-// before it existed) — nothing to clean up. Any other error removing it is logged,
-// not swallowed, so a stuck leftover temp file is never silent.
+// ENOENT means the temp file was never created (openSync itself failed) — nothing
+// to clean up. Any other error removing it is logged, not swallowed, so a stuck
+// leftover temp file is never silent.
 function removeTemporaryFileIfPresent(temporaryPath) {
   try {
     unlinkSync(temporaryPath);
@@ -68,11 +69,6 @@ function closeFileDescriptorQuietly(fileDescriptor, temporaryPath) {
   }
 }
 
-// Mode to create the temp file with when `filePath` doesn't exist yet (first-ever
-// write) — Node's own default for openSync, kept explicit so it reads the same as
-// the "file already exists" branch below rather than relying on an implicit default.
-const DEFAULT_FILE_MODE = 0o666;
-
 // Writes `contents` to a sibling temp file, fsyncs it so the bytes are actually on
 // disk (not just buffered), then renames it over `filePath`. The rename is the one
 // step that touches `filePath` at all, and a rename is a single atomic filesystem
@@ -83,16 +79,22 @@ const DEFAULT_FILE_MODE = 0o666;
 // and a fresh mount could then show the renamed file as empty. This does not (and
 // cannot) protect against the file being hand-edited or deleted after the fact.
 //
-// Carries the existing file's mode onto the temp file (rather than letting
-// openSync fall back to the process umask) so a rename-replace doesn't silently
-// reset `filePath`'s permissions — a plain writeFileSync(filePath, ...) would have
-// written through the existing file and left its mode alone.
+// Carries the existing file's mode onto the temp file via fchmodSync (openSync's
+// own `mode` argument is still masked by the process umask, so passing the
+// existing mode there would silently narrow it, e.g. 0o666 -> 0o644 under a 022
+// umask) so a rename-replace doesn't silently reset `filePath`'s permissions — a
+// plain writeFileSync(filePath, ...) would have written through the existing file
+// and left its mode alone. A brand-new `filePath` has no prior mode to carry over,
+// so it's left to the normal umask-masked openSync default.
 function writeFileDurably(filePath, temporaryPath, contents) {
-  const mode = existsSync(filePath)
+  const existingMode = existsSync(filePath)
     ? statSync(filePath).mode & 0o777
-    : DEFAULT_FILE_MODE;
-  const fileDescriptor = openSync(temporaryPath, "w", mode);
+    : null;
+  const fileDescriptor = openSync(temporaryPath, "w");
   try {
+    if (existingMode !== null) {
+      fchmodSync(fileDescriptor, existingMode);
+    }
     // writeSync is not guaranteed to write every byte in one call; the fd form of
     // writeFileSync loops until `contents` is fully written, so a short write can
     // never get fsynced and renamed into place as a truncated file.

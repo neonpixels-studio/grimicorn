@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -948,6 +949,20 @@ describe("atomicWriteFileSync", () => {
         atomicWriteFileSync(targetPath, "hello");
       }).toThrow(expect.objectContaining({ code: "ENOENT" }));
       expect(readdirSync(tempDir)).toEqual([]);
+    });
+  });
+
+  it("carries the target's existing file mode onto the replacement, rather than resetting it to the umask default", () => {
+    withTempDir((tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      writeFileSync(targetPath, "old");
+      chmodSync(targetPath, 0o600);
+      atomicWriteFileSync(targetPath, "new");
+      // 0o600 (owner read/write only, no group/other access) is stricter than any
+      // plausible umask default (typically 0o644 or 0o664) — a mode that fell back
+      // to the umask-masked openSync default instead of the carried-over mode would
+      // fail this assertion.
+      expect(statSync(targetPath).mode & 0o777).toBe(0o600);
     });
   });
 });
