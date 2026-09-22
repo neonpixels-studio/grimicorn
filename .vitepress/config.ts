@@ -7,6 +7,7 @@ import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 import {
+  SITE_TITLE,
   NOT_FOUND_PAGE_ID,
   NOT_FOUND_TITLE,
   NOT_FOUND_DESCRIPTION,
@@ -164,8 +165,12 @@ const NOT_FOUND_DESCRIPTION_HEAD_ENTRY: HeadConfig = [
   { name: "description", content: NOT_FOUND_DESCRIPTION },
 ];
 
+// [\s\S] (not `.`) so a <title> VitePress ever wraps across a newline still
+// matches. Used by transformHtml below.
+const TITLE_TAG_PATTERN = /<title>[\s\S]*?<\/title>/;
+
 export default defineConfig({
-  title: "Grimicorn",
+  title: SITE_TITLE,
   description: DESCRIPTION,
   lang: "en-US",
   sitemap: {
@@ -283,9 +288,19 @@ export default defineConfig({
     if (page !== NOT_FOUND_PAGE_ID) {
       return code;
     }
+    if (!TITLE_TAG_PATTERN.test(code)) {
+      // Fail loud: a silent no-op here would ship the generic VitePress
+      // fallback title with no signal that the override stopped applying.
+      throw new Error(
+        `404 transformHtml: no <title> tag found to override in ${page}`,
+      );
+    }
+    // A replacer function, not a template-string second argument, so a
+    // literal "$" in NOT_FOUND_TITLE can never be read as a replacement
+    // pattern token (e.g. "$&", "$1") by String.prototype.replace.
     return code.replace(
-      /<title>.*?<\/title>/,
-      `<title>${NOT_FOUND_TITLE}</title>`,
+      TITLE_TAG_PATTERN,
+      () => `<title>${NOT_FOUND_TITLE}</title>`,
     );
   },
   vite: {

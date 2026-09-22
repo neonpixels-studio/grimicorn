@@ -1166,6 +1166,22 @@ describe("404 page title and meta description", () => {
   // import, so these tests can't silently pass against a stale copy.
   const SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML = `<title>404 | ${config.title}</title>`;
   const TITLE_TAG_PATTERN = /<title>(.*?)<\/title>/;
+  // A realistic multi-tag <head>, not just a bare title tag, so the rewrite
+  // test proves the replace targets only the <title> tag inside a real
+  // document rather than happening to match a single-tag string.
+  const SAMPLE_FULL_DOCUMENT_HTML = [
+    "<!DOCTYPE html>",
+    '<html lang="en-US">',
+    "  <head>",
+    '    <meta charset="utf-8">',
+    `    ${SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML}`,
+    '    <meta name="description" content="Not Found">',
+    '    <meta name="generator" content="VitePress">',
+    "  </head>",
+    "  <body></body>",
+    "</html>",
+  ].join("\n");
+  const NO_TITLE_TAG_HTML = '<head><meta charset="utf-8"></head>';
 
   function resolveTransformHtml() {
     const transformHtml = config.transformHtml;
@@ -1192,6 +1208,37 @@ describe("404 page title and meta description", () => {
     const [, title] = (html ?? "").match(TITLE_TAG_PATTERN) ?? [];
     expect(title).toBe(NOT_FOUND_TITLE);
     expect(title).not.toBe(config.title);
+  });
+
+  it("rewrites the <title> inside a realistic multi-tag document, leaving everything else untouched", async () => {
+    const transformHtml = resolveTransformHtml();
+    const context = { page: NOT_FOUND_PAGE_ID } as Parameters<
+      typeof transformHtml
+    >[2];
+    const html = await transformHtml(
+      SAMPLE_FULL_DOCUMENT_HTML,
+      "404.html",
+      context,
+    );
+    // Built via a plain string replace (independent of transformHtml's own
+    // regex/replacer), so this can't pass just because both sides share the
+    // same matching logic.
+    expect(html).toBe(
+      SAMPLE_FULL_DOCUMENT_HTML.replace(
+        SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
+        `<title>${NOT_FOUND_TITLE}</title>`,
+      ),
+    );
+  });
+
+  it("fails loud instead of silently shipping the fallback title when the 404 HTML has no <title> tag", () => {
+    const transformHtml = resolveTransformHtml();
+    const context = { page: NOT_FOUND_PAGE_ID } as Parameters<
+      typeof transformHtml
+    >[2];
+    expect(() => transformHtml(NO_TITLE_TAG_HTML, "404.html", context)).toThrow(
+      /no <title> tag found/,
+    );
   });
 
   it("only rewrites the <title> for the 404 page, leaving every other page untouched", async () => {

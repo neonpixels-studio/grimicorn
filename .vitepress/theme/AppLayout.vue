@@ -10,6 +10,14 @@ const { page } = useData();
 
 const DESCRIPTION_META_SELECTOR = 'meta[name="description"]';
 
+function applyNotFoundMeta() {
+  document.title = NOT_FOUND_TITLE;
+  const descriptionElement = document.querySelector(DESCRIPTION_META_SELECTOR);
+  if (descriptionElement) {
+    descriptionElement.setAttribute("content", NOT_FOUND_DESCRIPTION);
+  }
+}
+
 // VitePress's own client-side head updater unconditionally resets
 // document.title and the description meta tag from its internal
 // notFoundPageData fallback ("404 | <site>" / "Not Found") on every
@@ -21,20 +29,20 @@ const DESCRIPTION_META_SELECTOR = 'meta[name="description"]';
 // watcher within the same reactive update, regardless of which was created
 // first, so this reliably wins the race on both the initial load and every
 // later client-side navigation onto/off of the 404.
+//
+// Watches the whole page object, not just page.value.isNotFound: VitePress's
+// router builds a brand-new object on every failed route load (even a
+// 404-to-404 navigation, where isNotFound stays true throughout), and that
+// new object is exactly what re-triggers VitePress's own resetting watcher.
+// Watching only the boolean would miss that case, since it never changes.
 onMounted(() => {
   watch(
-    () => page.value.isNotFound,
-    (isNotFound) => {
-      if (!isNotFound) {
+    () => page.value,
+    (currentPage) => {
+      if (!currentPage.isNotFound) {
         return;
       }
-      document.title = NOT_FOUND_TITLE;
-      const descriptionElement = document.querySelector(
-        DESCRIPTION_META_SELECTOR,
-      );
-      if (descriptionElement) {
-        descriptionElement.setAttribute("content", NOT_FOUND_DESCRIPTION);
-      }
+      applyNotFoundMeta();
     },
     { immediate: true, flush: "post" },
   );

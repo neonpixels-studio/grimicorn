@@ -7,7 +7,10 @@
 // onto and off of the 404 — the instant JS runs, which would otherwise
 // silently undo the build-time fix. Keeping one copy of these constants
 // means the build-time and client-side overrides can't drift apart.
+// Also the site title config.ts passes to defineConfig's `title` field, so a
+// rebrand can't update every page's title except the 404's.
+export const SITE_TITLE = "Grimicorn";
 export const NOT_FOUND_PAGE_ID = "404.md";
-export const NOT_FOUND_TITLE = "404 – Page Not Found | Grimicorn";
+export const NOT_FOUND_TITLE = `404 – Page Not Found | ${SITE_TITLE}`;
 export const NOT_FOUND_DESCRIPTION =
   "This page doesn't exist — a gremlin broke it, renamed it, or it was never here. Head back to the Grimicorn homepage.";
