@@ -31,17 +31,51 @@ function mergeHead(previous: HeadEntry[], current: HeadEntry[]): HeadEntry[] {
 // Neither transformPageData nor transformHead in config.ts reads anything off
 // pageData beyond frontmatter and isNotFound, so the fixture only needs to be a
 // structurally valid PageData, not a fully realistic render result.
-function buildFixturePageData(pageData: { isNotFound?: boolean }): PageData {
-  const relativePath = pageData.isNotFound ? "404.md" : "index.md";
+export function buildFixturePageData(
+  overrides: {
+    isNotFound?: boolean;
+    relativePath?: string;
+    frontmatter?: Record<string, unknown>;
+  } = {},
+): PageData {
+  const relativePath =
+    overrides.relativePath ?? (overrides.isNotFound ? "404.md" : "index.md");
   return {
     title: "",
     description: "",
     headers: [],
     frontmatter: {},
+    ...overrides,
     relativePath,
     filePath: relativePath,
-    ...pageData,
   };
+}
+
+// Calls config.transformPageData the same way VitePress's real render pipeline
+// does (createMarkdownToVueRenderFn): shallow-spread the hook's return value
+// onto pageData. A returned `frontmatter` replaces the page's whole frontmatter
+// rather than being deep-merged into it, so a config.ts regression that drops
+// `...pageData.frontmatter` before adding `head` shows up here instead of being
+// silently patched over by a more forgiving test-only merge.
+export async function callTransformPageData(
+  pageData: PageData,
+): Promise<PageData> {
+  const { transformPageData } = config;
+  if (typeof transformPageData !== "function") {
+    // Fail loud rather than silently skipping the dev/build-parity path:
+    // canonical, OG, Twitter Card, and JSON-LD (and the versioned og:image
+    // reference inside them) would go unchecked by every describe block that
+    // relies on this resolver, and both suites would keep passing while
+    // checking nothing.
+    throw new Error(
+      "config.transformPageData is not a function — canonical/OG/Twitter/JSON-LD are added there and would silently go unchecked",
+    );
+  }
+  const context = { siteConfig: config } as unknown as Parameters<
+    typeof transformPageData
+  >[1];
+  const dataToMerge = await transformPageData(pageData, context);
+  return { ...pageData, ...dataToMerge };
 }
 
 // The head VitePress actually renders for a page is config.head (static, every
@@ -56,47 +90,24 @@ function buildFixturePageData(pageData: { isNotFound?: boolean }): PageData {
 export async function resolveHeadForPage(pageData: {
   isNotFound?: boolean;
 }): Promise<HeadEntry[]> {
-  const { transformPageData, transformHead } = config;
-  if (typeof transformPageData !== "function") {
-    // Fail loud rather than silently skipping the dev/build-parity path:
-    // canonical, OG, Twitter Card, and JSON-LD (and the versioned og:image
-    // reference inside them) would go unchecked by every describe block that
-    // relies on this resolver, and both suites would keep passing while
-    // checking nothing.
-    throw new Error(
-      "config.transformPageData is not a function — canonical/OG/Twitter/JSON-LD are added there and would silently go unchecked",
-    );
-  }
+  const { transformHead } = config;
   if (typeof transformHead !== "function") {
     throw new Error(
       "config.transformHead is not a function — the hero preload and the 404's noindex meta are added there and would silently go unchecked",
     );
   }
 
-  const fixturePageData = buildFixturePageData(pageData);
-  const transformPageDataContext = {
-    siteConfig: config,
-  } as unknown as Parameters<typeof transformPageData>[1];
-  const dataToMerge = await transformPageData(
-    fixturePageData,
-    transformPageDataContext,
+  const resolvedPageData = await callTransformPageData(
+    buildFixturePageData(pageData),
   );
-  const mergedFrontmatter = dataToMerge?.frontmatter
-    ? { ...fixturePageData.frontmatter, ...dataToMerge.frontmatter }
-    : fixturePageData.frontmatter;
-  const resolvedPageData: PageData = {
-    ...fixturePageData,
-    ...dataToMerge,
-    frontmatter: mergedFrontmatter,
-  };
 
   const headBeforeTransformHead = mergeHead(
     (config.head ?? []) as HeadEntry[],
-    (mergedFrontmatter.head ?? []) as HeadEntry[],
+    (resolvedPageData.frontmatter.head ?? []) as HeadEntry[],
   );
-  const transformHeadContext = { pageData: resolvedPageData } as Parameters<
-    typeof transformHead
-  >[0];
+  const transformHeadContext = {
+    pageData: resolvedPageData,
+  } as unknown as Parameters<typeof transformHead>[0];
   const transformed = (await transformHead(transformHeadContext)) ?? [];
   return mergeHead(headBeforeTransformHead, transformed as HeadEntry[]);
 }

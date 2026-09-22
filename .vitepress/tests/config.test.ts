@@ -21,7 +21,12 @@ import {
   extractSingleCapture,
   stripBlockComments,
 } from "../../text-extract.mjs";
-import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
+import {
+  resolveHeadForPage,
+  buildFixturePageData,
+  callTransformPageData,
+  type HeadEntry,
+} from "./head-test-helpers";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -1162,26 +1167,11 @@ describe("404 page noindex", () => {
 // Twitter, and JSON-LD must render identically under `vitepress dev` (which never
 // runs transformHead) and `vitepress build`.
 describe("Dev/build head parity", () => {
-  const minimalPageData = {
-    title: "",
-    description: "",
-    headers: [],
-    frontmatter: {},
-    relativePath: "index.md",
-    filePath: "index.md",
-  };
-
   it("adds the indexable tags via transformPageData, the hook that also runs under `vitepress dev`", async () => {
-    if (typeof config.transformPageData !== "function") {
-      throw new Error("config.transformPageData is not a function");
-    }
-    const dataToMerge = await config.transformPageData(
-      { ...minimalPageData, isNotFound: false },
-      { siteConfig: config } as unknown as Parameters<
-        typeof config.transformPageData
-      >[1],
+    const resolvedPageData = await callTransformPageData(
+      buildFixturePageData({ isNotFound: false }),
     );
-    const frontmatterHead = (dataToMerge?.frontmatter?.head ??
+    const frontmatterHead = (resolvedPageData.frontmatter.head ??
       []) as HeadEntry[];
     expect(hasLinkRel(frontmatterHead, "canonical")).toBe(true);
     expect(hasMetaTag(frontmatterHead, "og:title")).toBe(true);
@@ -1190,16 +1180,28 @@ describe("Dev/build head parity", () => {
   });
 
   it("omits the indexable tags from transformPageData on the 404, matching the build-only omission", async () => {
-    if (typeof config.transformPageData !== "function") {
-      throw new Error("config.transformPageData is not a function");
-    }
-    const dataToMerge = await config.transformPageData(
-      { ...minimalPageData, relativePath: "404.md", isNotFound: true },
-      { siteConfig: config } as unknown as Parameters<
-        typeof config.transformPageData
-      >[1],
+    const resolvedPageData = await callTransformPageData(
+      buildFixturePageData({ isNotFound: true }),
     );
-    expect(dataToMerge).toBeUndefined();
+    expect(resolvedPageData.frontmatter.head ?? []).toEqual([]);
+  });
+
+  it("preserves the page's existing frontmatter, including its own head entries, instead of replacing it", async () => {
+    const sentinelHeadEntry: HeadEntry = [
+      "meta",
+      { name: "x-sentinel", content: "1" },
+    ];
+    const resolvedPageData = await callTransformPageData(
+      buildFixturePageData({
+        isNotFound: false,
+        frontmatter: { layout: "home", head: [sentinelHeadEntry] },
+      }),
+    );
+    expect(resolvedPageData.frontmatter.layout).toBe("home");
+    const frontmatterHead = (resolvedPageData.frontmatter.head ??
+      []) as HeadEntry[];
+    expect(frontmatterHead).toContainEqual(sentinelHeadEntry);
+    expect(hasLinkRel(frontmatterHead, "canonical")).toBe(true);
   });
 
   it("does not add the indexable tags via transformHead, which is build-only", () => {
@@ -1207,7 +1209,7 @@ describe("Dev/build head parity", () => {
       throw new Error("config.transformHead is not a function");
     }
     const transformHeadResult = config.transformHead({
-      pageData: { ...minimalPageData, isNotFound: false },
+      pageData: buildFixturePageData({ isNotFound: false }),
     } as unknown as Parameters<typeof config.transformHead>[0]);
     const headEntries = (transformHeadResult ?? []) as HeadEntry[];
     expect(hasLinkRel(headEntries, "canonical")).toBe(false);
