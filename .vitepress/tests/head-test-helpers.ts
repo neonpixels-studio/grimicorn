@@ -28,6 +28,18 @@ function mergeHead(previous: HeadEntry[], current: HeadEntry[]): HeadEntry[] {
   return [...previous.filter((tag) => !matchesTag(current, tag)), ...current];
 }
 
+// VitePress runs frontmatter.head through this same filter (dist/client/app/composables/head.js
+// and the equivalent build-time render step) before ever merging it into the
+// rendered head: a page's own `description` meta comes from `pageData.description`
+// instead, so frontmatter.head can't duplicate or fight that tag.
+function isMetaDescription([tagType, attributes]: HeadEntry) {
+  return tagType === "meta" && attributes?.name === "description";
+}
+
+function filterOutHeadDescription(head: HeadEntry[]): HeadEntry[] {
+  return head.filter((tag) => !isMetaDescription(tag));
+}
+
 // Neither transformPageData nor transformHead in config.ts reads anything off
 // pageData beyond frontmatter and isNotFound, so the fixture only needs to be a
 // structurally valid PageData, not a fully realistic render result.
@@ -103,7 +115,9 @@ export async function resolveHeadForPage(pageData: {
 
   const headBeforeTransformHead = mergeHead(
     (config.head ?? []) as HeadEntry[],
-    (resolvedPageData.frontmatter.head ?? []) as HeadEntry[],
+    filterOutHeadDescription(
+      (resolvedPageData.frontmatter.head ?? []) as HeadEntry[],
+    ),
   );
   const transformHeadContext = {
     pageData: resolvedPageData,

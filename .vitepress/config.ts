@@ -235,6 +235,16 @@ export default defineConfig({
   // entries back into transformHead or the static `head` array; either
   // reintroduces the dev/build mismatch (transformHead) or the inability to omit
   // them on the 404 (static `head`, see rationale above).
+  //
+  // pageData.isNotFound is only ever true on VitePress's built-in 404 fallback
+  // (client-side unmatched-route data, and the server-side stand-in used at build
+  // time when no custom 404.md exists — see notFoundPageData in VitePress's
+  // source). This repo has no 404.md, so that's the only path this guard needs to
+  // cover today; it mirrors transformHead's identical `pageData.isNotFound` check
+  // below rather than introducing a different one. If a custom 404.md is ever
+  // added, its real rendered pageData won't carry isNotFound at all (VitePress
+  // doesn't set it for a normally-rendered page), so this guard — like
+  // transformHead's — would need a path-based check too at that point.
   transformPageData(pageData) {
     if (pageData.isNotFound) {
       return;
@@ -256,9 +266,14 @@ export default defineConfig({
   // verify against a production build, not `vitepress dev`. transformHead is also
   // SSR-only in both directions: a client-side route change never re-runs it
   // (VitePress's client-side head updater applies `pageData.frontmatter.head`, not
-  // transformHead's return value — see transformPageData above), so a client-side
-  // nav onto the 404 won't show a `noindex` meta tag, and a client-side nav off
-  // the 404 leaves none behind either. Crawlers and scrapers fetch each URL
+  // transformHead's return value — see transformPageData above). Moving
+  // INDEXABLE_HEAD_ENTRIES into frontmatter.head fixes one side of this for the
+  // indexable tags themselves: a client-side nav onto the 404 no longer leaves
+  // stale canonical/OG/Twitter/JSON-LD tags behind, since frontmatter.head is part
+  // of what the client head updater diffs and reconciles on every navigation. The
+  // `noindex` meta tag isn't so lucky — it stays transformHead-only, so it isn't
+  // tracked by that same diffing, and a client-side nav off the 404 leaves it in
+  // the DOM for the rest of that SPA session. Crawlers and scrapers fetch each URL
   // directly and get the correct baked-in head, which is the case this guards
   // against, so the practical risk is low.
   transformHead: ({ pageData }) => {
