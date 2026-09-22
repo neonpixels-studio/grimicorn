@@ -6,6 +6,11 @@ import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
+import {
+  NOT_FOUND_PAGE_ID,
+  NOT_FOUND_TITLE,
+  NOT_FOUND_DESCRIPTION,
+} from "./not-found-meta";
 
 const SITE_URL = "https://grimicorn.dev";
 // Google Analytics (GA4) measurement ID. This is the one deliberate third-party
@@ -146,11 +151,10 @@ const NOT_FOUND_ROBOTS_HEAD_ENTRY: HeadConfig = [
 // description "Not Found". Those two values happen to already differ from
 // the homepage's, but they're an accident of VitePress internals, not a
 // deliberate, owned page description — and "Not Found" gives a scraper or
-// search result no real information. These two constants are this page's
-// actual, owned copy.
-const NOT_FOUND_DESCRIPTION =
-  "This page doesn't exist — a gremlin broke it, renamed it, or it was never here. Head back to the Grimicorn homepage.";
-const NOT_FOUND_TITLE = "404 – Page Not Found | Grimicorn";
+// search result no real information. NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION
+// (imported from ./not-found-meta, shared with AppLayout.vue's client-side
+// override) are this page's actual, owned copy.
+//
 // Added via transformHead below. VitePress's own HTML template skips its
 // auto-generated `<meta name="description">` whenever the merged head already
 // carries one (see `isDescriptionOverridden` in vitepress's renderPage), so
@@ -271,12 +275,12 @@ export default defineConfig({
   // array. transformHtml — the one hook that sees the fully-assembled HTML
   // string before it's written to disk — is therefore the only supported way
   // to give the 404 its own title. VitePress always renders this page under
-  // the literal page id "404.md" (it unconditionally prepends "404.md" to the
-  // render list, whether or not that source file exists — see its
-  // `renderPage(["404.md", ...pages])` call), so matching on `page === "404.md"`
-  // targets exactly this one render and leaves every other page's <title> untouched.
+  // the literal page id NOT_FOUND_PAGE_ID (it unconditionally prepends
+  // "404.md" to the render list, whether or not that source file exists — see
+  // its `renderPage(["404.md", ...pages])` call), so matching on it targets
+  // exactly this one render and leaves every other page's <title> untouched.
   transformHtml: (code, _id, { page }) => {
-    if (page !== "404.md") {
+    if (page !== NOT_FOUND_PAGE_ID) {
       return code;
     }
     return code.replace(

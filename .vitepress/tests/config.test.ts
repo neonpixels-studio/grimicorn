@@ -22,6 +22,11 @@ import {
   stripBlockComments,
 } from "../../text-extract.mjs";
 import { resolveHeadForPage, type HeadEntry } from "./head-test-helpers";
+import {
+  NOT_FOUND_PAGE_ID,
+  NOT_FOUND_TITLE,
+  NOT_FOUND_DESCRIPTION,
+} from "../not-found-meta";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
 
@@ -1154,18 +1159,13 @@ describe("404 page noindex", () => {
 
 describe("404 page title and meta description", () => {
   // VitePress has no 404.md in this repo, so every 404 render falls back to
-  // VitePress's own internal notFoundPageData object (title "404", description
-  // "Not Found") — see config.ts for the full explanation. Neither the title
-  // nor the description constant is exported from config.ts, so these tests
-  // resolve the real transform output the same way the build does (title via
-  // transformHtml, description via transformHead/notFoundHead) rather than
-  // re-deriving expected literals that could silently drift from config.ts.
-  const NOT_FOUND_PAGE_ID = "404.md";
-  const SAMPLE_TITLE_HTML = "<title>placeholder</title>";
+  // VitePress's own internal notFoundPageData object (title "404 | <site>",
+  // description "Not Found") — see config.ts and not-found-meta.ts for the
+  // full explanation. NOT_FOUND_TITLE/NOT_FOUND_DESCRIPTION/NOT_FOUND_PAGE_ID
+  // are imported from the same shared module config.ts and AppLayout.vue
+  // import, so these tests can't silently pass against a stale copy.
+  const SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML = `<title>404 | ${config.title}</title>`;
   const TITLE_TAG_PATTERN = /<title>(.*?)<\/title>/;
-  // "Not Found" is VitePress's own generic fallback for the description; a
-  // real, owned copy is expected to be a full sentence well past that length.
-  const NOT_FOUND_DESCRIPTION_MIN_LENGTH = 20;
 
   function resolveTransformHtml() {
     const transformHtml = config.transformHtml;
@@ -1179,33 +1179,37 @@ describe("404 page title and meta description", () => {
     return transformHtml;
   }
 
-  it("gives the 404 its own <title>, distinct from VitePress's generic fallback and the homepage", async () => {
+  it("rewrites VitePress's generic fallback <title> to the owned 404 title", async () => {
     const transformHtml = resolveTransformHtml();
     const context = { page: NOT_FOUND_PAGE_ID } as Parameters<
       typeof transformHtml
     >[2];
-    const html = await transformHtml(SAMPLE_TITLE_HTML, "404.html", context);
+    const html = await transformHtml(
+      SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
+      "404.html",
+      context,
+    );
     const [, title] = (html ?? "").match(TITLE_TAG_PATTERN) ?? [];
-    expect(title).toBeDefined();
+    expect(title).toBe(NOT_FOUND_TITLE);
     expect(title).not.toBe(config.title);
-    // Guards against the fix quietly regressing to VitePress's own generic
-    // fallback title ("404 | <siteTitle>") instead of an owned, branded one.
-    expect(title).not.toBe(`404 | ${config.title}`);
   });
 
   it("only rewrites the <title> for the 404 page, leaving every other page untouched", async () => {
     const transformHtml = resolveTransformHtml();
     const context = { page: "index.md" } as Parameters<typeof transformHtml>[2];
-    const html = await transformHtml(SAMPLE_TITLE_HTML, "index.html", context);
-    expect(html).toBe(SAMPLE_TITLE_HTML);
+    const html = await transformHtml(
+      SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML,
+      "index.html",
+      context,
+    );
+    expect(html).toBe(SAMPLE_VITEPRESS_FALLBACK_TITLE_HTML);
   });
 
-  it("gives the 404 its own meta description, distinct from VitePress's generic fallback and the homepage", () => {
-    const description = findMetaContent(notFoundHead, "description");
-    expect(description).not.toBe(config.description);
-    expect(description).not.toBe("Not Found");
-    expect(description.length).toBeGreaterThanOrEqual(
-      NOT_FOUND_DESCRIPTION_MIN_LENGTH,
+  it("gives the 404 its own meta description, distinct from the homepage and VitePress's generic fallback", () => {
+    expect(findMetaContent(notFoundHead, "description")).toBe(
+      NOT_FOUND_DESCRIPTION,
     );
+    expect(NOT_FOUND_DESCRIPTION).not.toBe(config.description);
+    expect(NOT_FOUND_DESCRIPTION).not.toBe("Not Found");
   });
 });

@@ -14,6 +14,7 @@ vi.mock("vitepress", async () => {
 
 import AppLayout from "@theme/AppLayout.vue";
 import SkipLink from "@components/SkipLink.vue";
+import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../../not-found-meta";
 
 describe("AppLayout", () => {
   // Auto-unmount every mounted wrapper after each case, even when an assertion
@@ -23,6 +24,7 @@ describe("AppLayout", () => {
   enableAutoUnmount(afterEach);
   afterEach(() => {
     pageState.isNotFound = false;
+    document.title = "";
   });
 
   it("renders the homepage for a valid route", () => {
@@ -96,4 +98,47 @@ describe("AppLayout", () => {
       wrapper.unmount();
     },
   );
+
+  // VitePress's own client-side head updater unconditionally resets
+  // document.title and the description meta tag from its internal
+  // notFoundPageData fallback on every hydration and route change (see
+  // not-found-meta.ts), which would otherwise silently undo config.ts's
+  // build-time title/description the instant JS runs. These cover
+  // AppLayout's client-side override that re-applies the owned copy.
+  it("overrides document.title with the owned 404 title once mounted as the not-found page", async () => {
+    pageState.isNotFound = true;
+    const wrapper = mount(AppLayout, { attachTo: document.body });
+    await wrapper.vm.$nextTick();
+
+    expect(document.title).toBe(NOT_FOUND_TITLE);
+
+    wrapper.unmount();
+  });
+
+  it("leaves document.title untouched when the page is found", async () => {
+    document.title = "unchanged-baseline";
+    pageState.isNotFound = false;
+    const wrapper = mount(AppLayout, { attachTo: document.body });
+    await wrapper.vm.$nextTick();
+
+    expect(document.title).toBe("unchanged-baseline");
+
+    wrapper.unmount();
+  });
+
+  it("overrides an existing description meta tag's content with the owned 404 description", async () => {
+    const descriptionMeta = document.createElement("meta");
+    descriptionMeta.setAttribute("name", "description");
+    descriptionMeta.setAttribute("content", "Not Found");
+    document.head.appendChild(descriptionMeta);
+
+    pageState.isNotFound = true;
+    const wrapper = mount(AppLayout, { attachTo: document.body });
+    await wrapper.vm.$nextTick();
+
+    expect(descriptionMeta.getAttribute("content")).toBe(NOT_FOUND_DESCRIPTION);
+
+    wrapper.unmount();
+    descriptionMeta.remove();
+  });
 });
