@@ -104,8 +104,8 @@ const JSON_LD = JSON.stringify({
 // preview. VitePress's head merge (mergeHead) can only add or override a `meta`
 // tag that shares its first attribute key/value with a later entry; it can't
 // remove a `link` or `script` tag once it's in the static site-wide `head` array.
-// So these live here, added per-page by transformHead (see below), instead of in
-// the static `head` list — the only way to omit them on the 404 rather than
+// So these live here, added per-page via transformPageData (see below), instead
+// of in the static `head` list — the only way to omit them on the 404 rather than
 // merely duplicate or override them. Twitter Card tags are included alongside
 // Open Graph: X, Slack, and Discord all fall back to `twitter:*` when `og:*` is
 // absent, so leaving them static would still preview the 404 as the homepage.
@@ -221,28 +221,51 @@ export default defineConfig({
     // is scoped per page.
     ...GA_HEAD_ENTRIES,
   ],
-  // Scope the hero preload and INDEXABLE_HEAD_ENTRIES (see rationale above) to
-  // every page except the 404. AppLayout shows NotFound (no hero) when
-  // page.isNotFound and GrimicornPage otherwise, so this mirrors that exact
-  // condition: preloading the hero on the 404 would burn a high-priority request
-  // and trip Chrome's "preloaded but not used" warning.
+  // Scope INDEXABLE_HEAD_ENTRIES (see rationale above) to every page except the
+  // 404. AppLayout shows NotFound when page.isNotFound and GrimicornPage
+  // otherwise, so this mirrors that exact condition.
   //
-  // transformHead is a build-time hook: both effects are baked into the static
-  // HTML under `vitepress build`/`preview`, not `vitepress dev` — verify against a
-  // production build. This also means it's SSR-only in both directions — a
-  // client-side route change never re-runs it (VitePress's client-side head
-  // updater works off the static `siteData.head`), so a client-side nav onto the
-  // 404 still shows the indexable tags, and a client-side nav off the 404 leaves
-  // its `noindex` meta in the DOM for the rest of that SPA session. Crawlers and
-  // scrapers fetch each URL directly and get the correct baked-in head, which is
-  // the case this guards against, so the practical risk is low — but don't "fix"
-  // the client-side gap by moving INDEXABLE_HEAD_ENTRIES back into the static
-  // `head` array; that reintroduces the bug this change fixes.
+  // transformPageData runs through the same markdown-render pipeline VitePress
+  // uses for both `vitepress dev` and `vitepress build`: it sets
+  // pageData.frontmatter.head, which VitePress merges into the rendered head both
+  // server-side (static HTML) and client-side, via the per-route watchEffect that
+  // re-applies `frontmatter.head` on every navigation (dist/client/app/composables/head.js).
+  // That's what gives canonical/OG/Twitter/JSON-LD dev/build parity — unlike
+  // transformHead below, which only ever runs at build time. Don't move these
+  // entries back into transformHead or the static `head` array; either
+  // reintroduces the dev/build mismatch (transformHead) or the inability to omit
+  // them on the 404 (static `head`, see rationale above).
+  transformPageData(pageData) {
+    if (pageData.isNotFound) {
+      return;
+    }
+    return {
+      frontmatter: {
+        ...pageData.frontmatter,
+        head: [...(pageData.frontmatter.head ?? []), ...INDEXABLE_HEAD_ENTRIES],
+      },
+    };
+  },
+  // Two effects that remain build-only, unlike INDEXABLE_HEAD_ENTRIES above:
+  // - The hero preload, scoped to every page except the 404 (preloading it there
+  //   would burn a high-priority request and trip Chrome's "preloaded but not
+  //   used" warning). It's a performance hint, not an indexing signal, so it's
+  //   out of scope for dev/build parity (see the issue this guards against).
+  // - The 404's `noindex` meta tag.
+  // Both are baked into the static HTML under `vitepress build`/`preview` only —
+  // verify against a production build, not `vitepress dev`. transformHead is also
+  // SSR-only in both directions: a client-side route change never re-runs it
+  // (VitePress's client-side head updater applies `pageData.frontmatter.head`, not
+  // transformHead's return value — see transformPageData above), so a client-side
+  // nav onto the 404 won't show a `noindex` meta tag, and a client-side nav off
+  // the 404 leaves none behind either. Crawlers and scrapers fetch each URL
+  // directly and get the correct baked-in head, which is the case this guards
+  // against, so the practical risk is low.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
       return [NOT_FOUND_ROBOTS_HEAD_ENTRY];
     }
-    return [HERO_PRELOAD_HEAD_ENTRY, ...INDEXABLE_HEAD_ENTRIES];
+    return [HERO_PRELOAD_HEAD_ENTRY];
   },
   vite: {
     // tailwindcss() is typed against the top-level `vite` package, which npm

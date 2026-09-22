@@ -243,7 +243,7 @@ async function readCornerPixelChannels(filePath: string) {
 // The subset of config.head that never varies by page (favicons, theme-color,
 // fonts, manifest). Canonical, Open Graph, Twitter Card, and JSON-LD moved out of
 // this static array into INDEXABLE_HEAD_ENTRIES in config.ts, added per-page via
-// transformHead, so callers checking those must resolve a page's head instead
+// transformPageData, so callers checking those must resolve a page's head instead
 // (see indexableHead/notFoundHead below).
 const STATIC_HEAD = (config.head ?? []) as HeadEntry[];
 
@@ -335,12 +335,13 @@ function metaIdentifiersWithPrefix(head: HeadEntry[], prefix: string) {
 
 // The resolved head for a normal (indexable) page and for the 404, computed once
 // for the whole suite via top-level await (matching the module-scope computation
-// this file already uses for SITE_ORIGIN, localHrefs, etc.). config's transformHead
-// is synchronous, so resolveHeadForPage's await resolves immediately; module-scope
-// (rather than beforeAll) lets it.each and other describe-level consumers read it
-// directly. Canonical, Open Graph, Twitter Card, and JSON-LD only exist on the
-// indexable head (see INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what
-// the 404 must omit in favor of a noindex signal.
+// this file already uses for SITE_ORIGIN, localHrefs, etc.). config's
+// transformPageData and transformHead are both synchronous, so resolveHeadForPage's
+// await resolves immediately; module-scope (rather than beforeAll) lets it.each
+// and other describe-level consumers read it directly. Canonical, Open Graph,
+// Twitter Card, and JSON-LD only exist on the indexable head (see
+// INDEXABLE_HEAD_ENTRIES in config.ts) — they are exactly what the 404 must omit
+// in favor of a noindex signal.
 const indexableHead = await resolveHeadForPage({ isNotFound: false });
 const notFoundHead = await resolveHeadForPage({ isNotFound: true });
 
@@ -1149,5 +1150,69 @@ describe("404 page noindex", () => {
 
   it("does not carry a robots meta tag on indexable pages", () => {
     expect(hasMetaTag(indexableHead, "robots")).toBe(false);
+  });
+});
+
+// resolveHeadForPage above proves the fully-merged head is correct, but it merges
+// transformPageData's and transformHead's output together — it would still pass
+// even if the indexable tags leaked back into transformHead (build-only) instead
+// of transformPageData (dev + build). These assertions call each hook in
+// isolation, pinning the exact hook the issue this guards against requires:
+// https://github.com/neonpixels-studio/grimicorn/issues/190 — canonical, OG,
+// Twitter, and JSON-LD must render identically under `vitepress dev` (which never
+// runs transformHead) and `vitepress build`.
+describe("Dev/build head parity", () => {
+  const minimalPageData = {
+    title: "",
+    description: "",
+    headers: [],
+    frontmatter: {},
+    relativePath: "index.md",
+    filePath: "index.md",
+  };
+
+  it("adds the indexable tags via transformPageData, the hook that also runs under `vitepress dev`", async () => {
+    if (typeof config.transformPageData !== "function") {
+      throw new Error("config.transformPageData is not a function");
+    }
+    const dataToMerge = await config.transformPageData(
+      { ...minimalPageData, isNotFound: false },
+      { siteConfig: config } as unknown as Parameters<
+        typeof config.transformPageData
+      >[1],
+    );
+    const frontmatterHead = (dataToMerge?.frontmatter?.head ??
+      []) as HeadEntry[];
+    expect(hasLinkRel(frontmatterHead, "canonical")).toBe(true);
+    expect(hasMetaTag(frontmatterHead, "og:title")).toBe(true);
+    expect(hasMetaTag(frontmatterHead, "twitter:card")).toBe(true);
+    expect(hasJsonLdScript(frontmatterHead)).toBe(true);
+  });
+
+  it("omits the indexable tags from transformPageData on the 404, matching the build-only omission", async () => {
+    if (typeof config.transformPageData !== "function") {
+      throw new Error("config.transformPageData is not a function");
+    }
+    const dataToMerge = await config.transformPageData(
+      { ...minimalPageData, relativePath: "404.md", isNotFound: true },
+      { siteConfig: config } as unknown as Parameters<
+        typeof config.transformPageData
+      >[1],
+    );
+    expect(dataToMerge).toBeUndefined();
+  });
+
+  it("does not add the indexable tags via transformHead, which is build-only", () => {
+    if (typeof config.transformHead !== "function") {
+      throw new Error("config.transformHead is not a function");
+    }
+    const transformHeadResult = config.transformHead({
+      pageData: { ...minimalPageData, isNotFound: false },
+    } as unknown as Parameters<typeof config.transformHead>[0]);
+    const headEntries = (transformHeadResult ?? []) as HeadEntry[];
+    expect(hasLinkRel(headEntries, "canonical")).toBe(false);
+    expect(hasMetaTag(headEntries, "og:title")).toBe(false);
+    expect(hasMetaTag(headEntries, "twitter:card")).toBe(false);
+    expect(hasJsonLdScript(headEntries)).toBe(false);
   });
 });
