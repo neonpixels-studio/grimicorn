@@ -1,0 +1,21 @@
+name: Setup Node project
+description: >
+  Install the Node.js version pinned in .nvmrc and install dependencies with
+  npm ci. Shared by every workflow job that needs a ready-to-use Node project
+  (ci.yml, lighthouse.yml). Does not check out the repository: a locally
+  referenced composite action (`uses: ./...`) can only be resolved once the
+  repo is already on disk, so `actions/checkout` must run as its own step in
+  the calling job, before this action, not inside it.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci

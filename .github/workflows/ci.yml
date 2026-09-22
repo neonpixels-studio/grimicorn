@@ -25,18 +25,8 @@ jobs:
           # locally for the asset-version bump check below, which diffs against it.
           fetch-depth: 0
 
-      - name: Read .nvmrc
-        id: nvmrc
-        run: echo "version=$(cat .nvmrc)" >> $GITHUB_OUTPUT
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ steps.nvmrc.outputs.version }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Node project
+        uses: ./.github/actions/setup-node-project
 
       - name: Lint
         run: npm run lint
@@ -62,18 +52,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Read .nvmrc
-        id: nvmrc
-        run: echo "version=$(cat .nvmrc)" >> $GITHUB_OUTPUT
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ steps.nvmrc.outputs.version }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Node project
+        uses: ./.github/actions/setup-node-project
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
