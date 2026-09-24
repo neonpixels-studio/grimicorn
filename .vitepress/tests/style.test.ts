@@ -470,3 +470,206 @@ describe("colorful button resting contrast", () => {
     expect(grimicornPage).not.toContain(surfaceHex);
   });
 });
+
+// forced-colors (Windows High Contrast Mode) already forces the used value of
+// any declared gradient background-image to `none` for every element, inline
+// styles included, so the wordmarks need no help losing their gradient. What
+// it does NOT do is force a transparent `color` to become visible, so every
+// gradient-clipped-text spot — the GRIMICORN/AGENT h1, the NotFound 404
+// numeral, and .colorful-btn on :hover — was left painting empty (transparent)
+// glyphs for that cohort until this fallback. Guards that the override exists
+// with the one declaration that's actually load-bearing, and that it still
+// wins the cascade against both Tailwind's utilities layer and the base
+// .colorful-btn:hover rule's identical specificity.
+describe("forced-colors gradient-text fallback", () => {
+  const cssWithoutComments = stripComments(readStyleCss());
+
+  const FORCED_COLORS_HEADER_PATTERN =
+    /@media\s*\(\s*forced-colors\s*:\s*active\s*\)\s*\{/g;
+
+  // Scans forward from an opening `{` counting nested braces, rather than
+  // anchoring on a bare `\n}`. A plain "next unindented close-brace" match
+  // would silently start truncating (or mismatching) the block the moment a
+  // formatter change re-indents it, or a second rule is added inside it —
+  // this ties correctness to actual brace nesting instead of source
+  // formatting. Fails loudly on unbalanced braces (depth never returning to
+  // 0) instead of silently returning a block truncated by one character,
+  // which would otherwise surface as a confusing declaration mismatch
+  // somewhere else instead of naming the actual parse failure.
+  function extractBracedBlock(source: string, openBraceIndex: number) {
+    let depth = 1;
+    let index = openBraceIndex + 1;
+    while (depth > 0 && index < source.length) {
+      if (source[index] === "{") {
+        depth += 1;
+      } else if (source[index] === "}") {
+        depth -= 1;
+      }
+      index += 1;
+    }
+    expect(depth, "unbalanced braces while scanning style.css").toBe(0);
+    return {
+      content: source.slice(openBraceIndex + 1, index - 1),
+      endIndex: index,
+    };
+  }
+
+  // Splits a block's content into its top-level rules by repeatedly finding
+  // the next `{` and scanning its matching `}` — robust to however many
+  // rules the block holds, rather than assuming exactly one.
+  function extractRules(blockContent: string) {
+    const rules: { selectors: string; declarations: string }[] = [];
+    let cursor = 0;
+    while (cursor < blockContent.length) {
+      const openBrace = blockContent.indexOf("{", cursor);
+      if (openBrace === -1) {
+        break;
+      }
+      const { content: declarations, endIndex } = extractBracedBlock(
+        blockContent,
+        openBrace,
+      );
+      rules.push({
+        selectors: blockContent.slice(cursor, openBrace),
+        declarations,
+      });
+      cursor = endIndex;
+    }
+    return rules;
+  }
+
+  // Global match + length assertion, not a first-match `.match()`: a second
+  // `@media (forced-colors: active) { ... }` block appended anywhere else in
+  // the file would otherwise be silently ignored by every check below, since
+  // `.match()` without the `g` flag only ever inspects the first one.
+  function readForcedColorsRules() {
+    const headerMatches = [
+      ...cssWithoutComments.matchAll(FORCED_COLORS_HEADER_PATTERN),
+    ];
+    expect(
+      headerMatches,
+      "expected exactly one @media (forced-colors: active) block",
+    ).toHaveLength(1);
+    const headerMatch = headerMatches[0];
+    const openBraceIndex = headerMatch.index! + headerMatch[0].length - 1;
+    const { content } = extractBracedBlock(cssWithoutComments, openBraceIndex);
+    return { headerIndex: headerMatch.index!, rules: extractRules(content) };
+  }
+
+  it("covers both Tailwind gradient-text wordmarks, .colorful-btn, .colorful-btn:hover, and the pause-toggle pressed state across exactly three rules", () => {
+    const { rules } = readForcedColorsRules();
+    expect(
+      rules,
+      "expected the shared rule, the hover override, and the pressed-state override",
+    ).toHaveLength(3);
+
+    const sharedSelectors = stripWhitespace(rules[0].selectors).split(",");
+    expect(sharedSelectors).toContain(".bg-clip-text.text-transparent");
+    expect(sharedSelectors).toContain(".colorful-btn");
+
+    expect(stripWhitespace(rules[1].selectors)).toBe(".colorful-btn:hover");
+    expect(stripWhitespace(rules[2].selectors)).toBe(
+      '.pause-toggle[aria-pressed="true"]',
+    );
+  });
+
+  it("restores text color with no other declaration to go stale", () => {
+    const { rules } = readForcedColorsRules();
+    // Exact-match, not `toContain`: the only load-bearing property here is
+    // `color` (forced-colors already strips the gradient background-image
+    // itself), so a stray extra declaration — like a `background-clip`
+    // override that's inert against the wordmarks' inline-styled gradient —
+    // should fail this test rather than pass unnoticed.
+    expect(stripWhitespace(rules[0].declarations)).toBe("color:CanvasText;");
+  });
+
+  it("gives the hover override a color-independent affordance so forced-colors users still see a hover state", () => {
+    const { rules } = readForcedColorsRules();
+    const declarations = stripWhitespace(rules[1].declarations);
+    expect(declarations).toContain("color:CanvasText");
+    expect(declarations).toContain("text-decoration:underline");
+  });
+
+  // Without this, the pause toggle's pressed-state underline (already used
+  // outside forced-colors, since its `color: var(--color-fg)` cue gets
+  // neutralized by the UA forcing every .colorful-btn to the same
+  // CanvasText) would read identically to a plain hover on any other
+  // .colorful-btn — and hovering an already-paused toggle would show no
+  // change at all, since both would resolve to the same single underline.
+  it("keeps the pause-toggle pressed state visually distinct from a plain hover underline", () => {
+    const { rules } = readForcedColorsRules();
+    const declarations = stripWhitespace(rules[2].declarations);
+    expect(declarations).toContain("text-decoration:underlinedouble");
+    expect(declarations).not.toBe(stripWhitespace(rules[1].declarations));
+  });
+
+  // Both rules are unlayered with identical (0,2,0) specificity and `@media`
+  // contributes none of its own, so — exactly like the `reduced motion
+  // guards` describe above — only source order decides which one paints.
+  // Anchored on `color:\s*transparent` specifically (the property this
+  // override actually has to beat), not on a sibling declaration like
+  // `animation-name` that happens to share the same rule today — a future
+  // edit that splits `color: transparent` into its own rule would otherwise
+  // silently stop being covered by this check.
+  it("declares the hover override after the base .colorful-btn:hover rule so equal-specificity source order doesn't undo it", () => {
+    const baseHoverMatches = [
+      ...cssWithoutComments.matchAll(
+        /(?:^|\}|\{|,)\s*\.colorful-btn:hover\s*\{([^}]*)\}/g,
+      ),
+    ].filter((match) =>
+      stripWhitespace(match[1]).includes("color:transparent"),
+    );
+    expect(
+      baseHoverMatches.length,
+      "base .colorful-btn:hover rule declaring color:transparent not found",
+    ).toBeGreaterThan(0);
+    // Land on the selector itself, not the anchor alternation's consumed
+    // prefix (`}`/`{`/`,` plus whitespace) — same hazard the sibling
+    // `reduced motion guards` describe's selectorStart guards against.
+    const lastBaseHoverIndex = Math.max(
+      ...baseHoverMatches.map(
+        (match) => match.index! + match[0].indexOf(".colorful-btn:hover"),
+      ),
+    );
+
+    const { headerIndex } = readForcedColorsRules();
+    expect(
+      headerIndex,
+      "forced-colors override must be declared after the base .colorful-btn:hover rule — equal specificity means an earlier override loses the cascade regardless of the @media wrapper",
+    ).toBeGreaterThan(lastBaseHoverIndex);
+  });
+
+  // Mirrors the "skip link focus reveal" describe's identical guard: an
+  // unlayered rule outranks Tailwind's `@layer utilities` regardless of
+  // specificity, but only while it stays unlayered.
+  it("keeps the forced-colors override outside any @layer so it outranks Tailwind's utilities layer", () => {
+    const { headerIndex } = readForcedColorsRules();
+    const beforeBlock = cssWithoutComments.slice(0, headerIndex);
+    const openBraceDepth =
+      countOccurrences(beforeBlock, "{") - countOccurrences(beforeBlock, "}");
+    expect(
+      openBraceDepth,
+      "@media (forced-colors: active) sits inside a nested at-rule (e.g. @layer)",
+    ).toBe(0);
+  });
+
+  // Sanity-checks the selector's own assumption: `.bg-clip-text.text-transparent`
+  // only reaches these wordmarks while their templates keep applying both
+  // Tailwind utility classes together. If either drops one of the pair, the
+  // fallback silently stops applying to it.
+  it("keeps both gradient-text templates on the bg-clip-text + text-transparent pair the fallback targets", () => {
+    const agentSpan = readFileSync(GRIMICORN_PAGE_PATH, "utf8").match(
+      /<span\b[^>]*>AGENT<\/span/,
+    );
+    expect(agentSpan, "AGENT wordmark span not found").not.toBeNull();
+    expect(hasStaticClass(agentSpan![0], "bg-clip-text")).toBe(true);
+    expect(hasStaticClass(agentSpan![0], "text-transparent")).toBe(true);
+
+    const notFoundHeading = readFileSync(NOT_FOUND_PATH, "utf8").match(
+      /<h1\b[^>]*>\s*404\s*<\/h1>/,
+    );
+    expect(notFoundHeading, "404 heading not found").not.toBeNull();
+    expect(hasStaticClass(notFoundHeading![0], "bg-clip-text")).toBe(true);
+    expect(hasStaticClass(notFoundHeading![0], "text-transparent")).toBe(true);
+  });
+});

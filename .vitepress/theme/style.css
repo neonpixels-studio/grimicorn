@@ -260,3 +260,66 @@ main[tabindex="-1"]:focus {
   outline: 2px solid var(--color-fg-muted);
   outline-offset: 2px;
 }
+
+/* Windows High Contrast Mode (`forced-colors: active`) already forces the
+   used value of any non-raster `background-image` (gradients included) to
+   `none` for every element, regardless of whether it was declared inline or
+   in this stylesheet — that part of the spec needs no help from us here. What
+   it does NOT do is force a transparent `color` to become visible, so once
+   the gradient is gone, every gradient-clipped-text spot in this theme — the
+   GRIMICORN/AGENT h1 wordmark, the NotFound 404 numeral, and this file's own
+   .colorful-btn on :hover — is left painting its glyphs in `color`, which is
+   `transparent`, i.e. empty space. `color` is the only property that needs
+   overriding here.
+
+   `.bg-clip-text.text-transparent` targets both Tailwind-utility wordmarks by
+   the same pair of classes their templates already combine (see
+   GrimicornPage.vue's AGENT span and NotFound.vue's 404 heading), rather than
+   a component-specific class, so any future gradient-text usage of that same
+   utility pair inherits this fallback automatically. `.colorful-btn` is
+   listed for completeness even though its resting state already paints an
+   opaque color — only :hover ever sets `color: transparent` — but is
+   included at rest too so the rule doesn't silently stop covering it if the
+   resting color is ever changed to something transparent.
+
+   `.colorful-btn:hover` gets its own rule rather than joining the shared
+   selector list: outside forced-colors, hovering is the only thing that
+   visually distinguishes it from rest (the gradient reveal). Painting both
+   states the same flat CanvasText here would silently drop that affordance
+   for forced-colors users, so the hover state also gains an underline.
+
+   That plain underline would otherwise collide with
+   .pause-toggle[aria-pressed="true"] above (also a .colorful-btn, also
+   marking its state with an underline once its own `color: var(--color-fg)`
+   is forced to the same CanvasText by the UA): hovering an already-paused
+   toggle would look identical to hovering an unpressed one, and hovering a
+   *freshly*-paused toggle would show no change at all. `underline double`
+   on the pressed state keeps the two cues visually distinct in every
+   hover × pressed combination; it's declared after `.colorful-btn:hover`
+   here so it also wins the tie on `text-decoration` when both apply,
+   mirroring which rule wins outside forced-colors (`.pause-toggle[aria-
+   pressed="true"]` is declared after `.colorful-btn:hover` there too).
+
+   This is unlayered, like the .skip-link:focus override above, so it wins
+   over the Tailwind utilities (emitted inside `@layer utilities`) regardless
+   of selector specificity — do not move it into a layer. The hover rule must
+   also stay declared after the base `.colorful-btn:hover` rule above: both
+   are unlayered with identical (0,2,0) specificity, so with `@media`
+   contributing none of its own, source order is what decides which one
+   wins. */
+@media (forced-colors: active) {
+  .bg-clip-text.text-transparent,
+  .colorful-btn {
+    color: CanvasText;
+  }
+
+  .colorful-btn:hover {
+    color: CanvasText;
+    text-decoration: underline;
+  }
+
+  .pause-toggle[aria-pressed="true"] {
+    text-decoration: underline double;
+    text-underline-offset: 3px;
+  }
+}
