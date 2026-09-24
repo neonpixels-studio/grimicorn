@@ -282,6 +282,93 @@ describe("reduced motion guards", () => {
   });
 });
 
+// `.pause-toggle[aria-pressed="true"]` and `.colorful-btn:hover` carry the
+// exact same specificity (one class + one attribute/pseudo-class each), and
+// the pressed rule is declared later in the file. With equal specificity the
+// cascade falls back to source order, so once pressed, the later pressed
+// rule always won — including while hovering — and the rainbow hover fill
+// could never come back for a paused stream. The fix scopes the pressed rule
+// to `:not(:hover)`, which both raises its specificity past the hover rule
+// (so it still wins the non-hover pressed look) and makes the two rules
+// mutually exclusive (so hovering removes the pressed rule from
+// contention entirely, rather than needing to out-rank it).
+describe("pause toggle pressed+hover cascade", () => {
+  const css = stripComments(readStyleCss());
+
+  // Same anchor alternation as the other top-level-rule checks above
+  // (reduced motion guards, colorful button resting contrast): a selector
+  // ending in this attribute selector could in principle appear nested
+  // inside some other compound selector, so anchor on a preceding
+  // `{`, `}`, `,`, or start of file rather than matching anywhere.
+  const PRESSED_RULE_PATTERN =
+    /(?:^|\}|\{|,)\s*(\.pause-toggle\[aria-pressed="true"\][^{]*)\{([^}]*)\}/;
+
+  // A minimal CSS specificity scorer covering exactly the selector shapes
+  // this stylesheet uses (classes, attribute selectors, pseudo-classes; no
+  // IDs or type selectors on these rules). `:not(...)` contributes its
+  // argument's specificity rather than being specificity-free, so its
+  // wrapper is unwrapped before counting rather than stripped outright —
+  // stripping it entirely would under-count `:not(:hover)` as zero instead
+  // of the one pseudo-class it actually costs.
+  function classAttributePseudoSpecificity(selector: string) {
+    const unwrapped = selector.replace(/:not\(([^)]*)\)/g, "$1");
+    const classCount = unwrapped.match(/\.[a-zA-Z0-9_-]+/g)?.length ?? 0;
+    const attributeCount = unwrapped.match(/\[[^\]]*\]/g)?.length ?? 0;
+    const pseudoClassCount = unwrapped.match(/:[a-zA-Z-]+/g)?.length ?? 0;
+    return classCount + attributeCount + pseudoClassCount;
+  }
+
+  it("scopes the pressed pause-toggle rule to :not(:hover), not a bare aria-pressed selector", () => {
+    const pressedRule = css.match(PRESSED_RULE_PATTERN);
+    expect(
+      pressedRule,
+      '.pause-toggle[aria-pressed="true"] rule not found',
+    ).not.toBeNull();
+
+    const selector = pressedRule![1].trim();
+    expect(
+      selector,
+      "pressed rule must exclude :hover so it can't win the cascade over .colorful-btn:hover while hovering",
+    ).toBe('.pause-toggle[aria-pressed="true"]:not(:hover)');
+
+    // The non-hover pressed appearance itself must be unchanged.
+    const declarations = stripWhitespace(pressedRule![2]);
+    expect(declarations).toContain("color:var(--color-fg)");
+    expect(declarations).toContain("text-decoration:underline");
+  });
+
+  it("gives the pressed rule higher specificity than .colorful-btn:hover so its non-hover look still wins outside hover", () => {
+    const pressedRule = css.match(PRESSED_RULE_PATTERN);
+    expect(
+      pressedRule,
+      '.pause-toggle[aria-pressed="true"] rule not found',
+    ).not.toBeNull();
+
+    const pressedSpecificity = classAttributePseudoSpecificity(
+      pressedRule![1].trim(),
+    );
+    const hoverSpecificity = classAttributePseudoSpecificity(
+      ".colorful-btn:hover",
+    );
+
+    expect(
+      pressedSpecificity,
+      "pressed rule regressed to the same (or lower) specificity as .colorful-btn:hover",
+    ).toBeGreaterThan(hoverSpecificity);
+  });
+
+  it("keeps the base .colorful-btn:hover rainbow fill intact so a pressed+hover pause toggle can still show it", () => {
+    const hoverRule = css.match(
+      /(?:^|\}|\{|,)\s*\.colorful-btn:hover\s*\{([^}]*)\}/,
+    );
+    expect(hoverRule, ".colorful-btn:hover rule not found").not.toBeNull();
+
+    const declarations = stripWhitespace(hoverRule![1]);
+    expect(declarations).toContain("color:transparent");
+    expect(declarations).toContain("animation-name:gx-rainbow-pan");
+  });
+});
+
 // .colorful-btn resets the UA button outline (border:none, padding:0), so
 // without an explicit rule every colorful button — including the footer's
 // bare rave toggle, which carries no other class — shows no keyboard focus
