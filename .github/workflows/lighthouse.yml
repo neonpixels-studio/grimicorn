@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -37,9 +37,9 @@ jobs:
         run: npm run build
 
       # Third-party action, pinned to a commit SHA (not just a version tag) per
-      # least-privilege/supply-chain practice for non-GitHub-owned actions; the
-      # first-party actions/* steps above follow the repo's existing major-tag
-      # convention instead. Tag: 12.6.2.
+      # least-privilege/supply-chain practice for non-GitHub-owned actions. Every
+      # action across this repo's workflows is SHA-pinned with a trailing version
+      # comment; the workflow-action-pinning test enforces it. Tag: 12.6.2.
       - name: Lighthouse CI
         uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # 12.6.2
         with:
