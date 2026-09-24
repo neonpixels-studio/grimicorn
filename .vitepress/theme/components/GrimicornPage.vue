@@ -48,6 +48,15 @@ const KONAMI = [
 ];
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+// Gates the cursor-linked parallax loop on pointer capability: a touch/coarse
+// pointer (or no hover-capable pointer at all) can never produce the mousemove
+// events the loop reacts to, so starting it there just burns CPU/battery on an
+// rAF loop with zero visible effect. `hover: hover` and `pointer: fine` are
+// checked together because either alone can be misleading — some touch
+// devices report `pointer: fine` for an attached stylus with no hover, and a
+// precise mouse behind a coarse-reporting proxy is rare but not worth
+// special-casing.
+const FINE_POINTER_QUERY = "(hover: hover) and (pointer: fine)";
 
 // Announced through the visually-hidden live region when the pause control is
 // removed while it holds keyboard focus and focus is redirected to the
@@ -150,6 +159,7 @@ let toastAnnouncementClearTimer = 0;
 let rafId = 0;
 let konamiPos = 0;
 let reducedMotionQuery: MediaQueryList | null = null;
+let finePointerQuery: MediaQueryList | null = null;
 let parallaxActive = false;
 let contentTimersActive = false;
 
@@ -230,9 +240,9 @@ function resetParallaxTransforms() {
   resetParallaxTransform(imagePortraitRef.value, PORTRAIT_PARALLAX);
 }
 
-// Starts the cursor-linked parallax loop. No-op if it's already running, and
-// skipped entirely when the visitor prefers reduced motion so vestibular
-// triggers never begin in the first place (rather than starting then discarding).
+// Starts the cursor-linked parallax loop. No-op if it's already running.
+// Callers are responsible for checking reduced motion and pointer capability
+// first (see resolveParallax) — this only guards re-entrancy.
 function startParallax() {
   if (parallaxActive) {
     return;
@@ -262,6 +272,29 @@ function stopParallax() {
   mouse.y = 0;
   mouse.tx = 0;
   mouse.ty = 0;
+}
+
+// Reads whether the current pointer environment can drive the parallax loop
+// at all: a hover-capable, fine-precision pointer. Fails closed (no fine
+// pointer) when finePointerQuery was never set up, matching the same
+// fail-closed default used for the reduced-motion preference elsewhere.
+function hasFinePointer() {
+  return finePointerQuery?.matches ?? false;
+}
+
+// Single decision point for whether the cursor-linked parallax loop runs. It
+// starts only when both reduced motion is off AND a fine hover-capable
+// pointer exists — a touch/coarse pointer can never produce the mousemove
+// events the loop reacts to, so starting it there would just burn CPU/battery
+// for zero visible effect. Routing both the reduced-motion listener and the
+// pointer-capability listener through here means either one flipping against
+// motion stops the loop, and both must agree before it starts.
+function resolveParallax(reducedMotionPreferred: boolean) {
+  if (reducedMotionPreferred || !hasFinePointer()) {
+    stopParallax();
+    return;
+  }
+  startParallax();
 }
 
 // Starts the auto-advancing tagline rotation and chaos.log stream. No-op if
@@ -372,13 +405,18 @@ function redirectFocusFromHiddenPauseControl(canAutoAdvance: boolean) {
 function handleReducedMotionChange(
   query: MediaQueryList | MediaQueryListEvent,
 ) {
-  if (query.matches) {
-    stopParallax();
-    reconcileMotion(true);
-    return;
-  }
-  startParallax();
-  reconcileMotion(false);
+  resolveParallax(query.matches);
+  reconcileMotion(query.matches);
+}
+
+// Reacts to the visitor's pointer capability changing at runtime (e.g. a
+// hybrid laptop/tablet docking or undocking, or a mouse being plugged into a
+// touch-only device). Re-reads reducedMotionQuery directly rather than a
+// cached flag, with the same fail-closed "reduced" default used elsewhere
+// when that binding is missing, so a pointer becoming fine can never resume
+// motion the OS is still asking to suppress.
+function handleFinePointerChange() {
+  resolveParallax(reducedMotionQuery?.matches ?? true);
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -449,11 +487,16 @@ onMounted(() => {
   }
 
   reducedMotionQuery = window.matchMedia(REDUCED_MOTION_QUERY);
+  // Set up the pointer-capability query before the initial reduced-motion
+  // check below, so resolveParallax() reads a real pointer reading (not the
+  // fail-closed default) the first time it runs.
+  finePointerQuery = window.matchMedia(FINE_POINTER_QUERY);
   // Apply the initial preference before subscribing to future changes: if
   // addEventListener isn't available on this MediaQueryList and throws, the
   // visitor's current preference has still been respected.
   handleReducedMotionChange(reducedMotionQuery);
   reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+  finePointerQuery.addEventListener("change", handleFinePointerChange);
 });
 
 onUnmounted(() => {
@@ -462,6 +505,7 @@ onUnmounted(() => {
   clearTimeout(toastAnnouncementClearTimer);
   window.removeEventListener("keydown", onKeyDown);
   reducedMotionQuery?.removeEventListener("change", handleReducedMotionChange);
+  finePointerQuery?.removeEventListener("change", handleFinePointerChange);
   stopParallax();
 });
 </script>

@@ -114,6 +114,9 @@ const PAUSE_CONTROL_REMOVED_ANNOUNCEMENT =
   "Live updates stopped, so the pause control was removed. Focus moved to the terminal window title.";
 
 const REDUCED_MOTION_MEDIA_QUERY = "(prefers-reduced-motion: reduce)";
+// Mirrors FINE_POINTER_QUERY in the component: gates the parallax loop on
+// pointer capability.
+const FINE_POINTER_MEDIA_QUERY = "(hover: hover) and (pointer: fine)";
 const TAGLINE_ROTATION_INTERVAL_MS = 2800;
 const LOG_APPEND_INTERVAL_MS = 2000;
 const INITIAL_LOG_COUNT = 6;
@@ -191,15 +194,14 @@ function mockWindowEventListeners() {
   };
 }
 
-// A minimal MediaQueryList stand-in so tests can drive
-// `prefers-reduced-motion` deterministically: set its initial value, then
-// flip it at runtime via setMatches() to simulate the visitor toggling the
-// OS setting while the page is open.
-function mockPrefersReducedMotion(initialMatches: boolean) {
+// A minimal MediaQueryList stand-in for a single media query: set its initial
+// value, then flip it at runtime via setMatches() to simulate the visitor's
+// OS/pointer environment changing while the page is open.
+function createMediaQueryListMock(initialMatches: boolean, media: string) {
   const changeListeners = new Set<ReducedMotionChangeListener>();
   const mediaQueryList = {
     matches: initialMatches,
-    media: REDUCED_MOTION_MEDIA_QUERY,
+    media,
     addEventListener: vi.fn(
       (eventName: string, listener: ReducedMotionChangeListener) => {
         if (eventName === "change") {
@@ -216,20 +218,58 @@ function mockPrefersReducedMotion(initialMatches: boolean) {
     ),
   };
 
-  // Asserts on the query string too, not just a blanket mockReturnValue:
-  // otherwise a typo'd or inverted query in the component (e.g.
-  // "no-preference" instead of "reduce") would still pass every test here.
-  vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
-    expect(query).toBe(REDUCED_MOTION_MEDIA_QUERY);
-    return mediaQueryList as unknown as MediaQueryList;
-  });
-
   function setMatches(matches: boolean) {
     mediaQueryList.matches = matches;
     changeListeners.forEach((listener) => listener({ matches }));
   }
 
   return { mediaQueryList, setMatches };
+}
+
+// Stubs window.matchMedia to serve both media queries the component reads on
+// mount: prefers-reduced-motion and the fine-pointer capability gate. Fine
+// pointer defaults to available (matches: true) so every existing
+// reduced-motion-focused test keeps exercising a device the parallax loop is
+// allowed to run on, unless a test opts into a coarse pointer explicitly.
+// Throws on any other query so a typo'd or inverted query in the component
+// fails loudly here instead of silently returning the wrong mock.
+function mockMatchMedia({
+  reducedMotion = false,
+  finePointer = true,
+}: { reducedMotion?: boolean; finePointer?: boolean } = {}) {
+  const reducedMotionQuery = createMediaQueryListMock(
+    reducedMotion,
+    REDUCED_MOTION_MEDIA_QUERY,
+  );
+  const finePointerQuery = createMediaQueryListMock(
+    finePointer,
+    FINE_POINTER_MEDIA_QUERY,
+  );
+
+  vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
+    if (query === REDUCED_MOTION_MEDIA_QUERY) {
+      return reducedMotionQuery.mediaQueryList as unknown as MediaQueryList;
+    }
+    if (query === FINE_POINTER_MEDIA_QUERY) {
+      return finePointerQuery.mediaQueryList as unknown as MediaQueryList;
+    }
+    throw new Error(`Unexpected matchMedia query: ${query}`);
+  });
+
+  return { reducedMotionQuery, finePointerQuery };
+}
+
+// Drives `prefers-reduced-motion` deterministically while leaving the
+// fine-pointer query at its default (available), for the many existing tests
+// that only care about the reduced-motion axis.
+function mockPrefersReducedMotion(initialMatches: boolean) {
+  const { reducedMotionQuery } = mockMatchMedia({
+    reducedMotion: initialMatches,
+  });
+  return {
+    mediaQueryList: reducedMotionQuery.mediaQueryList,
+    setMatches: reducedMotionQuery.setMatches,
+  };
 }
 
 function dispatchMouseMove(clientX: number, clientY: number) {
@@ -1248,6 +1288,136 @@ describe("GrimicornPage", () => {
       expect(wrapper.findAll(".border-l-2 div").length).toBe(logCountAtStop);
 
       wrapper.unmount();
+    });
+
+    it("never starts the requestAnimationFrame loop or listens for mousemove on a coarse/no-hover pointer, even though reduced motion is not preferred", async () => {
+      mockMatchMedia({ reducedMotion: false, finePointer: false });
+      const { requestAnimationFrameSpy } = mockAnimationFrame();
+      const { findRegisteredListener } = mockWindowEventListeners();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+      expect(findRegisteredListener("mousemove")).toBeUndefined();
+      expect(getHeroTransform(wrapper)).toBe(HERO_REST_TRANSFORM);
+      expect(getPortraitTransform(wrapper)).toBe(PORTRAIT_REST_TRANSFORM);
+
+      wrapper.unmount();
+    });
+
+    it("starts the requestAnimationFrame loop when a fine hover-capable pointer is present and reduced motion is not preferred", async () => {
+      mockMatchMedia({ reducedMotion: false, finePointer: true });
+      const { requestAnimationFrameSpy } = mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+
+      wrapper.unmount();
+    });
+
+    it("stops the loop and clears any applied transform when the pointer capability switches to coarse/no-hover at runtime", async () => {
+      const { finePointerQuery } = mockMatchMedia({
+        reducedMotion: false,
+        finePointer: true,
+      });
+      const {
+        runNextFrame,
+        requestAnimationFrameSpy,
+        cancelAnimationFrameSpy,
+      } = mockAnimationFrame();
+      const { findRegisteredListener, removeEventListenerSpy } =
+        mockWindowEventListeners();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const registeredMouseMoveListener = findRegisteredListener("mousemove");
+      expect(registeredMouseMoveListener).toBeDefined();
+
+      dispatchMouseMove(900, 700);
+      runNextFrame();
+      expect(parseTranslateXPixels(getHeroTransform(wrapper))).toBeGreaterThan(
+        0,
+      );
+
+      finePointerQuery.setMatches(false);
+      await wrapper.vm.$nextTick();
+
+      expect(cancelAnimationFrameSpy).toHaveBeenCalled();
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        "mousemove",
+        registeredMouseMoveListener,
+      );
+      expect(getHeroTransform(wrapper)).toBe(HERO_REST_TRANSFORM);
+      expect(getPortraitTransform(wrapper)).toBe(PORTRAIT_REST_TRANSFORM);
+
+      const framesRequestedAfterStop =
+        requestAnimationFrameSpy.mock.calls.length;
+      runNextFrame();
+      expect(requestAnimationFrameSpy.mock.calls.length).toBe(
+        framesRequestedAfterStop,
+      );
+
+      wrapper.unmount();
+    });
+
+    it("resumes the parallax loop when the pointer capability switches to fine at runtime, while reduced motion is not preferred", async () => {
+      const { finePointerQuery } = mockMatchMedia({
+        reducedMotion: false,
+        finePointer: false,
+      });
+      const { runNextFrame, requestAnimationFrameSpy } = mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+
+      finePointerQuery.setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      dispatchMouseMove(900, 700);
+      runNextFrame();
+
+      expect(parseTranslateXPixels(getHeroTransform(wrapper))).toBeGreaterThan(
+        0,
+      );
+
+      wrapper.unmount();
+    });
+
+    it("never starts the loop from a fine-pointer change while reduced motion is still preferred", async () => {
+      const { finePointerQuery } = mockMatchMedia({
+        reducedMotion: true,
+        finePointer: false,
+      });
+      const { requestAnimationFrameSpy } = mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      finePointerQuery.setMatches(true);
+      await wrapper.vm.$nextTick();
+
+      expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+
+      wrapper.unmount();
+    });
+
+    it("removes the exact fine-pointer change listener that was registered, on unmount", async () => {
+      const { finePointerQuery } = mockMatchMedia({
+        reducedMotion: false,
+        finePointer: true,
+      });
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const [, registeredListener] =
+        finePointerQuery.mediaQueryList.addEventListener.mock.calls[0];
+
+      wrapper.unmount();
+
+      expect(
+        finePointerQuery.mediaQueryList.removeEventListener,
+      ).toHaveBeenCalledWith("change", registeredListener);
     });
   });
 
