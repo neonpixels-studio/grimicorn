@@ -470,3 +470,84 @@ describe("colorful button resting contrast", () => {
     expect(grimicornPage).not.toContain(surfaceHex);
   });
 });
+
+// forced-colors (Windows High Contrast Mode) strips declared background
+// images but does not force a transparent `color` to become visible, so every
+// gradient-clipped-text spot — the GRIMICORN/AGENT h1, the NotFound 404
+// numeral, and .colorful-btn on :hover — rendered as empty space for that
+// cohort until this fallback. Guards both that the override exists with the
+// right declarations and that it still wins the cascade against Tailwind's
+// utilities.
+describe("forced-colors gradient-text fallback", () => {
+  const cssWithoutComments = stripComments(readStyleCss());
+
+  const FORCED_COLORS_BLOCK_PATTERN =
+    /@media\s*\(\s*forced-colors\s*:\s*active\s*\)\s*\{([\s\S]*?)\n\}/;
+
+  function readForcedColorsBlock() {
+    const match = cssWithoutComments.match(FORCED_COLORS_BLOCK_PATTERN);
+    expect(
+      match,
+      "@media (forced-colors: active) block not found",
+    ).not.toBeNull();
+    return match!;
+  }
+
+  it("covers both Tailwind gradient-text wordmarks and .colorful-btn's hover state", () => {
+    const block = readForcedColorsBlock()[1];
+    const selectors = stripWhitespace(block.split("{")[0]);
+    expect(selectors).toContain(".bg-clip-text.text-transparent");
+    expect(selectors).toContain(".colorful-btn,");
+    expect(selectors).toContain(".colorful-btn:hover");
+  });
+
+  it("restores a visible, background-independent text color", () => {
+    const block = readForcedColorsBlock()[1];
+    const declarations = stripWhitespace(block.split("{")[1]);
+    expect(declarations).toContain("background-image:none");
+    expect(declarations).toContain("background-clip:border-box");
+    expect(declarations).toContain("color:CanvasText");
+  });
+
+  // Mirrors the "skip link focus reveal" describe's identical guard: an
+  // unlayered rule outranks Tailwind's `@layer utilities` regardless of
+  // specificity, but only while it stays unlayered. Anchor on the media
+  // query itself (not a selector inside it) since @layer would wrap the
+  // whole block, not just one declaration.
+  it("keeps the forced-colors override outside any @layer so it outranks Tailwind's utilities layer", () => {
+    const anchor = cssWithoutComments.match(
+      /@media\s*\(\s*forced-colors\s*:\s*active\s*\)\s*\{/,
+    );
+    expect(
+      anchor,
+      "@media (forced-colors: active) block not found",
+    ).not.toBeNull();
+    const beforeBlock = cssWithoutComments.slice(0, anchor!.index!);
+    const openBraceDepth =
+      countOccurrences(beforeBlock, "{") - countOccurrences(beforeBlock, "}");
+    expect(
+      openBraceDepth,
+      "@media (forced-colors: active) sits inside a nested at-rule (e.g. @layer)",
+    ).toBe(0);
+  });
+
+  // Sanity-checks the selector's own assumption: `.bg-clip-text.text-transparent`
+  // only reaches these wordmarks while their templates keep applying both
+  // Tailwind utility classes together. If either drops one of the pair, the
+  // fallback silently stops applying to it.
+  it("keeps both gradient-text templates on the bg-clip-text + text-transparent pair the fallback targets", () => {
+    const agentSpan = readFileSync(GRIMICORN_PAGE_PATH, "utf8").match(
+      /<span\b[^>]*>AGENT<\/span/,
+    );
+    expect(agentSpan, "AGENT wordmark span not found").not.toBeNull();
+    expect(hasStaticClass(agentSpan![0], "bg-clip-text")).toBe(true);
+    expect(hasStaticClass(agentSpan![0], "text-transparent")).toBe(true);
+
+    const notFoundHeading = readFileSync(NOT_FOUND_PATH, "utf8").match(
+      /<h1\b[^>]*>\s*404\s*<\/h1>/,
+    );
+    expect(notFoundHeading, "404 heading not found").not.toBeNull();
+    expect(hasStaticClass(notFoundHeading![0], "bg-clip-text")).toBe(true);
+    expect(hasStaticClass(notFoundHeading![0], "text-transparent")).toBe(true);
+  });
+});

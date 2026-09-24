@@ -260,3 +260,34 @@ main[tabindex="-1"]:focus {
   outline: 2px solid var(--color-fg-muted);
   outline-offset: 2px;
 }
+
+/* Windows High Contrast Mode (`forced-colors: active`) strips declared
+   background-images but does NOT force a transparent `color` to become
+   visible, so every gradient-clipped-text spot in this theme — the
+   GRIMICORN/AGENT h1 wordmark, the NotFound 404 numeral, and this file's own
+   .colorful-btn on :hover — would otherwise render as empty space for that
+   cohort instead of falling back to a readable glyph.
+
+   `.bg-clip-text.text-transparent` targets both Tailwind-utility wordmarks by
+   the same pair of classes their templates already combine (see
+   GrimicornPage.vue's AGENT span and NotFound.vue's 404 heading), rather than
+   a component-specific class, so any future gradient-text usage of that same
+   utility pair inherits this fallback automatically. `.colorful-btn` is
+   listed for completeness even though its resting state already paints an
+   opaque color — only :hover ever sets `color: transparent` — but is
+   included at rest too so the rule doesn't silently stop covering it if the
+   resting color is ever changed to something transparent.
+
+   This is unlayered, like the .skip-link:focus override above, so it wins
+   over the Tailwind utilities (emitted inside `@layer utilities`) regardless
+   of selector specificity — do not move it into a layer. */
+@media (forced-colors: active) {
+  .bg-clip-text.text-transparent,
+  .colorful-btn,
+  .colorful-btn:hover {
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    color: CanvasText;
+  }
+}
