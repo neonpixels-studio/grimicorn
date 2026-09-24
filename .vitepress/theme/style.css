@@ -261,12 +261,16 @@ main[tabindex="-1"]:focus {
   outline-offset: 2px;
 }
 
-/* Windows High Contrast Mode (`forced-colors: active`) strips declared
-   background-images but does NOT force a transparent `color` to become
-   visible, so every gradient-clipped-text spot in this theme — the
+/* Windows High Contrast Mode (`forced-colors: active`) already forces the
+   used value of any non-raster `background-image` (gradients included) to
+   `none` for every element, regardless of whether it was declared inline or
+   in this stylesheet — that part of the spec needs no help from us here. What
+   it does NOT do is force a transparent `color` to become visible, so once
+   the gradient is gone, every gradient-clipped-text spot in this theme — the
    GRIMICORN/AGENT h1 wordmark, the NotFound 404 numeral, and this file's own
-   .colorful-btn on :hover — would otherwise render as empty space for that
-   cohort instead of falling back to a readable glyph.
+   .colorful-btn on :hover — is left painting its glyphs in `color`, which is
+   `transparent`, i.e. empty space. `color` is the only property that needs
+   overriding here.
 
    `.bg-clip-text.text-transparent` targets both Tailwind-utility wordmarks by
    the same pair of classes their templates already combine (see
@@ -280,14 +284,14 @@ main[tabindex="-1"]:focus {
 
    This is unlayered, like the .skip-link:focus override above, so it wins
    over the Tailwind utilities (emitted inside `@layer utilities`) regardless
-   of selector specificity — do not move it into a layer. */
+   of selector specificity — do not move it into a layer. It must also stay
+   declared after the base `.colorful-btn:hover` rule above: both are
+   unlayered with identical (0,2,0) specificity, so with `@media` contributing
+   none of its own, source order is what decides which one wins. */
 @media (forced-colors: active) {
   .bg-clip-text.text-transparent,
   .colorful-btn,
   .colorful-btn:hover {
-    background-image: none;
-    -webkit-background-clip: border-box;
-    background-clip: border-box;
     color: CanvasText;
   }
 }
