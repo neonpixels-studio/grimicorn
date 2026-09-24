@@ -245,8 +245,20 @@ main[tabindex="-1"]:focus {
 /* Give sighted visitors a resting-state confirmation the stream is paused,
    since aria-pressed alone is invisible. Kept as color/underline (not
    generated text) so it doesn't double-announce the state assistive tech
-   already gets from aria-pressed. */
-.pause-toggle[aria-pressed="true"] {
+   already gets from aria-pressed.
+
+   :not(:hover) is load-bearing, not decorative: a bare
+   `.pause-toggle[aria-pressed="true"]` carries the exact same specificity as
+   `.colorful-btn:hover` above (one class + one attribute/pseudo-class each),
+   so with the pressed rule declared later in the file it always won the
+   cascade once pressed — including while hovering — and the rainbow hover
+   fill could never come back. Scoping the pressed rule to the non-hover
+   state raises its specificity past `.colorful-btn:hover` (so pressed's
+   resting look still beats it when the pointer isn't over the button) while
+   making the two rules mutually exclusive: whenever the pointer *is* over a
+   pressed button, this rule simply doesn't match, so `.colorful-btn:hover`
+   applies uncontested and needs no reordering or !important. */
+.pause-toggle[aria-pressed="true"]:not(:hover) {
   color: var(--color-fg);
   text-decoration: underline;
 }
