@@ -282,16 +282,29 @@ main[tabindex="-1"]:focus {
    included at rest too so the rule doesn't silently stop covering it if the
    resting color is ever changed to something transparent.
 
+   `.colorful-btn:hover` gets its own rule rather than joining the shared
+   selector list: outside forced-colors, hovering is the only thing that
+   visually distinguishes it from rest (the gradient reveal). Painting both
+   states the same flat CanvasText here would silently drop that affordance
+   for forced-colors users, so the hover state also gains an underline —
+   the same color-independent technique .pause-toggle[aria-pressed="true"]
+   already uses above for exactly this reason.
+
    This is unlayered, like the .skip-link:focus override above, so it wins
    over the Tailwind utilities (emitted inside `@layer utilities`) regardless
-   of selector specificity — do not move it into a layer. It must also stay
-   declared after the base `.colorful-btn:hover` rule above: both are
-   unlayered with identical (0,2,0) specificity, so with `@media` contributing
-   none of its own, source order is what decides which one wins. */
+   of selector specificity — do not move it into a layer. The hover rule must
+   also stay declared after the base `.colorful-btn:hover` rule above: both
+   are unlayered with identical (0,2,0) specificity, so with `@media`
+   contributing none of its own, source order is what decides which one
+   wins. */
 @media (forced-colors: active) {
   .bg-clip-text.text-transparent,
-  .colorful-btn,
+  .colorful-btn {
+    color: CanvasText;
+  }
+
   .colorful-btn:hover {
     color: CanvasText;
+    text-decoration: underline;
   }
 }

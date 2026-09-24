@@ -485,14 +485,17 @@ describe("forced-colors gradient-text fallback", () => {
   const cssWithoutComments = stripComments(readStyleCss());
 
   const FORCED_COLORS_HEADER_PATTERN =
-    /@media\s*\(\s*forced-colors\s*:\s*active\s*\)\s*\{/;
+    /@media\s*\(\s*forced-colors\s*:\s*active\s*\)\s*\{/g;
 
   // Scans forward from an opening `{` counting nested braces, rather than
   // anchoring on a bare `\n}`. A plain "next unindented close-brace" match
   // would silently start truncating (or mismatching) the block the moment a
   // formatter change re-indents it, or a second rule is added inside it —
   // this ties correctness to actual brace nesting instead of source
-  // formatting.
+  // formatting. Fails loudly on unbalanced braces (depth never returning to
+  // 0) instead of silently returning a block truncated by one character,
+  // which would otherwise surface as a confusing declaration mismatch
+  // somewhere else instead of naming the actual parse failure.
   function extractBracedBlock(source: string, openBraceIndex: number) {
     let depth = 1;
     let index = openBraceIndex + 1;
@@ -504,94 +507,122 @@ describe("forced-colors gradient-text fallback", () => {
       }
       index += 1;
     }
+    expect(depth, "unbalanced braces while scanning style.css").toBe(0);
     return {
       content: source.slice(openBraceIndex + 1, index - 1),
       endIndex: index,
     };
   }
 
-  function readForcedColorsBlock() {
-    const headerMatch = cssWithoutComments.match(FORCED_COLORS_HEADER_PATTERN);
-    expect(
-      headerMatch,
-      "@media (forced-colors: active) block not found",
-    ).not.toBeNull();
-    const openBraceIndex = headerMatch!.index! + headerMatch![0].length - 1;
-    return {
-      headerIndex: headerMatch!.index!,
-      ...extractBracedBlock(cssWithoutComments, openBraceIndex),
-    };
+  // Splits a block's content into its top-level rules by repeatedly finding
+  // the next `{` and scanning its matching `}` — robust to however many
+  // rules the block holds, rather than assuming exactly one.
+  function extractRules(blockContent: string) {
+    const rules: { selectors: string; declarations: string }[] = [];
+    let cursor = 0;
+    while (cursor < blockContent.length) {
+      const openBrace = blockContent.indexOf("{", cursor);
+      if (openBrace === -1) {
+        break;
+      }
+      const { content: declarations, endIndex } = extractBracedBlock(
+        blockContent,
+        openBrace,
+      );
+      rules.push({
+        selectors: blockContent.slice(cursor, openBrace),
+        declarations,
+      });
+      cursor = endIndex;
+    }
+    return rules;
   }
 
-  // The block is expected to hold exactly one rule (one shared selector list
-  // for all three gradient-text spots). Asserted explicitly, rather than
-  // assumed, so a future second rule added to the block fails this test
-  // loudly instead of the selector/declaration split below silently checking
-  // only the first rule.
-  function readSoleRule(blockContent: string) {
-    const openBrace = blockContent.indexOf("{");
+  // Global match + length assertion, not a first-match `.match()`: a second
+  // `@media (forced-colors: active) { ... }` block appended anywhere else in
+  // the file would otherwise be silently ignored by every check below, since
+  // `.match()` without the `g` flag only ever inspects the first one.
+  function readForcedColorsRules() {
+    const headerMatches = [
+      ...cssWithoutComments.matchAll(FORCED_COLORS_HEADER_PATTERN),
+    ];
     expect(
-      openBrace,
-      "no rule found inside the forced-colors block",
-    ).toBeGreaterThan(-1);
-    const { content: declarations, endIndex } = extractBracedBlock(
-      blockContent,
-      openBrace,
-    );
-    expect(
-      stripWhitespace(blockContent.slice(endIndex)),
-      "forced-colors block holds more than one rule — update this test to check each rule",
-    ).toBe("");
-    return { selectors: blockContent.slice(0, openBrace), declarations };
+      headerMatches,
+      "expected exactly one @media (forced-colors: active) block",
+    ).toHaveLength(1);
+    const headerMatch = headerMatches[0];
+    const openBraceIndex = headerMatch.index! + headerMatch[0].length - 1;
+    const { content } = extractBracedBlock(cssWithoutComments, openBraceIndex);
+    return { headerIndex: headerMatch.index!, rules: extractRules(content) };
   }
 
-  it("covers both Tailwind gradient-text wordmarks and .colorful-btn's hover state", () => {
-    const { content } = readForcedColorsBlock();
-    const { selectors } = readSoleRule(content);
-    const strippedSelectors = stripWhitespace(selectors);
-    expect(strippedSelectors).toContain(".bg-clip-text.text-transparent");
-    expect(strippedSelectors).toContain(".colorful-btn,");
-    expect(strippedSelectors).toContain(".colorful-btn:hover");
+  it("covers both Tailwind gradient-text wordmarks, .colorful-btn, and .colorful-btn:hover across exactly two rules", () => {
+    const { rules } = readForcedColorsRules();
+    expect(
+      rules,
+      "expected the shared rule plus the hover override",
+    ).toHaveLength(2);
+
+    const sharedSelectors = stripWhitespace(rules[0].selectors).split(",");
+    expect(sharedSelectors).toContain(".bg-clip-text.text-transparent");
+    expect(sharedSelectors).toContain(".colorful-btn");
+
+    expect(stripWhitespace(rules[1].selectors)).toBe(".colorful-btn:hover");
   });
 
   it("restores text color with no other declaration to go stale", () => {
-    const { content } = readForcedColorsBlock();
-    const { declarations } = readSoleRule(content);
+    const { rules } = readForcedColorsRules();
     // Exact-match, not `toContain`: the only load-bearing property here is
     // `color` (forced-colors already strips the gradient background-image
     // itself), so a stray extra declaration — like a `background-clip`
     // override that's inert against the wordmarks' inline-styled gradient —
     // should fail this test rather than pass unnoticed.
-    expect(stripWhitespace(declarations)).toBe("color:CanvasText;");
+    expect(stripWhitespace(rules[0].declarations)).toBe("color:CanvasText;");
+  });
+
+  it("gives the hover override a color-independent affordance so forced-colors users still see a hover state", () => {
+    const { rules } = readForcedColorsRules();
+    const declarations = stripWhitespace(rules[1].declarations);
+    expect(declarations).toContain("color:CanvasText");
+    expect(declarations).toContain("text-decoration:underline");
   });
 
   // Both rules are unlayered with identical (0,2,0) specificity and `@media`
   // contributes none of its own, so — exactly like the `reduced motion
   // guards` describe above — only source order decides which one paints.
-  // Reusing that same "find the base rule by what it declares, not by array
-  // position" approach so an unrelated `.colorful-btn:hover` rule elsewhere
-  // can't be mistaken for the one this override must come after.
-  it("declares the override after the base .colorful-btn:hover rule so equal-specificity source order doesn't undo it", () => {
-    const baseHoverMatch = cssWithoutComments.match(
-      /(?:^|\}|\{|,)\s*\.colorful-btn:hover\s*\{[^}]*animation-name:\s*gx-rainbow-pan[^}]*\}/,
+  // Anchored on `color:\s*transparent` specifically (the property this
+  // override actually has to beat), not on a sibling declaration like
+  // `animation-name` that happens to share the same rule today — a future
+  // edit that splits `color: transparent` into its own rule would otherwise
+  // silently stop being covered by this check.
+  it("declares the hover override after the base .colorful-btn:hover rule so equal-specificity source order doesn't undo it", () => {
+    const baseHoverMatches = [
+      ...cssWithoutComments.matchAll(
+        /(?:^|\}|\{|,)\s*\.colorful-btn:hover\s*\{([^}]*)\}/g,
+      ),
+    ].filter((match) =>
+      stripWhitespace(match[1]).includes("color:transparent"),
     );
     expect(
-      baseHoverMatch,
-      "base .colorful-btn:hover rule (animation-name: gx-rainbow-pan) not found",
-    ).not.toBeNull();
+      baseHoverMatches.length,
+      "base .colorful-btn:hover rule declaring color:transparent not found",
+    ).toBeGreaterThan(0);
+    const lastBaseHoverIndex = Math.max(
+      ...baseHoverMatches.map((match) => match.index!),
+    );
 
-    const { headerIndex } = readForcedColorsBlock();
+    const { headerIndex } = readForcedColorsRules();
     expect(
       headerIndex,
       "forced-colors override must be declared after the base .colorful-btn:hover rule — equal specificity means an earlier override loses the cascade regardless of the @media wrapper",
-    ).toBeGreaterThan(baseHoverMatch!.index!);
+    ).toBeGreaterThan(lastBaseHoverIndex);
   });
 
   // Mirrors the "skip link focus reveal" describe's identical guard: an
   // unlayered rule outranks Tailwind's `@layer utilities` regardless of
   // specificity, but only while it stays unlayered.
   it("keeps the forced-colors override outside any @layer so it outranks Tailwind's utilities layer", () => {
-    const { headerIndex } = readForcedColorsBlock();
+    const { headerIndex } = readForcedColorsRules();
     const beforeBlock = cssWithoutComments.slice(0, headerIndex);
     const openBraceDepth =
       countOccurrences(beforeBlock, "{") - countOccurrences(beforeBlock, "}");
