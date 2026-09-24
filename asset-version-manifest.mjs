@@ -287,6 +287,41 @@ function assertEverySrcSynced(syncedManifestSource, rewrittenSrcs) {
   );
 }
 
+// A web manifest whose bytes carry no icon "src" at all — an "icons" array that is
+// missing, not an array, or empty, or whose entries all lack a "src" — makes the string
+// rewrite below a silent no-op: it finds nothing to stamp and returns success, letting
+// `npm run lock:assets` stay green while the installed PWA actually ships with no icons
+// (issue #199). Parse the manifest structurally and reject that shape here, loudly, the
+// same way the token guard and assertEverySrcSynced() throw. This is a validation-only
+// parse; the rewrite itself stays string-based so the manifest's exact formatting (and
+// any unrelated fields) is preserved byte-for-byte.
+function assertManifestHasIconSrcs(manifestSource) {
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestSource);
+  } catch (error) {
+    throw new Error(
+      `Cannot sync ${SITE_WEBMANIFEST_FILE}: it is not valid JSON (${error.message}).`,
+      { cause: error },
+    );
+  }
+  const icons = manifest?.icons;
+  if (!Array.isArray(icons) || icons.length === 0) {
+    throw new Error(
+      `Cannot sync ${SITE_WEBMANIFEST_FILE}: "icons" is missing, not an array, or empty. The PWA would ship with no icons — add at least one icon with a "src".`,
+    );
+  }
+  const hasIconSrc = icons.some(
+    (icon) => typeof icon?.src === "string" && icon.src.length > 0,
+  );
+  if (hasIconSrc) {
+    return;
+  }
+  throw new Error(
+    `Cannot sync ${SITE_WEBMANIFEST_FILE}: no icon entry has a "src". The PWA would ship with no icons — give each icon a "src".`,
+  );
+}
+
 // Rewrites (or adds) the ?v= query on every image "src" in manifest JSON source to
 // the live token. Pure string logic (no file I/O) so the regen script and its test
 // exercise identical rewrite behaviour regardless of how the result gets persisted.
@@ -294,12 +329,15 @@ function assertEverySrcSynced(syncedManifestSource, rewrittenSrcs) {
 // token, so it validates the token against the same grammar the lock format enforces
 // elsewhere (TOKEN_DATE_AND_REVISION_PATTERN) rather than trusting the caller — an
 // empty or malformed token would otherwise strip or corrupt every icon src in the file.
+// It also requires the manifest to actually declare at least one icon src (see
+// assertManifestHasIconSrcs) so a manifest with no icons can't sync green.
 export function syncManifestCacheBustTokens(manifestSource, token) {
   if (!TOKEN_DATE_AND_REVISION_PATTERN.test(token)) {
     throw new Error(
       `Refusing to sync ${SITE_WEBMANIFEST_FILE} with a malformed token: ${JSON.stringify(token)}. Expected ${TOKEN_DATE_AND_REVISION_PATTERN}.`,
     );
   }
+  assertManifestHasIconSrcs(manifestSource);
   const rewrittenSrcs = new Set();
   const synced = manifestSource.replace(
     MANIFEST_TOKEN_PATTERN,

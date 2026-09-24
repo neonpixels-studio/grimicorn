@@ -609,17 +609,18 @@ describe("syncManifestCacheBustTokens", () => {
   it("rewrites an existing same-day revision suffix to the new token wholesale", () => {
     // Proves MANIFEST_TOKEN_PATTERN matches and fully replaces a prior "-N" suffix,
     // rather than leaving it dangling after the new date.
-    const manifestSource = '{"src":"/images/icon.png?v=20260101-3"}';
+    const manifestSource =
+      '{"icons":[{"src":"/images/icon.png?v=20260101-3"}]}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
-      `{"src":"/images/icon.png${NEW_TOKEN}"}`,
+      `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
     );
   });
 
   it("syncs to a new token that itself carries a same-day revision suffix", () => {
-    const manifestSource = '{"src":"/images/icon.png?v=20260101"}';
+    const manifestSource = '{"icons":[{"src":"/images/icon.png?v=20260101"}]}';
     const suffixedToken = "?v=20260101-2";
     expect(syncManifestCacheBustTokens(manifestSource, suffixedToken)).toBe(
-      `{"src":"/images/icon.png${suffixedToken}"}`,
+      `{"icons":[{"src":"/images/icon.png${suffixedToken}"}]}`,
     );
   });
 
@@ -628,9 +629,9 @@ describe("syncManifestCacheBustTokens", () => {
     // strict token grammar, but MANIFEST_TOKEN_PATTERN matches any run of
     // non-quote/non-"&"/non-"#" characters after "?v=" specifically so a malformed
     // existing value still gets replaced wholesale rather than skipped over.
-    const manifestSource = '{"src":"/images/icon.png?v=20260823-"}';
+    const manifestSource = '{"icons":[{"src":"/images/icon.png?v=20260823-"}]}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
-      `{"src":"/images/icon.png${NEW_TOKEN}"}`,
+      `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
     );
   });
 
@@ -645,7 +646,10 @@ describe("syncManifestCacheBustTokens", () => {
       "/images/icon.gif?v=20260101", // unlisted extension
     ]) {
       expect(() =>
-        syncManifestCacheBustTokens(`{"src":"${unsyncableSrc}"}`, NEW_TOKEN),
+        syncManifestCacheBustTokens(
+          `{"icons":[{"src":"${unsyncableSrc}"}]}`,
+          NEW_TOKEN,
+        ),
       ).toThrow(/weren't reached by the rewrite/);
     }
   });
@@ -739,7 +743,7 @@ describe("syncManifestCacheBustTokens", () => {
   });
 
   it("is a no-op (returns an identical string) when every token already matches", () => {
-    const manifestSource = `{"src":"/images/icon.png${NEW_TOKEN}"}`;
+    const manifestSource = `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`;
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
       manifestSource,
     );
@@ -748,9 +752,9 @@ describe("syncManifestCacheBustTokens", () => {
   it("normalizes a malformed (wrong-length) committed token instead of partially overwriting it", () => {
     // A hand-edit typo (an extra digit) must not survive as a stray trailing digit —
     // the whole run of digits is replaced, not just the first 8.
-    const manifestSource = '{"src":"/images/icon.png?v=202601011"}';
+    const manifestSource = '{"icons":[{"src":"/images/icon.png?v=202601011"}]}';
     expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
-      `{"src":"/images/icon.png${NEW_TOKEN}"}`,
+      `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}"}]}`,
     );
   });
 
@@ -765,11 +769,56 @@ describe("syncManifestCacheBustTokens", () => {
     ]) {
       expect(() => {
         syncManifestCacheBustTokens(
-          '{"src":"/images/icon.png?v=20260101"}',
+          '{"icons":[{"src":"/images/icon.png?v=20260101"}]}',
           malformedToken,
         );
       }).toThrow(/malformed token/);
     }
+  });
+
+  // Issue #199: a manifest that declares no usable icon src at all used to sync green —
+  // the string rewrite simply matched nothing and returned success — letting the PWA
+  // ship with no icons while `npm run lock:assets` stayed happy. Each of these must now
+  // throw. If the guard is removed, syncManifestCacheBustTokens() returns the input
+  // untouched instead of throwing and every case below fails.
+  it("fails loud when the manifest has no icons key at all", () => {
+    const manifestSource = '{"name":"Grimicorn Agent"}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/"icons" is missing, not an array, or empty/);
+  });
+
+  it("fails loud when icons is present but not an array", () => {
+    const manifestSource = '{"icons":"/images/icon.png"}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/"icons" is missing, not an array, or empty/);
+  });
+
+  it("fails loud when the icons array is empty", () => {
+    const manifestSource = '{"icons":[]}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/"icons" is missing, not an array, or empty/);
+  });
+
+  it("fails loud when no icon entry carries a src", () => {
+    const manifestSource =
+      '{"icons":[{"sizes":"192x192","type":"image/png"},{"sizes":"512x512"}]}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).toThrow(/no icon entry has a "src"/);
+  });
+
+  it("passes on the happy path: a non-empty icons array with a real src", () => {
+    const manifestSource =
+      '{"icons":[{"src":"/images/icon.png?v=20260101","sizes":"192x192"}]}';
+    expect(() =>
+      syncManifestCacheBustTokens(manifestSource, NEW_TOKEN),
+    ).not.toThrow();
+    expect(syncManifestCacheBustTokens(manifestSource, NEW_TOKEN)).toBe(
+      `{"icons":[{"src":"/images/icon.png${NEW_TOKEN}","sizes":"192x192"}]}`,
+    );
   });
 
   it("does not rewrite a ?v= query on a non-src field", () => {
