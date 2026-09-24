@@ -556,18 +556,21 @@ describe("forced-colors gradient-text fallback", () => {
     return { headerIndex: headerMatch.index!, rules: extractRules(content) };
   }
 
-  it("covers both Tailwind gradient-text wordmarks, .colorful-btn, and .colorful-btn:hover across exactly two rules", () => {
+  it("covers both Tailwind gradient-text wordmarks, .colorful-btn, .colorful-btn:hover, and the pause-toggle pressed state across exactly three rules", () => {
     const { rules } = readForcedColorsRules();
     expect(
       rules,
-      "expected the shared rule plus the hover override",
-    ).toHaveLength(2);
+      "expected the shared rule, the hover override, and the pressed-state override",
+    ).toHaveLength(3);
 
     const sharedSelectors = stripWhitespace(rules[0].selectors).split(",");
     expect(sharedSelectors).toContain(".bg-clip-text.text-transparent");
     expect(sharedSelectors).toContain(".colorful-btn");
 
     expect(stripWhitespace(rules[1].selectors)).toBe(".colorful-btn:hover");
+    expect(stripWhitespace(rules[2].selectors)).toBe(
+      '.pause-toggle[aria-pressed="true"]',
+    );
   });
 
   it("restores text color with no other declaration to go stale", () => {
@@ -585,6 +588,19 @@ describe("forced-colors gradient-text fallback", () => {
     const declarations = stripWhitespace(rules[1].declarations);
     expect(declarations).toContain("color:CanvasText");
     expect(declarations).toContain("text-decoration:underline");
+  });
+
+  // Without this, the pause toggle's pressed-state underline (already used
+  // outside forced-colors, since its `color: var(--color-fg)` cue gets
+  // neutralized by the UA forcing every .colorful-btn to the same
+  // CanvasText) would read identically to a plain hover on any other
+  // .colorful-btn — and hovering an already-paused toggle would show no
+  // change at all, since both would resolve to the same single underline.
+  it("keeps the pause-toggle pressed state visually distinct from a plain hover underline", () => {
+    const { rules } = readForcedColorsRules();
+    const declarations = stripWhitespace(rules[2].declarations);
+    expect(declarations).toContain("text-decoration:underlinedouble");
+    expect(declarations).not.toBe(stripWhitespace(rules[1].declarations));
   });
 
   // Both rules are unlayered with identical (0,2,0) specificity and `@media`
@@ -607,8 +623,13 @@ describe("forced-colors gradient-text fallback", () => {
       baseHoverMatches.length,
       "base .colorful-btn:hover rule declaring color:transparent not found",
     ).toBeGreaterThan(0);
+    // Land on the selector itself, not the anchor alternation's consumed
+    // prefix (`}`/`{`/`,` plus whitespace) — same hazard the sibling
+    // `reduced motion guards` describe's selectorStart guards against.
     const lastBaseHoverIndex = Math.max(
-      ...baseHoverMatches.map((match) => match.index!),
+      ...baseHoverMatches.map(
+        (match) => match.index! + match[0].indexOf(".colorful-btn:hover"),
+      ),
     );
 
     const { headerIndex } = readForcedColorsRules();
