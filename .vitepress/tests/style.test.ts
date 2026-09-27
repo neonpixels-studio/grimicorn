@@ -558,6 +558,10 @@ describe("colorful button resting contrast", () => {
   });
 });
 
+// NOTE: text-only check (parses style.css, never renders a page) — see "Known
+// test-coverage gaps" in the README for the WebKit rendering gap it can't
+// replace.
+//
 // forced-colors (Windows High Contrast Mode) already forces the used value of
 // any declared gradient background-image to `none` for every element, inline
 // styles included, so the wordmarks need no help losing their gradient. What
