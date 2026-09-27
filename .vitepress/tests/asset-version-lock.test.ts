@@ -1063,63 +1063,106 @@ describe("atomicWriteFileSync", () => {
     });
   });
 
-  it("runs the real fsyncDirectory() by default without logging an error", () => {
+  // Permission bits, not mocking, are what make this distinguishable from a
+  // no-op default: chmod-ing the temp dir to write+execute-only (no read) still
+  // lets writeFileDurably()'s temp-file write and the rename both succeed (both
+  // only need write+execute on the containing directory), but makes fsyncDirectory's
+  // own openSync(dir, "r") fail for real — proving the real implementation, not a
+  // stub, is what runs by default. Skipped for root (permission bits are a no-op
+  // for uid 0) and Windows (fsyncDirectory short-circuits before opening anything
+  // there — see isDirectoryFsyncSupported()).
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "runs the real fsyncDirectory() by default, proven by its own permission-denied log line",
+    () => {
+      withTempDir((tempDir) => {
+        const targetPath = resolve(tempDir, "lock.json");
+        const errorSpy = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        chmodSync(tempDir, 0o300);
+        try {
+          atomicWriteFileSync(targetPath, "hello");
+          expect(readFileSync(targetPath, "utf8")).toBe("hello");
+          expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining("Failed to open directory"),
+          );
+        } finally {
+          chmodSync(tempDir, 0o700);
+          errorSpy.mockRestore();
+        }
+      });
+    },
+  );
+});
+
+describe("fsyncDirectory", () => {
+  // Scoped to this describe (rather than reusing atomicWriteFileSync's
+  // withTempDir above) so the temp-dir prefix names its own purpose, matching
+  // this file's existing per-describe fixture-helper convention (withTempManifest,
+  // withTempSourceModule, withRegenerateLockFixture).
+  function withTempDir(run: (_tempDir: string) => void) {
+    const tempDir = mkdtempSync(resolve(tmpdir(), "fsync-directory-"));
+    try {
+      run(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
+
+  it("fsyncs a real directory without throwing or logging", () => {
+    // Proves the happy path against the real filesystem (no mocking): opening and
+    // fsyncing an ordinary directory that exists must never surface as a caller
+    // error, nor log one.
     withTempDir((tempDir) => {
-      const targetPath = resolve(tempDir, "lock.json");
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        atomicWriteFileSync(targetPath, "hello");
-        expect(readFileSync(targetPath, "utf8")).toBe("hello");
-        // Proves the *real* fsyncDirectory() ran (not a no-op default): on a
-        // supported platform and an ordinary directory, it never has anything to
-        // log — a call with the wrong fd/path, or a fully broken directory-fsync
-        // implementation, would surface here as a "Failed to open/fsync
-        // directory" line.
+        expect(() => {
+          fsyncDirectory(tempDir);
+        }).not.toThrow();
         expect(errorSpy).not.toHaveBeenCalled();
       } finally {
         errorSpy.mockRestore();
       }
     });
   });
-});
 
-describe("fsyncDirectory", () => {
-  it("fsyncs a real directory without throwing or logging", () => {
-    // Proves the happy path against the real filesystem (no mocking): opening and
-    // fsyncing an ordinary directory that exists must never surface as a caller
-    // error, nor log one.
-    const tempDir = mkdtempSync(resolve(tmpdir(), "fsync-directory-"));
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      expect(() => {
-        fsyncDirectory(tempDir);
-      }).not.toThrow();
-      expect(errorSpy).not.toHaveBeenCalled();
-    } finally {
-      errorSpy.mockRestore();
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
+  // Skipped on Windows: isDirectoryFsyncSupported() short-circuits before ever
+  // calling openSync there, so neither the throw-suppression nor the log line
+  // this test checks would fire — that early return is exercised implicitly by
+  // every atomicWriteFileSync call on that platform instead.
+  it.skipIf(process.platform === "win32")(
+    "logs and swallows the error, instead of throwing or staying silent, when the directory can't be opened",
+    () => {
+      withTempDir((tempDir) => {
+        // A path that doesn't exist at all stands in for the "unsupported
+        // platform/filesystem" case the guard exists for: a real openSync
+        // failure the caller must never see as a thrown error (the rename this
+        // runs after has already completed successfully), but that must still
+        // reach the console so it's never a fully silent failure either.
+        const missingPath = resolve(tempDir, "does-not-exist-at-all", "nested");
+        const errorSpy = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        try {
+          expect(() => {
+            fsyncDirectory(missingPath);
+          }).not.toThrow();
+          expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining("Failed to open directory"),
+          );
+        } finally {
+          errorSpy.mockRestore();
+        }
+      });
+    },
+  );
 
-  it("logs and swallows the error, instead of throwing or staying silent, when the directory can't be opened", () => {
-    // A directory that doesn't exist at all stands in for the "unsupported
-    // platform/filesystem" case the guard exists for: a real openSync failure
-    // the caller must never see as a thrown error (the rename this runs after
-    // has already completed successfully), but that must still reach the
-    // console so it's never a fully silent failure either.
-    const missingPath = resolve(tmpdir(), "does-not-exist-at-all", "nested");
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      expect(() => {
-        fsyncDirectory(missingPath);
-      }).not.toThrow();
-      expect(errorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Failed to open directory"),
-      );
-    } finally {
-      errorSpy.mockRestore();
-    }
-  });
+  // @todo cover the fsyncSync-failure branch (and the "directory" descriptorKind
+  // wording in closeFileDescriptorQuietly's own close-failure log) once there is a
+  // real, portable way to make fsyncSync itself fail on an openable directory —
+  // module mocking isn't available here (see the comment on atomicWriteFileSync's
+  // `syncDirectory` seam), and unlike the open-failure case above, there's no
+  // permission bit that makes an already-open fd's fsync fail on its own.
 });
 
 describe("regenerateLock", () => {
