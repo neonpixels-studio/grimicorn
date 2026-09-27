@@ -76,6 +76,16 @@ function closeFileDescriptorQuietly(
   }
 }
 
+// Directory fsync is a POSIX facility, not a cross-platform guarantee: Windows
+// rejects opening a directory with a plain read handle in the first place
+// (openSync here would throw EPERM/EISDIR on every call), so this is a permanent,
+// expected gap on that platform rather than an occasional failure — skip it
+// outright instead of logging the same "failed to open" line on every single
+// write.
+function isDirectoryFsyncSupported() {
+  return process.platform !== "win32";
+}
+
 // Fsyncs `directoryPath` so a rename's directory-entry update (the part of a rename
 // that atomicWriteFileSync's own fsync in writeFileDurably() doesn't cover — that one
 // only durably persists the temp file's *contents*) survives a power loss too.
@@ -83,17 +93,20 @@ function closeFileDescriptorQuietly(
 // directory back to pointing at the old inode on remount, even though the new
 // file's bytes were fsynced before the rename ever happened.
 //
-// Directory fsync is a POSIX facility, not a cross-platform guarantee: some
-// filesystems (notably several on Windows) reject an fsync on a directory
-// descriptor outright, or reject opening a directory for reading at all. Neither
-// failure means the write itself failed — the rename already completed and the
-// file's contents are already durable — so both are logged and swallowed rather
-// than thrown, the same "never silent, never fatal" treatment given to the other
-// best-effort cleanup steps in this module (removeTemporaryFileIfPresent(),
+// Beyond the Windows case above, even a supported platform can still fail here
+// (e.g. an unusual filesystem that rejects fsync on a directory descriptor). That
+// failure means the durability guarantee didn't get its last bit of coverage, not
+// that the write itself failed — the rename already completed and the file's
+// contents are already durable — so it's logged and swallowed rather than thrown,
+// the same "never silent, never fatal" treatment given to the other best-effort
+// cleanup steps in this module (removeTemporaryFileIfPresent(),
 // closeFileDescriptorQuietly() above). Exported so a test can exercise the
-// graceful-degradation path directly (e.g. a directory path that can't be opened)
-// against real fs calls, with no need to mock node:fs.
+// graceful-degradation path directly against real fs calls, with no need to mock
+// node:fs.
 export function fsyncDirectory(directoryPath) {
+  if (!isDirectoryFsyncSupported()) {
+    return;
+  }
   let directoryFileDescriptor;
   try {
     directoryFileDescriptor = openSync(directoryPath, "r");
@@ -161,22 +174,15 @@ function writeFileDurably(filePath, temporaryPath, contents) {
 // `filePath` never see anything mid-write: either the previous complete contents,
 // or the new complete contents, never a partial mix of the two.
 //
-// The parent-directory fsync after the rename closes the last durability gap:
-// writeFileDurably() already fsyncs the temp file's *contents* before the rename,
-// but the rename itself is a separate write to the parent directory's own on-disk
-// data (the entry that maps `filePath`'s name to the new inode), and that can still
-// be lost on power loss even though the file's bytes are safely on disk. Only the
-// success path fsyncs the directory — a failed write/rename never touched the
-// directory entry in the first place, so there is nothing there to make durable.
-//
-// `syncDirectory` defaults to the real fsyncDirectory() and exists as an
-// injectable seam purely for tests: node:fs built-ins can't be mocked through
-// this project's vitest/SSR setup (confirmed empirically — vi.mock("node:fs")
-// does not intercept calls made from this module), so a test overrides
-// `syncDirectory` with a spy to assert atomicWriteFileSync calls it, with the
-// parent directory, only after a successful rename — mirroring the same
+// The directory sync after the rename (see fsyncDirectory() above for why) only
+// ever runs once the write and rename have both already succeeded — it sits
+// outside the try/catch below on purpose, so a hypothetical failure there is never
+// mistaken for a failed write (which would otherwise trigger cleanup against a
+// temp path that the rename had already moved away). `syncDirectory` defaults to
+// the real fsyncDirectory() and is an injectable seam purely for tests (node:fs
+// built-ins can't be mocked through this project's vitest setup), mirroring the
 // default-parameter injection regenerateLock() already uses in
-// scripts/regenerate-asset-version-lock.mjs for the same reason.
+// scripts/regenerate-asset-version-lock.mjs.
 export function atomicWriteFileSync(
   filePath,
   contents,
@@ -186,11 +192,11 @@ export function atomicWriteFileSync(
   try {
     writeFileDurably(filePath, temporaryPath, contents);
     renameSync(temporaryPath, filePath);
-    syncDirectory(dirname(filePath));
   } catch (error) {
     removeTemporaryFileIfPresent(temporaryPath);
     throw error;
   }
+  syncDirectory(dirname(filePath));
 }
 
 // Every static asset whose cache-bust ?v= is the shared ASSET_CACHE_BUST token

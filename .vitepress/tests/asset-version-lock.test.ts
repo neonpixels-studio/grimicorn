@@ -1016,16 +1016,10 @@ describe("atomicWriteFileSync", () => {
     });
   });
 
-  // Issue #213: the rename itself is a separate write to the parent directory's own
-  // on-disk data, distinct from the temp file's contents (already fsynced inside
-  // writeFileDurably() before the rename ever happens) — a power loss right after a
-  // "successful" rename could otherwise roll the directory back to the old inode.
-  // node:fs built-ins can't be mocked through this project's vitest/SSR setup (a
-  // vi.mock("node:fs") factory never intercepts calls made from a plain .mjs module
-  // under this repo's vitest config — verified directly against a minimal fixture
-  // module before writing these tests), so `syncDirectory` is an injectable seam
-  // (default: the real fsyncDirectory()) instead, the same pattern already used by
-  // regenerateLock()'s `computeFingerprint`/`loadBaselineLock` in
+  // Issue #213: vi.mock("node:fs") can't intercept calls made from this .mjs
+  // module under this repo's vitest setup (verified directly against a minimal
+  // fixture module), so these tests use `syncDirectory` as an injectable seam
+  // instead, the same pattern regenerateLock() already uses in
   // scripts/regenerate-asset-version-lock.mjs.
   it("fsyncs the parent directory only after the rename succeeds", () => {
     withTempDir((tempDir) => {
@@ -1051,41 +1045,80 @@ describe("atomicWriteFileSync", () => {
     });
   });
 
-  it("uses the real fsyncDirectory() by default, and it does not throw on a real directory", () => {
+  it("does not fsync the parent directory when the rename itself fails", () => {
+    withTempDir((tempDir) => {
+      // Distinct from the write-failure case above: the temp file write succeeds
+      // here (targetPath's directory does exist), but renameSync fails because
+      // the target is itself a non-empty directory (EISDIR/ENOTEMPTY depending on
+      // platform) — the rename never commits, so there is still no new directory
+      // entry to make durable.
+      const targetPath = resolve(tempDir, "lock.json");
+      mkdirSync(targetPath);
+      writeFileSync(resolve(targetPath, "occupant"), "");
+      const syncDirectory = vi.fn();
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello", { syncDirectory });
+      }).toThrow();
+      expect(syncDirectory).not.toHaveBeenCalled();
+    });
+  });
+
+  it("runs the real fsyncDirectory() by default without logging an error", () => {
     withTempDir((tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
-      expect(() => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
         atomicWriteFileSync(targetPath, "hello");
-      }).not.toThrow();
-      expect(readFileSync(targetPath, "utf8")).toBe("hello");
+        expect(readFileSync(targetPath, "utf8")).toBe("hello");
+        // Proves the *real* fsyncDirectory() ran (not a no-op default): on a
+        // supported platform and an ordinary directory, it never has anything to
+        // log — a call with the wrong fd/path, or a fully broken directory-fsync
+        // implementation, would surface here as a "Failed to open/fsync
+        // directory" line.
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
   });
 });
 
 describe("fsyncDirectory", () => {
-  it("fsyncs a real directory without throwing", () => {
+  it("fsyncs a real directory without throwing or logging", () => {
     // Proves the happy path against the real filesystem (no mocking): opening and
     // fsyncing an ordinary directory that exists must never surface as a caller
-    // error.
+    // error, nor log one.
     const tempDir = mkdtempSync(resolve(tmpdir(), "fsync-directory-"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       expect(() => {
         fsyncDirectory(tempDir);
       }).not.toThrow();
+      expect(errorSpy).not.toHaveBeenCalled();
     } finally {
+      errorSpy.mockRestore();
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("swallows the error instead of throwing when the directory can't be opened", () => {
+  it("logs and swallows the error, instead of throwing or staying silent, when the directory can't be opened", () => {
     // A directory that doesn't exist at all stands in for the "unsupported
-    // platform/filesystem" case the guard exists for (e.g. some Windows
-    // filesystems reject fsyncing a directory descriptor): both are real
-    // openSync/fsyncSync failures the caller must never see, since the rename
-    // this runs after has already completed successfully.
-    expect(() => {
-      fsyncDirectory(resolve(tmpdir(), "does-not-exist-at-all", "nested"));
-    }).not.toThrow();
+    // platform/filesystem" case the guard exists for: a real openSync failure
+    // the caller must never see as a thrown error (the rename this runs after
+    // has already completed successfully), but that must still reach the
+    // console so it's never a fully silent failure either.
+    const missingPath = resolve(tmpdir(), "does-not-exist-at-all", "nested");
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => {
+        fsyncDirectory(missingPath);
+      }).not.toThrow();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to open directory"),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
 
