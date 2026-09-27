@@ -865,8 +865,11 @@ describe("GrimicornPage", () => {
 
       const footer = wrapper.find("footer");
       expect(footer.exists()).toBe(true);
-      expect(footer.text()).toContain("Google Analytics");
-      expect(footer.text()).toContain("GA4");
+      // Pins the actual claim being made (data flows to Google Analytics),
+      // not just the brand name — a rewording like "we do not use Google
+      // Analytics" would still contain both substrings but must still fail
+      // this test.
+      expect(footer.text()).toMatch(/sent to Google Analytics \(GA4\)/);
 
       wrapper.unmount();
     });
