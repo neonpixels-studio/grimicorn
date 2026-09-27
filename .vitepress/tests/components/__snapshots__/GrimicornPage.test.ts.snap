@@ -140,7 +140,7 @@ exports[`GrimicornPage > renders correctly 1`] = `
            .vitepress/config.ts) — this line is the site's only disclosure that
            pageviews leave the origin, so it must stay visible on every render,
            not gated behind an interaction. -->
-      <p class="mt-3 max-w-[560px] leading-[1.6]"> Pageviews on the live production site are sent to Google Analytics (GA4). Nothing else here calls out to a third party. </p>
+      <p class="mt-3 max-w-[560px] leading-[1.6]"> Pageviews on the live production site are sent to Google Analytics (GA4) — the only automated third-party request this site makes. The github links above are the only other place this page points off-site, and those only load if you click them. </p>
     </footer>
   </div><!-- Rave toast: visual only, announced via toastAnnouncement below. -->
   <div class="bg-bg border-purple pointer-events-none fixed bottom-9 left-1/2 z-[9999] -translate-x-1/2 rounded-full border-[1.5px] px-[26px] py-[14px] font-mono text-sm font-bold whitespace-nowrap text-white translate-y-[10px] opacity-0" aria-hidden="true" style="box-shadow: 0 0 40px rgba(168, 85, 247, 0.6); transition: opacity 0.35s ease,

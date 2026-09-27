@@ -961,7 +961,9 @@ onUnmounted(() => {
            not gated behind an interaction. -->
         <p class="mt-3 max-w-[560px] leading-[1.6]">
           Pageviews on the live production site are sent to Google Analytics
-          (GA4). Nothing else here calls out to a third party.
+          (GA4) &mdash; the only automated third-party request this site makes.
+          The github links above are the only other place this page points
+          off-site, and those only load if you click them.
         </p>
       </footer>
     </div>
