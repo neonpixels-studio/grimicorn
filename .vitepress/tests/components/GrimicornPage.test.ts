@@ -851,6 +851,27 @@ describe("GrimicornPage", () => {
     });
   });
 
+  describe("privacy disclosure", () => {
+    // GA4 (see GA_MEASUREMENT_ID / ANALYTICS_ENABLED in .vitepress/config.ts)
+    // is the one deliberate third-party integration on this otherwise
+    // first-party site, and this footer line is its only disclosure to a
+    // visitor. Asserting on the rendered footer text (not just the snapshot)
+    // means a future footer edit that drops or rewords this line fails a
+    // named, purpose-built test instead of only a snapshot that an
+    // unrelated `vitest -u` could silently update away.
+    it("discloses in the footer that pageviews are sent to Google Analytics", async () => {
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const footer = wrapper.find("footer");
+      expect(footer.exists()).toBe(true);
+      expect(footer.text()).toContain("Google Analytics");
+      expect(footer.text()).toContain("GA4");
+
+      wrapper.unmount();
+    });
+  });
+
   describe("cursor-linked parallax and prefers-reduced-motion", () => {
     afterEach(() => {
       vi.restoreAllMocks();
