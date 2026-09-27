@@ -58,13 +58,62 @@ function removeTemporaryFileIfPresent(temporaryPath) {
 // A close failure (e.g. a delayed write-back error surfacing on close) must never
 // mask the original error from writeFileSync/fsyncSync: a throw here inside a
 // `finally` would silently replace whatever the try block already threw. Logged,
-// not swallowed, same as removeTemporaryFileIfPresent() above.
-function closeFileDescriptorQuietly(fileDescriptor, temporaryPath) {
+// not swallowed, same as removeTemporaryFileIfPresent() above. `descriptorKind`
+// only changes the log line's wording (default covers the original temp-file
+// caller); fsyncDirectory() below passes "directory" so its own close failures
+// are logged distinctly from a temp file's.
+function closeFileDescriptorQuietly(
+  fileDescriptor,
+  pathForLogging,
+  descriptorKind = "temp file",
+) {
   try {
     closeSync(fileDescriptor);
   } catch (closeError) {
     console.error(
-      `Failed to close temp file descriptor for ${temporaryPath}: ${closeError.message}`,
+      `Failed to close ${descriptorKind} descriptor for ${pathForLogging}: ${closeError.message}`,
+    );
+  }
+}
+
+// Fsyncs `directoryPath` so a rename's directory-entry update (the part of a rename
+// that atomicWriteFileSync's own fsync in writeFileDurably() doesn't cover — that one
+// only durably persists the temp file's *contents*) survives a power loss too.
+// Without this, a crash right after a "successful" rename can still roll the
+// directory back to pointing at the old inode on remount, even though the new
+// file's bytes were fsynced before the rename ever happened.
+//
+// Directory fsync is a POSIX facility, not a cross-platform guarantee: some
+// filesystems (notably several on Windows) reject an fsync on a directory
+// descriptor outright, or reject opening a directory for reading at all. Neither
+// failure means the write itself failed — the rename already completed and the
+// file's contents are already durable — so both are logged and swallowed rather
+// than thrown, the same "never silent, never fatal" treatment given to the other
+// best-effort cleanup steps in this module (removeTemporaryFileIfPresent(),
+// closeFileDescriptorQuietly() above). Exported so a test can exercise the
+// graceful-degradation path directly (e.g. a directory path that can't be opened)
+// against real fs calls, with no need to mock node:fs.
+export function fsyncDirectory(directoryPath) {
+  let directoryFileDescriptor;
+  try {
+    directoryFileDescriptor = openSync(directoryPath, "r");
+  } catch (openError) {
+    console.error(
+      `Failed to open directory ${directoryPath} for fsync: ${openError.message}`,
+    );
+    return;
+  }
+  try {
+    fsyncSync(directoryFileDescriptor);
+  } catch (fsyncError) {
+    console.error(
+      `Failed to fsync directory ${directoryPath}: ${fsyncError.message}`,
+    );
+  } finally {
+    closeFileDescriptorQuietly(
+      directoryFileDescriptor,
+      directoryPath,
+      "directory",
     );
   }
 }
@@ -111,11 +160,33 @@ function writeFileDurably(filePath, temporaryPath, contents) {
 // same-filesystem rename — a cross-filesystem rename is not atomic. Readers of
 // `filePath` never see anything mid-write: either the previous complete contents,
 // or the new complete contents, never a partial mix of the two.
-export function atomicWriteFileSync(filePath, contents) {
+//
+// The parent-directory fsync after the rename closes the last durability gap:
+// writeFileDurably() already fsyncs the temp file's *contents* before the rename,
+// but the rename itself is a separate write to the parent directory's own on-disk
+// data (the entry that maps `filePath`'s name to the new inode), and that can still
+// be lost on power loss even though the file's bytes are safely on disk. Only the
+// success path fsyncs the directory — a failed write/rename never touched the
+// directory entry in the first place, so there is nothing there to make durable.
+//
+// `syncDirectory` defaults to the real fsyncDirectory() and exists as an
+// injectable seam purely for tests: node:fs built-ins can't be mocked through
+// this project's vitest/SSR setup (confirmed empirically — vi.mock("node:fs")
+// does not intercept calls made from this module), so a test overrides
+// `syncDirectory` with a spy to assert atomicWriteFileSync calls it, with the
+// parent directory, only after a successful rename — mirroring the same
+// default-parameter injection regenerateLock() already uses in
+// scripts/regenerate-asset-version-lock.mjs for the same reason.
+export function atomicWriteFileSync(
+  filePath,
+  contents,
+  { syncDirectory = fsyncDirectory } = {},
+) {
   const temporaryPath = temporaryPathFor(filePath);
   try {
     writeFileDurably(filePath, temporaryPath, contents);
     renameSync(temporaryPath, filePath);
+    syncDirectory(dirname(filePath));
   } catch (error) {
     removeTemporaryFileIfPresent(temporaryPath);
     throw error;
