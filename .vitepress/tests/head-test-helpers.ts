@@ -75,12 +75,12 @@ export async function callTransformPageData(
   const { transformPageData } = config;
   if (typeof transformPageData !== "function") {
     // Fail loud rather than silently skipping the dev/build-parity path:
-    // canonical, OG, Twitter Card, and JSON-LD (and the versioned og:image
-    // reference inside them) would go unchecked by every describe block that
-    // relies on this resolver, and both suites would keep passing while
-    // checking nothing.
+    // canonical, OG, Twitter Card, JSON-LD (and the versioned og:image
+    // reference inside them), and the hero preload would go unchecked by every
+    // describe block that relies on this resolver, and both suites would keep
+    // passing while checking nothing.
     throw new Error(
-      "config.transformPageData is not a function — canonical/OG/Twitter/JSON-LD are added there and would silently go unchecked",
+      "config.transformPageData is not a function — canonical/OG/Twitter/JSON-LD and the hero preload are added there and would silently go unchecked",
     );
   }
   const context = { siteConfig: config } as unknown as Parameters<
@@ -92,20 +92,20 @@ export async function callTransformPageData(
 
 // The head VitePress actually renders for a page is config.head (static, every
 // page) merged with transformPageData's per-page frontmatter.head — the
-// dev/build-parity path canonical, Open Graph, Twitter Card, and JSON-LD go
-// through, see the comment above transformPageData in config.ts — and then
-// transformHead's per-page additions, which stay build-only (hero preload, the
-// 404's noindex meta). Both suites that resolve a page's head need the real,
-// fully-merged result rather than either hook in isolation, so a single resolver
-// keeps them from drifting on the merge order or on how a missing hook is
-// handled.
+// dev/build-parity path canonical, Open Graph, Twitter Card, JSON-LD, and the
+// hero preload go through, see the comment above transformPageData in
+// config.ts — and then transformHead's per-page additions, which stay
+// build-only (the 404's noindex meta). Both suites that resolve a page's head
+// need the real, fully-merged result rather than either hook in isolation, so a
+// single resolver keeps them from drifting on the merge order or on how a
+// missing hook is handled.
 export async function resolveHeadForPage(pageData: {
   isNotFound?: boolean;
 }): Promise<HeadEntry[]> {
   const { transformHead } = config;
   if (typeof transformHead !== "function") {
     throw new Error(
-      "config.transformHead is not a function — the hero preload and the 404's noindex meta are added there and would silently go unchecked",
+      "config.transformHead is not a function — the 404's noindex meta is added there and would silently go unchecked",
     );
   }
 
