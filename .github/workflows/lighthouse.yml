@@ -33,6 +33,10 @@ jobs:
       - name: Setup Node project
         uses: ./.github/actions/setup-node-project
 
+      # Do not set CONTEXT: production (or otherwise flip ANALYTICS_ENABLED in
+      # .vitepress/config.ts) here: lighthouserc.cjs's error-level
+      # categories:best-practices assertion depends on GA staying unloaded in
+      # this build, since GA is this site's only third-party cookie source.
       - name: Build
         run: npm run build
 

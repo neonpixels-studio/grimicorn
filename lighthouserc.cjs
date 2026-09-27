@@ -27,17 +27,13 @@ module.exports = {
         "categories:performance": ["error", { minScore: 0.9 }],
         "categories:accessibility": ["error", { minScore: 0.9 }],
         "categories:seo": ["error", { minScore: 0.9 }],
-        // Promoted from warn to error (#210). It was warn-only with no comment,
-        // apparently on the assumption that Google Analytics' third-party
-        // cookies would trip the `third-party-cookies` audit under this
-        // category and make it flaky. That's not actually reachable here: GA
-        // only loads when `ANALYTICS_ENABLED` (CONTEXT === "production", see
-        // .vitepress/config.ts) is true, and the Lighthouse workflow never sets
-        // CONTEXT, so GA never loads against the build this gate audits. A
-        // local `lhci autorun` against this config scored best-practices 1/1 on
-        // all 3 runs, with every audit in the category - including
-        // `third-party-cookies` - passing clean, so there's no live audit left
-        // to exclude.
+        // Error, not warn (#210): the only third-party cookie source on this
+        // site is GA, which loads only when `ANALYTICS_ENABLED`
+        // (CONTEXT === "production", see .vitepress/config.ts) is true. This
+        // gate depends on lighthouse.yml's Build step never setting CONTEXT to
+        // "production" - if it ever does, expect the `third-party-cookies`
+        // audit (and possibly this whole category) to start failing, and
+        // lighthouse.yml is the place to fix that, not this threshold.
         "categories:best-practices": ["error", { minScore: 0.9 }],
         // Not the textbook 2500ms: under lhci's default mobile formFactor +
         // simulated throttling, this page's LCP breakdown is ~450ms TTFB (a fixed
