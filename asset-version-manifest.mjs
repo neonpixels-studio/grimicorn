@@ -102,8 +102,15 @@ function isDirectoryFsyncSupported() {
 // cleanup steps in this module (removeTemporaryFileIfPresent(),
 // closeFileDescriptorQuietly() above). Exported so a test can exercise the
 // graceful-degradation path directly against real fs calls, with no need to mock
-// node:fs.
-export function fsyncDirectory(directoryPath) {
+// node:fs. `syncFileDescriptor` defaults to the real fsyncSync and is the same
+// kind of test-only injectable seam as atomicWriteFileSync's `syncDirectory`
+// below — it's what lets a test force the fsync call itself to fail (as opposed
+// to the open call, which a real permission-denied directory can already force)
+// without mocking node:fs.
+export function fsyncDirectory(
+  directoryPath,
+  { syncFileDescriptor = fsyncSync } = {},
+) {
   if (!isDirectoryFsyncSupported()) {
     return;
   }
@@ -117,7 +124,7 @@ export function fsyncDirectory(directoryPath) {
     return;
   }
   try {
-    fsyncSync(directoryFileDescriptor);
+    syncFileDescriptor(directoryFileDescriptor);
   } catch (fsyncError) {
     console.error(
       `Failed to fsync directory ${directoryPath}: ${fsyncError.message}`,
