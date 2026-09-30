@@ -938,20 +938,34 @@ onUnmounted(() => {
       </main>
 
       <!-- page footer -->
-      <footer
-        class="text-fg-dim flex justify-between border-t border-white/[0.07] py-7 text-[11px]"
-      >
-        <span>grimicorn.dev &mdash; &copy; {{ new Date().getFullYear() }}</span>
-        <span
-          >built dark &middot; shipped
-          <button
-            class="colorful-btn"
-            :aria-pressed="raveActive"
-            @click="toggleRave"
+      <footer class="text-fg-dim border-t border-white/[0.07] py-7 text-[11px]">
+        <div class="flex justify-between">
+          <span
+            >grimicorn.dev &mdash; &copy; {{ new Date().getFullYear() }}</span
           >
-            colorful
-          </button></span
-        >
+          <span
+            >built dark &middot; shipped
+            <button
+              class="colorful-btn"
+              :aria-pressed="raveActive"
+              @click="toggleRave"
+            >
+              colorful
+            </button></span
+          >
+        </div>
+        <!-- The one deliberate third-party integration on this otherwise
+           first-party site (see GA_MEASUREMENT_ID / ANALYTICS_ENABLED in
+           .vitepress/config.ts) — this line is the site's only disclosure that
+           pageviews leave the origin, so it must stay visible on every render,
+           not gated behind an interaction. -->
+        <p class="mt-3 max-w-[560px] leading-[1.6]">
+          Pageviews and basic usage data on the live production site are sent to
+          Google Analytics (GA4) &mdash; the only third-party service this site
+          automatically contacts. The github links above are the only other
+          place this page points off-site, and those only load if you click
+          them.
+        </p>
       </footer>
     </div>
 
