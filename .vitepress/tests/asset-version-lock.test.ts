@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, type MockInstance } from "vitest";
 import {
   chmodSync,
   existsSync,
@@ -27,6 +27,7 @@ import {
   compareAssetCacheBustTokens,
   droppedAssetPaths,
   fingerprintAssets,
+  fsyncDirectory,
   hashAssetBytes,
   parseAssetCacheBustToken,
   parseAssetVersionLock,
@@ -927,20 +928,39 @@ describe("syncWebManifestCacheBustTokensOnDisk", () => {
   });
 });
 
-describe("atomicWriteFileSync", () => {
-  // Exercises the real file I/O against a throwaway temp directory, never a file
-  // tracked in the repo.
-  function withTempDir(run: (_tempDir: string) => void) {
-    const tempDir = mkdtempSync(resolve(tmpdir(), "atomic-write-"));
-    try {
-      run(tempDir);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+// Exercises real file I/O against a throwaway temp directory (prefixed so a leaked
+// one is identifiable by which suite created it), never a file tracked in the
+// repo. Shared by atomicWriteFileSync's and fsyncDirectory's describes below,
+// which both need this same plain-temp-dir fixture (unlike withTempManifest,
+// withTempSourceModule, and withRegenerateLockFixture elsewhere in this file,
+// which each build a distinct fixture shape and so stay scoped to their own
+// describe).
+function withTempDir(prefix: string, run: (_tempDir: string) => void) {
+  const tempDir = mkdtempSync(resolve(tmpdir(), prefix));
+  try {
+    run(tempDir);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
   }
+}
+
+// Isolates the "did this log an error" check shared by fsyncDirectory's
+// graceful-degradation tests and atomicWriteFileSync's default-wiring test below,
+// restoring the spy afterward regardless of pass or fail.
+function withConsoleErrorSpy(run: (_errorSpy: MockInstance) => void) {
+  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    run(errorSpy);
+  } finally {
+    errorSpy.mockRestore();
+  }
+}
+
+describe("atomicWriteFileSync", () => {
+  const ATOMIC_WRITE_TEMP_DIR_PREFIX = "atomic-write-";
 
   it("writes the contents to the target path", () => {
-    withTempDir((tempDir) => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
       atomicWriteFileSync(targetPath, "hello");
       expect(readFileSync(targetPath, "utf8")).toBe("hello");
@@ -948,7 +968,7 @@ describe("atomicWriteFileSync", () => {
   });
 
   it("replaces existing content wholesale via rename, never a truncated in-place write", () => {
-    withTempDir((tempDir) => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
       writeFileSync(targetPath, "x".repeat(10_000));
       const inodeBeforeWrite = statSync(targetPath).ino;
@@ -963,7 +983,7 @@ describe("atomicWriteFileSync", () => {
   });
 
   it("leaves no temp file behind in the target directory after a successful write", () => {
-    withTempDir((tempDir) => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
       atomicWriteFileSync(targetPath, "hello");
       expect(readdirSync(tempDir)).toEqual(["lock.json"]);
@@ -971,7 +991,7 @@ describe("atomicWriteFileSync", () => {
   });
 
   it("cleans up the temp file and rethrows when the rename fails, leaving the original target untouched", () => {
-    withTempDir((tempDir) => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
       // Occupies the target path with a directory so renameSync(tempPath,
       // targetPath) fails (EISDIR) after the temp file was already written —
@@ -989,7 +1009,7 @@ describe("atomicWriteFileSync", () => {
   });
 
   it("cleans up after a write failure too (before any rename is attempted), leaving nothing behind", () => {
-    withTempDir((tempDir) => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       // The parent directory doesn't exist, so the temp file write itself fails
       // (ENOENT) before renameSync is ever reached — the other failure branch from
       // the rename-fails case above.
@@ -1002,7 +1022,7 @@ describe("atomicWriteFileSync", () => {
   });
 
   it("carries the target's existing file mode onto the replacement, rather than resetting it to the umask default", () => {
-    withTempDir((tempDir) => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
       writeFileSync(targetPath, "old");
       chmodSync(targetPath, 0o600);
@@ -1012,6 +1032,155 @@ describe("atomicWriteFileSync", () => {
       // to the umask-masked openSync default instead of the carried-over mode would
       // fail this assertion.
       expect(statSync(targetPath).mode & 0o777).toBe(0o600);
+    });
+  });
+
+  // Issue #213: vi.mock("node:fs") can't intercept calls made from this .mjs
+  // module under this repo's vitest setup (verified directly against a minimal
+  // fixture module), so these tests use `syncDirectory` as an injectable seam
+  // instead, the same pattern regenerateLock() already uses in
+  // scripts/regenerate-asset-version-lock.mjs.
+  it("fsyncs the parent directory only after the rename succeeds", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      const syncDirectory = vi.fn();
+      atomicWriteFileSync(targetPath, "hello", { syncDirectory });
+      expect(syncDirectory).toHaveBeenCalledTimes(1);
+      expect(syncDirectory).toHaveBeenCalledWith(dirname(targetPath));
+    });
+  });
+
+  it("does not fsync the parent directory when the write fails before any rename is attempted", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      // Same missing-parent-directory failure as the ENOENT case above: the write
+      // never reaches renameSync, so there is no new directory entry to make
+      // durable and the directory-fsync step must not run at all.
+      const targetPath = resolve(tempDir, "missing-dir", "lock.json");
+      const syncDirectory = vi.fn();
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello", { syncDirectory });
+      }).toThrow(expect.objectContaining({ code: "ENOENT" }));
+      expect(syncDirectory).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not fsync the parent directory when the rename itself fails", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      // Distinct from the write-failure case above: the temp file write succeeds
+      // here (targetPath's directory does exist), but renameSync fails because
+      // the target is itself a non-empty directory (EISDIR/ENOTEMPTY depending on
+      // platform) — the rename never commits, so there is still no new directory
+      // entry to make durable.
+      const targetPath = resolve(tempDir, "lock.json");
+      mkdirSync(targetPath);
+      writeFileSync(resolve(targetPath, "occupant"), "");
+      const syncDirectory = vi.fn();
+      expect(() => {
+        atomicWriteFileSync(targetPath, "hello", { syncDirectory });
+      }).toThrow();
+      expect(syncDirectory).not.toHaveBeenCalled();
+    });
+  });
+
+  // Permission bits, not mocking, are what make this distinguishable from a
+  // no-op default: chmod-ing the temp dir to write+execute-only (no read) still
+  // lets writeFileDurably()'s temp-file write and the rename both succeed (both
+  // only need write+execute on the containing directory), but makes fsyncDirectory's
+  // own openSync(dir, "r") fail for real — proving the real implementation, not a
+  // stub, is what runs by default. Skipped for root (permission bits are a no-op
+  // for uid 0) and Windows (fsyncDirectory short-circuits before opening anything
+  // there — see isDirectoryFsyncSupported()).
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "runs the real fsyncDirectory() by default, proven by its own permission-denied log line",
+    () => {
+      withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+        const targetPath = resolve(tempDir, "lock.json");
+        withConsoleErrorSpy((errorSpy) => {
+          chmodSync(tempDir, 0o300);
+          try {
+            atomicWriteFileSync(targetPath, "hello");
+            expect(readFileSync(targetPath, "utf8")).toBe("hello");
+            expect(errorSpy).toHaveBeenCalledWith(
+              expect.stringContaining("Failed to open directory"),
+            );
+          } finally {
+            chmodSync(tempDir, 0o700);
+          }
+        });
+      });
+    },
+  );
+});
+
+describe("fsyncDirectory", () => {
+  const FSYNC_DIRECTORY_TEMP_DIR_PREFIX = "fsync-directory-";
+
+  it("fsyncs a real directory without throwing or logging", () => {
+    // Proves the happy path against the real filesystem (no mocking): opening and
+    // fsyncing an ordinary directory that exists must never surface as a caller
+    // error, nor log one.
+    withTempDir(FSYNC_DIRECTORY_TEMP_DIR_PREFIX, (tempDir) => {
+      withConsoleErrorSpy((errorSpy) => {
+        expect(() => {
+          fsyncDirectory(tempDir);
+        }).not.toThrow();
+        expect(errorSpy).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // Skipped on Windows: isDirectoryFsyncSupported() short-circuits before ever
+  // calling openSync there, so neither the throw-suppression nor the log line
+  // this test checks would fire — that early return is exercised implicitly by
+  // every atomicWriteFileSync call on that platform instead.
+  it.skipIf(process.platform === "win32")(
+    "logs and swallows the error, instead of throwing or staying silent, when the directory can't be opened",
+    () => {
+      withTempDir(FSYNC_DIRECTORY_TEMP_DIR_PREFIX, (tempDir) => {
+        // A path that doesn't exist at all stands in for the "unsupported
+        // platform/filesystem" case the guard exists for: a real openSync
+        // failure the caller must never see as a thrown error (the rename this
+        // runs after has already completed successfully), but that must still
+        // reach the console so it's never a fully silent failure either.
+        const missingPath = resolve(tempDir, "does-not-exist-at-all", "nested");
+        withConsoleErrorSpy((errorSpy) => {
+          expect(() => {
+            fsyncDirectory(missingPath);
+          }).not.toThrow();
+          expect(errorSpy).toHaveBeenCalledWith(
+            expect.stringContaining("Failed to open directory"),
+          );
+        });
+      });
+    },
+  );
+
+  it("logs and swallows the error, and still closes the descriptor, when the fsync call itself fails", () => {
+    // Distinct from the open-failure case above: the directory opens fine here,
+    // so this exercises fsyncDirectory's other failure branch, via the same kind
+    // of injectable seam atomicWriteFileSync's `syncDirectory` already uses
+    // above (node:fs itself can't be mocked in this project's vitest setup, and
+    // unlike a failed open, there's no permission bit that makes an already-open
+    // fd's own fsync call fail on its own).
+    withTempDir(FSYNC_DIRECTORY_TEMP_DIR_PREFIX, (tempDir) => {
+      withConsoleErrorSpy((errorSpy) => {
+        const syncFileDescriptor = vi.fn(() => {
+          throw new Error("boom");
+        });
+        expect(() => {
+          fsyncDirectory(tempDir, { syncFileDescriptor });
+        }).not.toThrow();
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.stringContaining("Failed to fsync directory"),
+        );
+        // Only the fsync call was made to fail; the descriptor it opened must
+        // still close cleanly on its own success path — a close failure would
+        // additionally log a "Failed to close directory descriptor" line, which
+        // must not appear here.
+        expect(errorSpy).not.toHaveBeenCalledWith(
+          expect.stringContaining("Failed to close"),
+        );
+      });
     });
   });
 });
