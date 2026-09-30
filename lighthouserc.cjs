@@ -27,7 +27,14 @@ module.exports = {
         "categories:performance": ["error", { minScore: 0.9 }],
         "categories:accessibility": ["error", { minScore: 0.9 }],
         "categories:seo": ["error", { minScore: 0.9 }],
-        "categories:best-practices": ["warn", { minScore: 0.9 }],
+        // Error, not warn (#210): this gate assumes GA stays unloaded in the
+        // build it audits. GA only loads when `ANALYTICS_ENABLED`
+        // (CONTEXT === "production", see .vitepress/config.ts) is true, and
+        // lighthouse.yml's Build step never sets CONTEXT. If that ever
+        // changes, GA's requests/cookies could drop this category below
+        // threshold - fix that in lighthouse.yml (keep CONTEXT unset there),
+        // not by loosening this assertion back to warn.
+        "categories:best-practices": ["error", { minScore: 0.9 }],
         // Not the textbook 2500ms: under lhci's default mobile formFactor +
         // simulated throttling, this page's LCP breakdown is ~450ms TTFB (a fixed
         // floor from the simulated network profile, not real server latency) plus
