@@ -67,6 +67,12 @@ const OG_IMAGE_ALT =
 // matches what an avif-capable client actually fetches with no wasted bytes. A second
 // type-differentiated preload (webp) would double-download in browsers that support
 // both formats, so we intentionally omit it.
+//
+// Added per-page via transformPageData (see below), not the static `head` list,
+// for the same reason as INDEXABLE_HEAD_ENTRIES below: VitePress's mergeHead can
+// only add or override a `meta` tag, never remove a `link` tag once it's in the
+// static site-wide `head` array, and this must be omitted on the 404 (which
+// renders no hero) rather than merely duplicated or overridden.
 const HERO_IMAGE_HREF = withAssetCacheBust(HERO_AVIF_HREF);
 const HERO_IMAGE_TYPE = "image/avif";
 const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
@@ -250,29 +256,31 @@ export default defineConfig({
     // is scoped per page.
     ...GA_HEAD_ENTRIES,
   ],
-  // Scope INDEXABLE_HEAD_ENTRIES (see rationale above) to every page except the
-  // 404. AppLayout shows NotFound when page.isNotFound and GrimicornPage
-  // otherwise, so this mirrors that exact condition.
+  // Scope INDEXABLE_HEAD_ENTRIES and HERO_PRELOAD_HEAD_ENTRY (see rationale
+  // above) to every page except the 404. AppLayout shows NotFound when
+  // page.isNotFound and GrimicornPage otherwise, so this mirrors that exact
+  // condition — the 404 renders no hero, and preloading it there would burn a
+  // high-priority request and trip Chrome's "preloaded but not used" warning.
   //
   // transformPageData runs through the same markdown-render pipeline VitePress
   // uses for both `vitepress dev` and `vitepress build`: it sets
   // pageData.frontmatter.head, which VitePress merges into the rendered head both
   // server-side (static HTML) and client-side, via the per-route watchEffect that
   // re-applies `frontmatter.head` on every navigation (dist/client/app/composables/head.js).
-  // That's what gives canonical/OG/Twitter/JSON-LD dev/build parity — unlike
-  // transformHead below, which only ever runs at build time. Don't move these
-  // entries back into transformHead or the static `head` array; either
+  // That's what gives canonical/OG/Twitter/JSON-LD/hero-preload dev/build parity —
+  // unlike transformHead below, which only ever runs at build time. Don't move
+  // these entries back into transformHead or the static `head` array; either
   // reintroduces the dev/build mismatch (transformHead) or the inability to omit
   // them on the 404 (static `head`, see rationale above).
   //
   // The isNotFound guard below is defensive, not what actually keeps the
-  // indexable tags off today's 404: this repo has no 404.md, so VitePress never
-  // runs transformPageData for the 404 at all — client-side it uses a hardcoded
-  // not-found pageData, and at build time a notFoundPageData stand-in, neither of
-  // which goes through this hook. (Confirmed by instrumenting this function and
-  // running `npm run build`: it fires only for index.md and README.md.) The 404
-  // omits the indexable tags simply because its frontmatter never gets
-  // INDEXABLE_HEAD_ENTRIES added to it. The guard mirrors transformHead's
+  // indexable tags and hero preload off today's 404: this repo has no 404.md, so
+  // VitePress never runs transformPageData for the 404 at all — client-side it
+  // uses a hardcoded not-found pageData, and at build time a notFoundPageData
+  // stand-in, neither of which goes through this hook. (Confirmed by
+  // instrumenting this function and running `npm run build`: it fires only for
+  // index.md and README.md.) The 404 omits these entries simply because its
+  // frontmatter never gets them added. The guard mirrors transformHead's
   // identical `pageData.isNotFound` check below so the two hooks agree on intent,
   // and stops this hook from doing the wrong thing on the day a custom 404.md
   // starts flowing through it — but on that day, a normally-rendered page's
@@ -289,35 +297,35 @@ export default defineConfig({
     return {
       frontmatter: {
         ...pageData.frontmatter,
-        head: [...(pageData.frontmatter.head ?? []), ...INDEXABLE_HEAD_ENTRIES],
+        head: [
+          ...(pageData.frontmatter.head ?? []),
+          ...INDEXABLE_HEAD_ENTRIES,
+          HERO_PRELOAD_HEAD_ENTRY,
+        ],
       },
     };
   },
-  // Two effects that remain build-only, unlike INDEXABLE_HEAD_ENTRIES above:
-  // - The hero preload, scoped to every page except the 404 (preloading it there
-  //   would burn a high-priority request and trip Chrome's "preloaded but not
-  //   used" warning). It's a performance hint, not an indexing signal, so it's
-  //   out of scope for dev/build parity (see the issue this guards against).
-  // - The 404's `noindex` meta tag.
-  // Both are baked into the static HTML under `vitepress build`/`preview` only —
-  // verify against a production build, not `vitepress dev`. transformHead is also
-  // SSR-only in both directions: a client-side route change never re-runs it
-  // (VitePress's client-side head updater applies `pageData.frontmatter.head`, not
+  // The one effect that remains build-only: the 404's `noindex` meta tag. Baked
+  // into the static HTML under `vitepress build`/`preview` only — verify against
+  // a production build, not `vitepress dev`. transformHead is also SSR-only in
+  // both directions: a client-side route change never re-runs it (VitePress's
+  // client-side head updater applies `pageData.frontmatter.head`, not
   // transformHead's return value — see transformPageData above). Moving
-  // INDEXABLE_HEAD_ENTRIES into frontmatter.head fixes one side of this for the
-  // indexable tags themselves: a client-side nav onto the 404 no longer leaves
-  // stale canonical/OG/Twitter/JSON-LD tags behind, since frontmatter.head is part
-  // of what the client head updater diffs and reconciles on every navigation. The
-  // `noindex` meta tag isn't so lucky — it stays transformHead-only, so it isn't
-  // tracked by that same diffing, and a client-side nav off the 404 leaves it in
-  // the DOM for the rest of that SPA session. Crawlers and scrapers fetch each URL
-  // directly and get the correct baked-in head, which is the case this guards
-  // against, so the practical risk is low.
+  // INDEXABLE_HEAD_ENTRIES and HERO_PRELOAD_HEAD_ENTRY into frontmatter.head
+  // fixes one side of this for those entries: a client-side nav onto the 404 no
+  // longer leaves stale canonical/OG/Twitter/JSON-LD/hero-preload tags behind,
+  // since frontmatter.head is part of what the client head updater diffs and
+  // reconciles on every navigation. The `noindex` meta tag isn't so lucky — it
+  // stays transformHead-only, so it isn't tracked by that same diffing, and a
+  // client-side nav off the 404 leaves it in the DOM for the rest of that SPA
+  // session. Crawlers and scrapers fetch each URL directly and get the correct
+  // baked-in head, which is the case this guards against, so the practical risk
+  // is low.
   transformHead: ({ pageData }) => {
     if (pageData.isNotFound) {
       return [NOT_FOUND_ROBOTS_HEAD_ENTRY, NOT_FOUND_DESCRIPTION_HEAD_ENTRY];
     }
-    return [HERO_PRELOAD_HEAD_ENTRY];
+    return [];
   },
   // The <title> tag has no equivalent override seam: it's written directly by
   // VitePress's renderPage from `createTitle(siteData, pageData)`, and unlike

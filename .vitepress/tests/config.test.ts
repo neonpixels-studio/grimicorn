@@ -1276,14 +1276,15 @@ describe("404 page title and meta description", () => {
 
 // resolveHeadForPage above proves the fully-merged head is correct, but it merges
 // transformPageData's and transformHead's output together — it would still pass
-// even if the indexable tags leaked back into transformHead (build-only) instead
-// of transformPageData (dev + build). These assertions call each hook in
-// isolation, pinning the exact hook the issue this guards against requires:
-// https://github.com/neonpixels-studio/grimicorn/issues/190 — canonical, OG,
-// Twitter, and JSON-LD must render identically under `vitepress dev` (which never
+// even if the indexable tags or the hero preload leaked back into transformHead
+// (build-only) instead of transformPageData (dev + build). These assertions call
+// each hook in isolation, pinning the exact hook the issues this guards against
+// require: https://github.com/neonpixels-studio/grimicorn/issues/190 (canonical,
+// OG, Twitter, JSON-LD) and https://github.com/neonpixels-studio/grimicorn/issues/211
+// (hero preload) must all render identically under `vitepress dev` (which never
 // runs transformHead) and `vitepress build`.
 describe("Dev/build head parity", () => {
-  it("adds the indexable tags via transformPageData, the hook that also runs under `vitepress dev`", async () => {
+  it("adds the indexable tags and the hero preload via transformPageData, the hook that also runs under `vitepress dev`", async () => {
     const resolvedPageData = await callTransformPageData(
       buildFixturePageData({ isNotFound: false }),
     );
@@ -1293,14 +1294,16 @@ describe("Dev/build head parity", () => {
     expect(hasMetaTag(frontmatterHead, "og:title")).toBe(true);
     expect(hasMetaTag(frontmatterHead, "twitter:card")).toBe(true);
     expect(hasJsonLdScript(frontmatterHead)).toBe(true);
+    expect(filterPreloadImageEntries(frontmatterHead)).toHaveLength(1);
   });
 
   // VitePress never actually calls transformPageData with isNotFound: true today
   // (see the comment above the guard in config.ts) — the 404 omits the indexable
-  // tags because it never reaches this hook at all, not because of this branch.
-  // This pins the guard's intent as a defensive no-op so a future refactor can't
-  // silently drop it, not a claim that this input occurs in the real pipeline.
-  it("short-circuits without adding indexable tags if isNotFound is ever true, though VitePress does not call this hook for today's 404", async () => {
+  // tags and the hero preload because it never reaches this hook at all, not
+  // because of this branch. This pins the guard's intent as a defensive no-op so
+  // a future refactor can't silently drop it, not a claim that this input occurs
+  // in the real pipeline.
+  it("short-circuits without adding the indexable tags or the hero preload if isNotFound is ever true, though VitePress does not call this hook for today's 404", async () => {
     const resolvedPageData = await callTransformPageData(
       buildFixturePageData({ isNotFound: true }),
     );
@@ -1325,7 +1328,7 @@ describe("Dev/build head parity", () => {
     expect(hasLinkRel(frontmatterHead, "canonical")).toBe(true);
   });
 
-  it("does not add the indexable tags via transformHead, which is build-only", () => {
+  it("does not add the indexable tags or the hero preload via transformHead, which is build-only", () => {
     if (typeof config.transformHead !== "function") {
       throw new Error("config.transformHead is not a function");
     }
@@ -1337,5 +1340,6 @@ describe("Dev/build head parity", () => {
     expect(hasMetaTag(headEntries, "og:title")).toBe(false);
     expect(hasMetaTag(headEntries, "twitter:card")).toBe(false);
     expect(hasJsonLdScript(headEntries)).toBe(false);
+    expect(filterPreloadImageEntries(headEntries)).toHaveLength(0);
   });
 });
