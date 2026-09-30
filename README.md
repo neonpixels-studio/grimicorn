@@ -43,6 +43,21 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 Run `npm run lint && npm run typecheck && npm run test:ci && npm run test:e2e` locally before pushing to match CI (`test:e2e` builds the site itself, and needs the browser installs from Requirements).
 
+## Known test-coverage gaps
+
+### Forced-colors (Windows High Contrast Mode) rendering has no automated check on WebKit
+
+The `forced-colors gradient-text fallback` describe in `.vitepress/tests/style.test.ts` guards the `@media (forced-colors: active)` rules in `style.css` by parsing the stylesheet as text — it proves the right declarations exist and win the cascade, but it never asks a real browser to render the page under forced-colors and check what actually paints. No spec in `.vitepress/e2e` closes that gap today: none of them call `page.emulateMedia({ forcedColors: "active" })`.
+
+Verified locally against `@playwright/test@1.63.0` (September 2026, across all three `test:e2e` projects) that `page.emulateMedia({ forcedColors: "active" })` behaves differently per engine — re-check this if `@playwright/test` gets bumped, since Dependabot tracks it here:
+
+- **Chromium and Firefox:** the emulation is real. `matchMedia("(forced-colors: active)").matches` reports `true`, the page's own `@media (forced-colors: active)` rule is actually applied, and `CanvasText`/`Canvas` resolve to real system colors — i.e. a spec asserting on computed styles here would genuinely exercise the fallback CSS.
+- **WebKit:** the emulation is a false positive. `matchMedia(...).matches` also reports `true`, but the `@media (forced-colors: active)` rule is never applied to the cascade — computed styles come back identical to forced-colors being off. A spec that only checks `matches` would pass while testing nothing; a spec that checks computed styles would correctly fail, but for the wrong reason (Playwright's emulation, not a real app bug).
+
+Chromium and Firefox could get genuine automated forced-colors rendering coverage today: a spec asserting computed styles under `page.emulateMedia({ forcedColors: "active" })` in the `chromium` and `firefox` projects would exercise the real fallback CSS. **WebKit cannot** — its Playwright forced-colors emulation doesn't apply the cascade, and WebKit/Safari has no known OS-level forced-colors trigger on macOS or iOS either (unlike Windows' Contrast Themes or Firefox's own override-colors setting). So there is currently no way, automated or manual, to exercise WebKit's real forced-colors handling. Treat the WebKit half as an accepted, currently-irreducible gap rather than a periodic checklist item: revisit it if a future WebKit/Playwright release starts applying the cascade under emulation, or if Safari/macOS ever exposes a forced-colors trigger.
+
+In the meantime, Chromium and Firefox forced-colors rendering can be spot-checked manually: build the site (`npm run build && node .vitepress/e2e/serve-dist.mjs <port>`) and load it with `forced-colors: active` triggered for real — a Windows Contrast Theme covers both engines natively; on any OS, Firefox has its own independent toggle (Settings → Language and Appearance → Colors → "Manage Colors…" → set "Override the colors specified by the page with your selections above" to **Always**) — then confirm the GRIMICORN/AGENT wordmarks, the 404 numeral, and `.colorful-btn` (including `:hover` and the pause-toggle's pressed state) all stay visible per the fallback rules asserted in the `forced-colors gradient-text fallback` describe in `style.test.ts`.
+
 ## Non-obvious invariants
 
 These are the contracts a naive change can silently break. Each is enforced by code and/or tests; read this before touching fonts, headers, cached assets, or `netlify.toml`.
