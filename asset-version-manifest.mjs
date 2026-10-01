@@ -5,8 +5,10 @@ import {
   existsSync,
   fchmodSync,
   fsyncSync,
+  lstatSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -174,6 +176,20 @@ function writeFileDurably(filePath, temporaryPath, contents) {
   }
 }
 
+// renameSync replaces a symlink at the target path with a regular file instead of
+// writing through it, as a plain writeFileSync would have. So a symlinked target is
+// resolved to the file it points at first; the temp file then lands next to that
+// real file (keeping the rename on one filesystem) and the symlink itself survives.
+// Only a symlink whose destination exists is resolved: a plain file keeps its path
+// as-is (no needless canonicalizing of parent directories), and a missing or
+// dangling target keeps the existing behavior of being created/replaced in place.
+function resolveSymlinkedTarget(filePath) {
+  if (!existsSync(filePath) || !lstatSync(filePath).isSymbolicLink()) {
+    return filePath;
+  }
+  return realpathSync(filePath);
+}
+
 // Writes `contents` to `filePath` without ever leaving a truncated/partial file in
 // its place, even if the write is interrupted. The temp file is created in the same
 // directory as `filePath` (never os.tmpdir()) specifically so the rename is a
@@ -191,10 +207,11 @@ function writeFileDurably(filePath, temporaryPath, contents) {
 // default-parameter injection regenerateLock() already uses in
 // scripts/regenerate-asset-version-lock.mjs.
 export function atomicWriteFileSync(
-  filePath,
+  requestedPath,
   contents,
   { syncDirectory = fsyncDirectory } = {},
 ) {
+  const filePath = resolveSymlinkedTarget(requestedPath);
   const temporaryPath = temporaryPathFor(filePath);
   try {
     writeFileDurably(filePath, temporaryPath, contents);

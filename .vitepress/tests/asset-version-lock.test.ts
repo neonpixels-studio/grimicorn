@@ -2,6 +2,7 @@ import { describe, it, expect, vi, type MockInstance } from "vitest";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -1032,6 +1033,41 @@ describe("atomicWriteFileSync", () => {
       // to the umask-masked openSync default instead of the carried-over mode would
       // fail this assertion.
       expect(statSync(targetPath).mode & 0o777).toBe(0o600);
+    });
+  });
+
+  it("writes through a symlinked target, leaving the symlink in place and updating the file it points at", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      const realDir = resolve(tempDir, "real");
+      mkdirSync(realDir);
+      const realPath = resolve(realDir, "lock.json");
+      const linkPath = resolve(tempDir, "link.json");
+      writeFileSync(realPath, "old");
+      symlinkSync(realPath, linkPath);
+      atomicWriteFileSync(linkPath, "new");
+      expect(lstatSync(linkPath).isSymbolicLink()).toBe(true);
+      expect(readFileSync(realPath, "utf8")).toBe("new");
+      expect(readdirSync(realDir)).toEqual(["lock.json"]);
+      expect(readdirSync(tempDir).sort()).toEqual(["link.json", "real"]);
+    });
+  });
+
+  it("replaces a plain file with a regular file at the same path", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      writeFileSync(targetPath, "old");
+      atomicWriteFileSync(targetPath, "new");
+      expect(lstatSync(targetPath).isSymbolicLink()).toBe(false);
+      expect(readFileSync(targetPath, "utf8")).toBe("new");
+    });
+  });
+
+  it("creates a missing target as a regular file", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      const targetPath = resolve(tempDir, "lock.json");
+      atomicWriteFileSync(targetPath, "new");
+      expect(lstatSync(targetPath).isFile()).toBe(true);
+      expect(readFileSync(targetPath, "utf8")).toBe("new");
     });
   });
 
