@@ -20,6 +20,9 @@ const EMULATION_BROWSERS = ["chromium", "firefox"];
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 
 // The unknown route is served the generated 404.html (see serve-dist.mjs).
+// The pause toggle is the page's `.colorful-btn.pause-toggle`.
+const PAUSE_TOGGLE_NAME = "pause live updates";
+
 const NOT_FOUND_PATH = "/forced-colors-missing-page";
 
 test.beforeEach(async ({ page, browserName }) => {
@@ -41,6 +44,11 @@ function resolveCanvasText(page: Page) {
     probe.remove();
     return resolved;
   });
+}
+
+// Clears :hover so the resting-state rules apply to a button the pointer last touched.
+function movePointerAway(page: Page) {
+  return page.mouse.move(0, 0);
 }
 
 function readTextStyle(locator: Locator) {
@@ -80,7 +88,10 @@ test("the AGENT wordmark keeps a visible color once its gradient is stripped", a
 }) => {
   await page.goto("/");
 
-  await expectPaintsCanvasText(page, page.locator("h1 span.bg-clip-text"));
+  await expectPaintsCanvasText(
+    page,
+    page.locator("h1 span.bg-clip-text", { hasText: "AGENT" }),
+  );
 });
 
 test("the 404 numeral keeps a visible color once its gradient is stripped", async ({
@@ -98,12 +109,14 @@ test("the colorful button paints CanvasText at rest and underlines on hover", as
   page,
 }) => {
   await page.goto("/");
-  const pauseToggle = page.getByRole("button", { name: "pause live updates" });
+  const pauseToggle = page.getByRole("button", { name: PAUSE_TOGGLE_NAME });
   await expect(pauseToggle).toBeVisible();
-  await page.mouse.move(0, 0);
+  await movePointerAway(page);
 
   await expectPaintsCanvasText(page, pauseToggle);
-  expect((await readTextStyle(pauseToggle)).textDecorationLine).toBe("none");
+  await expect
+    .poll(async () => (await readTextStyle(pauseToggle)).textDecorationLine)
+    .toBe("none");
 
   await pauseToggle.hover();
 
@@ -117,12 +130,12 @@ test("the pressed pause toggle stays underlined at rest and is marked by a doubl
   page,
 }) => {
   await page.goto("/");
-  const pauseToggle = page.getByRole("button", { name: "pause live updates" });
+  const pauseToggle = page.getByRole("button", { name: PAUSE_TOGGLE_NAME });
   await expect(pauseToggle).toBeVisible();
 
   await pauseToggle.click();
   await expect(pauseToggle).toHaveAttribute("aria-pressed", "true");
-  await page.mouse.move(0, 0);
+  await movePointerAway(page);
 
   // At rest, `.pause-toggle[aria-pressed="true"]:not(:hover)` (higher
   // specificity than the forced-colors override) is what supplies the cue, so
@@ -136,7 +149,7 @@ test("the pressed pause toggle stays underlined at rest and is marked by a doubl
   await pauseToggle.hover();
 
   await expect
-    .poll(async () => await readTextStyle(pauseToggle))
+    .poll(() => readTextStyle(pauseToggle))
     .toMatchObject({
       textDecorationLine: "underline",
       textDecorationStyle: "double",
