@@ -960,11 +960,12 @@ onUnmounted(() => {
            pageviews leave the origin, so it must stay visible on every render,
            not gated behind an interaction. -->
         <p class="mt-3 max-w-[560px] leading-[1.6]">
-          Pageviews and basic usage data on the live production site are sent to
-          Google Analytics (GA4) &mdash; the only third-party service this site
-          automatically contacts. The github links above are the only other
-          place this page points off-site, and those only load if you click
-          them.
+          Pageviews and basic usage data on the live production site, including
+          scrolling, outbound link clicks, file downloads, site searches, and
+          video plays, are sent to Google Analytics (GA4) &mdash; the only
+          third-party service this site automatically contacts. The github links
+          above are the only other place this page points off-site, and those
+          only load if you click them.
         </p>
       </footer>
     </div>

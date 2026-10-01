@@ -873,6 +873,20 @@ describe("GrimicornPage", () => {
 
       wrapper.unmount();
     });
+
+    // GA4 Enhanced Measurement is a property-level setting outside this repo,
+    // so the copy must stay accurate whether or not it is enabled.
+    it("discloses the GA4 Enhanced Measurement event types in the footer", async () => {
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const footerText = wrapper.find("footer").text();
+      expect(footerText).toMatch(
+        /including scrolling, outbound link clicks, file downloads, site searches, and video plays, are sent to Google Analytics \(GA4\)/,
+      );
+
+      wrapper.unmount();
+    });
   });
 
   describe("cursor-linked parallax and prefers-reduced-motion", () => {
