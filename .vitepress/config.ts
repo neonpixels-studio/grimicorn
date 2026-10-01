@@ -3,6 +3,7 @@ import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
+import { buildGaBootstrapScript } from "./analytics";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
@@ -26,26 +27,13 @@ const GA_MEASUREMENT_ID = "G-0R2LBBYFB7";
 // non-production build stays strictly first-party.
 const ANALYTICS_ENABLED = process.env.CONTEXT === "production";
 
-// The gtag loader is external (covered by script-src's googletagmanager.com
-// origin); the inline config script carries no hash here because
-// collectScriptHashes hashes it out of the built HTML at build time, exactly like
-// VitePress's own inline bootstrap scripts. Empty when analytics is disabled so no
-// GA tag reaches dev/preview/branch output.
+// The inline bootstrap (see ./analytics) skips the gtag loader entirely for
+// visitors whose browser sends Global Privacy Control or Do Not Track, and carries
+// no hash here because collectScriptHashes hashes it out of the built HTML at build
+// time, exactly like VitePress's own inline bootstrap scripts. Empty when analytics
+// is disabled so no GA tag reaches dev/preview/branch output.
 const GA_HEAD_ENTRIES: HeadConfig[] = ANALYTICS_ENABLED
-  ? [
-      [
-        "script",
-        {
-          async: "",
-          src: `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`,
-        },
-      ],
-      [
-        "script",
-        {},
-        `window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\n\ngtag('config', '${GA_MEASUREMENT_ID}');`,
-      ],
-    ]
+  ? [["script", {}, buildGaBootstrapScript(GA_MEASUREMENT_ID)]]
   : [];
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
