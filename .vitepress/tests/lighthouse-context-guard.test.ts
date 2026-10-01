@@ -93,8 +93,8 @@ describe("lighthouse.yml CONTEXT guard", () => {
   });
 
   it("matches the exact predicate config.ts uses for analytics", () => {
-    expect(readFileSync(CONFIG_PATH, "utf8")).toContain(
-      CONFIG_PRODUCTION_CHECK,
+    expect(readFileSync(CONFIG_PATH, "utf8")).toMatch(
+      CONFIG_ANALYTICS_ASSIGNMENT,
     );
   });
 });
