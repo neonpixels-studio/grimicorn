@@ -965,9 +965,10 @@ onUnmounted(() => {
           Google Analytics (GA4) &mdash; the only third-party service this site
           automatically contacts. Depending on the analytics property&rsquo;s
           settings, that may include scrolling, outbound link clicks, file
-          downloads, site searches, video plays, and form interactions. The
-          github links above are the only other place this page points off-site,
-          and those only load if you click them.
+          downloads, site searches, video engagement (plays, progress,
+          completions), and form interactions. The github links above are the
+          only other place this page points off-site, and those only load if you
+          click them.
         </p>
       </footer>
     </div>

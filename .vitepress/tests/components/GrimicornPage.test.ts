@@ -887,7 +887,7 @@ describe("GrimicornPage", () => {
         "outbound link clicks",
         "file downloads",
         "site searches",
-        "video plays",
+        "video engagement",
         "form interactions",
       ];
       expect(footerText).toMatch(/that may include/);
