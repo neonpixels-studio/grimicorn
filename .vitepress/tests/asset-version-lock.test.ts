@@ -1052,6 +1052,35 @@ describe("atomicWriteFileSync", () => {
     });
   });
 
+  it("resolves relative and chained symlinks, keeping every link in place", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      mkdirSync(resolve(tempDir, "real"));
+      const realPath = resolve(tempDir, "real", "lock.json");
+      const firstLinkPath = resolve(tempDir, "first.json");
+      const secondLinkPath = resolve(tempDir, "second.json");
+      writeFileSync(realPath, "old");
+      // Relative targets resolve against the link's directory, not the process cwd.
+      symlinkSync("real/lock.json", firstLinkPath);
+      symlinkSync("first.json", secondLinkPath);
+      atomicWriteFileSync(secondLinkPath, "new");
+      expect(lstatSync(firstLinkPath).isSymbolicLink()).toBe(true);
+      expect(lstatSync(secondLinkPath).isSymbolicLink()).toBe(true);
+      expect(readFileSync(realPath, "utf8")).toBe("new");
+    });
+  });
+
+  it("replaces a dangling symlink with a regular file rather than creating its missing destination", () => {
+    withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
+      const missingPath = resolve(tempDir, "missing.json");
+      const linkPath = resolve(tempDir, "link.json");
+      symlinkSync(missingPath, linkPath);
+      atomicWriteFileSync(linkPath, "new");
+      expect(lstatSync(linkPath).isSymbolicLink()).toBe(false);
+      expect(readFileSync(linkPath, "utf8")).toBe("new");
+      expect(existsSync(missingPath)).toBe(false);
+    });
+  });
+
   it("replaces a plain file with a regular file at the same path", () => {
     withTempDir(ATOMIC_WRITE_TEMP_DIR_PREFIX, (tempDir) => {
       const targetPath = resolve(tempDir, "lock.json");
