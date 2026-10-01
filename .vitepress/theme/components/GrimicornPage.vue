@@ -957,8 +957,9 @@ onUnmounted(() => {
         <!-- The one deliberate third-party integration on this otherwise
            first-party site (see GA_MEASUREMENT_ID / ANALYTICS_ENABLED in
            .vitepress/config.ts) — this line is the site's only disclosure that
-           pageviews and Enhanced Measurement events leave the origin, so it must stay visible on every render,
-           not gated behind an interaction. -->
+           pageviews (and, depending on the GA4 property's Enhanced Measurement
+           settings, other interaction events) leave the origin, so it must stay
+           visible on every render, not gated behind an interaction. -->
         <p class="mt-3 max-w-[560px] leading-[1.6]">
           Pageviews and basic usage data on the live production site are sent to
           Google Analytics (GA4) &mdash; the only third-party service this site
