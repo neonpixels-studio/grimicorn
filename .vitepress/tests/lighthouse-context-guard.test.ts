@@ -16,9 +16,10 @@ const GUARD_STEP_NAME = "Guard against CONTEXT=production";
 const FIRST_STEP_MARKER = "    steps:\n";
 const NEXT_STEP_MARKER = "\n      - ";
 const RUN_BLOCK_PATTERN = /run: \|\n((?: {10}.*\n?)+)/;
-const CONTEXT_ASSIGNMENT_PATTERN = /\bCONTEXT\s*[:=]/;
+const CONTEXT_ASSIGNMENT_PATTERN = /\bCONTEXT["']?\s*[:=]/;
 const CONFIG_PATH = resolve(process.cwd(), ".vitepress/config.ts");
-const CONFIG_PRODUCTION_CHECK = 'process.env.CONTEXT === "production"';
+const CONFIG_ANALYTICS_ASSIGNMENT =
+  /const ANALYTICS_ENABLED\s*=\s*process\.env\.CONTEXT === "production";/;
 
 const workflow = readFileSync(WORKFLOW_PATH, "utf8");
 
