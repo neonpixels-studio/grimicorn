@@ -1066,6 +1066,12 @@ describe("atomicWriteFileSync", () => {
       expect(lstatSync(firstLinkPath).isSymbolicLink()).toBe(true);
       expect(lstatSync(secondLinkPath).isSymbolicLink()).toBe(true);
       expect(readFileSync(realPath, "utf8")).toBe("new");
+      expect(readdirSync(resolve(tempDir, "real"))).toEqual(["lock.json"]);
+      expect(readdirSync(tempDir).sort()).toEqual([
+        "first.json",
+        "real",
+        "second.json",
+      ]);
     });
   });
 
