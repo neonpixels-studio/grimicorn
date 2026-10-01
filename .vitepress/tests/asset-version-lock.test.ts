@@ -1084,6 +1084,7 @@ describe("atomicWriteFileSync", () => {
       expect(lstatSync(linkPath).isSymbolicLink()).toBe(false);
       expect(readFileSync(linkPath, "utf8")).toBe("new");
       expect(existsSync(missingPath)).toBe(false);
+      expect(readdirSync(tempDir)).toEqual(["link.json"]);
     });
   });
 
@@ -1094,6 +1095,7 @@ describe("atomicWriteFileSync", () => {
       atomicWriteFileSync(targetPath, "new");
       expect(lstatSync(targetPath).isSymbolicLink()).toBe(false);
       expect(readFileSync(targetPath, "utf8")).toBe("new");
+      expect(readdirSync(tempDir)).toEqual(["lock.json"]);
     });
   });
 
@@ -1103,6 +1105,7 @@ describe("atomicWriteFileSync", () => {
       atomicWriteFileSync(targetPath, "new");
       expect(lstatSync(targetPath).isFile()).toBe(true);
       expect(readFileSync(targetPath, "utf8")).toBe("new");
+      expect(readdirSync(tempDir)).toEqual(["lock.json"]);
     });
   });
 
