@@ -19,10 +19,10 @@ const EMULATION_BROWSERS = ["chromium", "firefox"];
 // nothing at all with this value, which is the exact bug the fallback prevents.
 const TRANSPARENT_COLOR = "rgba(0, 0, 0, 0)";
 
-// The unknown route is served the generated 404.html (see serve-dist.mjs).
 // The pause toggle is the page's `.colorful-btn.pause-toggle`.
 const PAUSE_TOGGLE_NAME = "pause live updates";
 
+// The unknown route is served the generated 404.html (see serve-dist.mjs).
 const NOT_FOUND_PATH = "/forced-colors-missing-page";
 
 test.beforeEach(async ({ page, browserName }) => {
@@ -60,6 +60,12 @@ function readTextStyle(locator: Locator) {
       textDecorationStyle: style.textDecorationStyle,
     };
   });
+}
+
+function expectDecorationLine(locator: Locator, line: string) {
+  return expect
+    .poll(async () => (await readTextStyle(locator)).textDecorationLine)
+    .toBe(line);
 }
 
 async function expectPaintsCanvasText(page: Page, locator: Locator) {
@@ -114,16 +120,12 @@ test("the colorful button paints CanvasText at rest and underlines on hover", as
   await movePointerAway(page);
 
   await expectPaintsCanvasText(page, pauseToggle);
-  await expect
-    .poll(async () => (await readTextStyle(pauseToggle)).textDecorationLine)
-    .toBe("none");
+  await expectDecorationLine(pauseToggle, "none");
 
   await pauseToggle.hover();
 
   await expectPaintsCanvasText(page, pauseToggle);
-  await expect
-    .poll(async () => (await readTextStyle(pauseToggle)).textDecorationLine)
-    .toBe("underline");
+  await expectDecorationLine(pauseToggle, "underline");
 });
 
 test("the pressed pause toggle stays underlined at rest and is marked by a double underline on hover", async ({
@@ -141,8 +143,11 @@ test("the pressed pause toggle stays underlined at rest and is marked by a doubl
   // specificity than the forced-colors override) is what supplies the cue, so
   // the style is a plain underline, not the double one.
   await expect
-    .poll(async () => (await readTextStyle(pauseToggle)).textDecorationLine)
-    .toBe("underline");
+    .poll(() => readTextStyle(pauseToggle))
+    .toMatchObject({
+      textDecorationLine: "underline",
+      textDecorationStyle: "solid",
+    });
 
   // Hovering makes the :not(:hover) rule stop matching, so the forced-colors
   // pressed rule wins the tie with `.colorful-btn:hover` and doubles the line.
