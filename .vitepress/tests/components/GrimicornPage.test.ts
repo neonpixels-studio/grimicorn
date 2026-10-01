@@ -874,16 +874,26 @@ describe("GrimicornPage", () => {
       wrapper.unmount();
     });
 
-    // GA4 Enhanced Measurement is a property-level setting outside this repo,
-    // so the copy must stay accurate whether or not it is enabled.
+    // GA4 Enhanced Measurement is a property-level setting outside this repo.
+    // The copy deliberately lists the full set of Enhanced Measurement events
+    // ("may include") so it never under-discloses, whether or not each is on.
     it("discloses the GA4 Enhanced Measurement event types in the footer", async () => {
       const wrapper = shallowMount(GrimicornPage);
       await wrapper.vm.$nextTick();
 
       const footerText = wrapper.find("footer").text();
-      expect(footerText).toMatch(
-        /including scrolling, outbound link clicks, file downloads, site searches, and video plays, are sent to Google Analytics \(GA4\)/,
-      );
+      const disclosedEventTypes = [
+        "scrolling",
+        "outbound link clicks",
+        "file downloads",
+        "site searches",
+        "video plays",
+        "form interactions",
+      ];
+      expect(footerText).toMatch(/that may include/);
+      for (const eventType of disclosedEventTypes) {
+        expect(footerText).toContain(eventType);
+      }
 
       wrapper.unmount();
     });
