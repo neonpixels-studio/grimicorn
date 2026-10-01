@@ -49,10 +49,14 @@ function runGuard(context: string | undefined) {
   if (context !== undefined) {
     environment.CONTEXT = context;
   }
-  return spawnSync("bash", ["-c", guardScript()], {
+  const result = spawnSync("bash", ["-c", guardScript()], {
     env: environment,
     encoding: "utf8",
   });
+  if (result.error) {
+    throw result.error;
+  }
+  return result;
 }
 
 describe("lighthouse.yml CONTEXT guard", () => {
