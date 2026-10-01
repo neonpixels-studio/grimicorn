@@ -96,7 +96,7 @@ test("the AGENT wordmark keeps a visible color once its gradient is stripped", a
 
   await expectPaintsCanvasText(
     page,
-    page.locator("h1 span.bg-clip-text", { hasText: "AGENT" }),
+    page.locator("h1 span.bg-clip-text", { hasText: /^AGENT$/ }),
   );
 });
 
@@ -142,6 +142,7 @@ test("the pressed pause toggle stays underlined at rest and is marked by a doubl
   // At rest, `.pause-toggle[aria-pressed="true"]:not(:hover)` (higher
   // specificity than the forced-colors override) is what supplies the cue, so
   // the style is a plain underline, not the double one.
+  await expectPaintsCanvasText(page, pauseToggle);
   await expect
     .poll(() => readTextStyle(pauseToggle))
     .toMatchObject({
@@ -153,6 +154,7 @@ test("the pressed pause toggle stays underlined at rest and is marked by a doubl
   // pressed rule wins the tie with `.colorful-btn:hover` and doubles the line.
   await pauseToggle.hover();
 
+  await expectPaintsCanvasText(page, pauseToggle);
   await expect
     .poll(() => readTextStyle(pauseToggle))
     .toMatchObject({
