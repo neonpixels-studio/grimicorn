@@ -14,7 +14,12 @@ const GA_LOADER_URL = "https://www.googletagmanager.com/gtag/js";
 const OPT_OUT_CHECK =
   'navigator.globalPrivacyControl===true||navigator.doNotTrack==="1"||window.doNotTrack==="1"||navigator.msDoNotTrack==="1"';
 
+const MEASUREMENT_ID_PATTERN = /^G-[A-Z0-9]+$/;
+
 export function buildGaBootstrapScript(measurementId: string): string {
+  if (!MEASUREMENT_ID_PATTERN.test(measurementId)) {
+    throw new Error(`Invalid GA4 measurement ID: ${measurementId}`);
+  }
   const loaderUrl = JSON.stringify(
     `${GA_LOADER_URL}?id=${encodeURIComponent(measurementId)}`,
   );

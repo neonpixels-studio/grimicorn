@@ -60,6 +60,12 @@ describe("buildGaBootstrapScript", () => {
     expect(appended).toHaveLength(1);
   });
 
+  it("throws on a measurement ID that could break out of the inline script", () => {
+    expect(() => buildGaBootstrapScript("G-X</script>")).toThrow(
+      /Invalid GA4 measurement ID/,
+    );
+  });
+
   it.each([
     ["Global Privacy Control", { navigator: { globalPrivacyControl: true } }],
     ["navigator.doNotTrack", { navigator: { doNotTrack: "1" } }],
@@ -96,8 +102,8 @@ describe("GA head entries in config", () => {
     expect(attributes).toEqual({});
     expect(body).toBe(buildGaBootstrapScript("G-0R2LBBYFB7"));
     expect(
-      head.some(([, attrs]) =>
-        String(attrs?.src ?? "").includes("googletagmanager"),
+      head.some(([, attributes]) =>
+        String(attributes?.src ?? "").includes("googletagmanager"),
       ),
     ).toBe(false);
   });
