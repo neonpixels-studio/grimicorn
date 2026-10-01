@@ -102,8 +102,8 @@ describe("GA head entries in config", () => {
     expect(attributes).toEqual({});
     expect(body).toBe(buildGaBootstrapScript("G-0R2LBBYFB7"));
     expect(
-      head.some(([, attributes]) =>
-        String(attributes?.src ?? "").includes("googletagmanager"),
+      head.some(([, entryAttributes]) =>
+        String(entryAttributes?.src ?? "").includes("googletagmanager"),
       ),
     ).toBe(false);
   });
