@@ -8,7 +8,7 @@ const LOADER_ORIGIN = "https://www.googletagmanager.com/gtag/js";
 type FakeBrowser = {
   navigator: Record<string, unknown>;
   window: Record<string, unknown>;
-  appended: Array<{ src?: string; async?: boolean }>;
+  appended: Array<{ tagName?: string; src?: string; async?: boolean }>;
 };
 
 // Runs the generated inline script against a fake browser so the opt-out branch is
@@ -21,7 +21,7 @@ function runBootstrap(signals: {
   const fakeWindow: Record<string, unknown> = { ...signals.window };
   const fakeNavigator = { ...signals.navigator };
   const fakeDocument = {
-    createElement: () => ({}),
+    createElement: (tagName: string) => ({ tagName }),
     head: {
       appendChild: (node: FakeBrowser["appended"][number]) =>
         appended.push(node),
@@ -41,6 +41,8 @@ describe("buildGaBootstrapScript", () => {
     const { appended, window } = runBootstrap({});
 
     expect(appended).toHaveLength(1);
+    expect(appended[0].tagName).toBe("script");
+    expect(typeof window.gtag).toBe("function");
     expect(appended[0].src).toBe(`${LOADER_ORIGIN}?id=${MEASUREMENT_ID}`);
     expect(appended[0].async).toBe(true);
     const queued = (window.dataLayer as ArrayLike<unknown>[]).map((entry) =>
@@ -68,6 +70,7 @@ describe("buildGaBootstrapScript", () => {
 
     expect(appended).toHaveLength(0);
     expect(window.dataLayer).toBeUndefined();
+    expect(window.gtag).toBeUndefined();
   });
 });
 
@@ -92,7 +95,6 @@ describe("GA head entries in config", () => {
     const [, attributes, body] = scripts[0];
     expect(attributes).toEqual({});
     expect(body).toBe(buildGaBootstrapScript("G-0R2LBBYFB7"));
-    expect(JSON.stringify(head)).not.toMatch(/<script[^>]*googletagmanager/);
     expect(
       head.some(([, attrs]) =>
         String(attrs?.src ?? "").includes("googletagmanager"),

@@ -24,6 +24,7 @@ export function buildGaBootstrapScript(measurementId: string): string {
     `if(${OPT_OUT_CHECK}){return;}`,
     "window.dataLayer=window.dataLayer||[];",
     "function gtag(){window.dataLayer.push(arguments);}",
+    "window.gtag=gtag;",
     "var loader=document.createElement('script');",
     "loader.async=true;",
     `loader.src=${loaderUrl};`,
