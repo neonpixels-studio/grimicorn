@@ -29,11 +29,11 @@ module.exports = {
         "categories:seo": ["error", { minScore: 0.9 }],
         // Error, not warn (#210): this gate assumes GA stays unloaded in the
         // build it audits. GA only loads when `ANALYTICS_ENABLED`
-        // (CONTEXT === "production", see .vitepress/config.ts) is true, and
-        // lighthouse.yml's Build step never sets CONTEXT. If that ever
-        // changes, GA's requests/cookies could drop this category below
-        // threshold - fix that in lighthouse.yml (keep CONTEXT unset there),
-        // not by loosening this assertion back to warn.
+        // (CONTEXT === "production", see .vitepress/config.ts) is true.
+        // lighthouse.yml's first step fails the job if CONTEXT is production
+        // (enforced by lighthouse-context-guard.test.ts). If that guard trips,
+        // fix it in lighthouse.yml, not by loosening this assertion back to
+        // warn.
         "categories:best-practices": ["error", { minScore: 0.9 }],
         // Not the textbook 2500ms: under lhci's default mobile formFactor +
         // simulated throttling, this page's LCP breakdown is ~450ms TTFB (a fixed

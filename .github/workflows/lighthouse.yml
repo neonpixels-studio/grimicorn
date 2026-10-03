@@ -26,6 +26,18 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # Enforces the assumption behind lighthouserc.cjs's error-level
+      # categories:best-practices assertion: GA must stay unloaded in this
+      # build. GA loads only when CONTEXT is "production" (ANALYTICS_ENABLED in
+      # .vitepress/config.ts), so fail loudly here instead of letting that
+      # category go red without an obvious cause. Runs before any other step.
+      - name: Guard against CONTEXT=production
+        run: |
+          if [ "$CONTEXT" = "production" ]; then
+            echo "::error title=CONTEXT=production::CONTEXT must not be 'production' in lighthouse.yml. It enables Google Analytics (ANALYTICS_ENABLED in .vitepress/config.ts), which breaks the error-level categories:best-practices assertion in lighthouserc.cjs. Unset CONTEXT here instead of loosening that assertion."
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -33,10 +45,6 @@ jobs:
       - name: Setup Node project
         uses: ./.github/actions/setup-node-project
 
-      # Do not set CONTEXT: production (or otherwise flip ANALYTICS_ENABLED in
-      # .vitepress/config.ts) here: lighthouserc.cjs's error-level
-      # categories:best-practices assertion assumes GA stays unloaded in this
-      # build.
       - name: Build
         run: npm run build
 
