@@ -34,6 +34,14 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 `netlify.toml` sets the build command to `npm run test:ci && npm run build` and publishes `.vitepress/dist`. It also sets the static security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS, and immutable one-year caching for `/fonts/*`, `/assets/*`, `/images/*`). The Content-Security-Policy is deliberately **absent** from `netlify.toml` (see below).
 
+## Deploys
+
+Production deploys once a week, on Mondays at 14:00 UTC, via a Netlify build hook called by `.github/workflows/weekly-production-deploy.yml`. Merging to `main` does not start a production build: the `[context.production]` `ignore` command in `netlify.toml` cancels any production build that was not triggered by a hook. The scheduled run is skipped (and logs why) when `main` has no commits in the last 7 days. Pull requests still get Deploy Previews as usual.
+
+To ship a hotfix now, open the Actions tab, pick **Weekly production deploy**, and choose **Run workflow**. A manual run always deploys. The workflow needs the `NETLIFY_BUILD_HOOK_URL` repo secret and fails if it is missing or the hook returns a non-2xx response. Watch the result in the run log and on the Netlify deploys page.
+
+Production builds started from the Netlify UI (Trigger deploy, Retry deploy) are cancelled by the same gate, so use the workflow instead; publishing an earlier deploy to roll back is unaffected. GitHub disables scheduled workflows after 60 days without repo activity, so if the weekly run stops appearing, re-enable the workflow from the Actions tab.
+
 ## CI
 
 - **`ci.yml`** runs two jobs on pushes/PRs to `main`: a `ci` job (`lint`, `typecheck`, `test:ci`, `check:asset-version-bump`, `build`) and an `e2e` job that installs Chromium, Firefox, and WebKit and runs `test:e2e`, uploading `test-results/` on failure. `check:asset-version-bump` diffs the asset-version lock against the PR's base branch (see the script's own comments for why); it only runs on `pull_request` events, so it assumes branch protection requires changes to land through a PR — a direct push to `main` has no asset-bump gate.
