@@ -126,6 +126,9 @@ test("the colorful button paints CanvasText at rest and underlines on hover", as
 
   await expectPaintsCanvasText(page, pauseToggle);
   await expectDecorationLine(pauseToggle, "underline");
+  await expect
+    .poll(() => readTextStyle(pauseToggle))
+    .toMatchObject({ textDecorationStyle: "solid" });
 });
 
 test("the pressed pause toggle shows a double underline at rest and on hover, unlike a plain hover", async ({
