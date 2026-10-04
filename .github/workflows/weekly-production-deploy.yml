@@ -16,6 +16,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -55,5 +56,5 @@ jobs:
           if [ "$EVENT_NAME" = "schedule" ]; then
             trigger_title="Weekly+production+deploy"
           fi
-          curl --fail --silent --show-error -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title"
+          curl --fail --silent --show-error --max-time 30 -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title"
           echo "Triggered Netlify production build ($trigger_title)."

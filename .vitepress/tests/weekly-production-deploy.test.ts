@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const NETLIFY_CONFIG_PATH = resolve(process.cwd(), "netlify.toml");
 const DEPLOY_WORKFLOW_PATH = resolve(
@@ -30,13 +31,24 @@ describe("netlify.toml production gate", () => {
     expect(buildSection).not.toMatch(/^\s*ignore\s*=/m);
   });
 
-  it("cancels the build unless INCOMING_HOOK_TITLE is set", () => {
+  function runIgnoreCommand(hookTitle: string | undefined) {
     const rawCommand = readProductionContext().match(IGNORE_LINE_PATTERN)?.[1];
     expect(rawCommand).toBeDefined();
     const command = rawCommand!.replace(/\\"/g, '"');
-    expect(command).toBe(
-      'if [ -n "$INCOMING_HOOK_TITLE" ]; then exit 1; else exit 0; fi',
-    );
+    const env: Record<string, string> = { PATH: process.env.PATH ?? "" };
+    if (hookTitle !== undefined) {
+      env.INCOMING_HOOK_TITLE = hookTitle;
+    }
+    return spawnSync("sh", ["-c", command], { env }).status;
+  }
+
+  it("builds (exit 1) when triggered by a build hook", () => {
+    expect(runIgnoreCommand("Weekly production deploy")).toBe(1);
+  });
+
+  it("cancels the build (exit 0) when no hook triggered it", () => {
+    expect(runIgnoreCommand(undefined)).toBe(0);
+    expect(runIgnoreCommand("")).toBe(0);
   });
 });
 
@@ -52,13 +64,18 @@ describe("weekly-production-deploy workflow", () => {
     expect(workflow).toContain(
       "NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}",
     );
-    const runLines = workflow
+    const secretLines = workflow
       .split("\n")
-      .filter((line) => /secrets\./.test(line) && /\brun:/.test(line));
-    expect(runLines).toEqual([]);
+      .filter((line) => line.includes("${{ secrets."));
+    expect(secretLines.length).toBeGreaterThan(0);
+    secretLines.forEach((line) => {
+      expect(line).toMatch(/^\s+[A-Z_]+: \$\{\{ secrets\.[A-Z_]+ \}\}\s*$/);
+    });
   });
 
   it("fails on a non-2xx hook response", () => {
-    expect(workflow).toMatch(/curl --fail --silent --show-error -X POST/);
+    expect(workflow).toMatch(
+      /curl --fail --silent --show-error --max-time 30 -X POST/,
+    );
   });
 });
