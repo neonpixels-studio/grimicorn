@@ -126,9 +126,12 @@ test("the colorful button paints CanvasText at rest and underlines on hover", as
 
   await expectPaintsCanvasText(page, pauseToggle);
   await expectDecorationLine(pauseToggle, "underline");
+  await expect
+    .poll(() => readTextStyle(pauseToggle))
+    .toMatchObject({ textDecorationStyle: "solid" });
 });
 
-test("the pressed pause toggle stays underlined at rest and is marked by a double underline on hover", async ({
+test("the pressed pause toggle shows a double underline at rest and on hover, unlike a plain hover", async ({
   page,
 }) => {
   await page.goto("/");
@@ -139,19 +142,19 @@ test("the pressed pause toggle stays underlined at rest and is marked by a doubl
   await expect(pauseToggle).toHaveAttribute("aria-pressed", "true");
   await movePointerAway(page);
 
-  // At rest, `.pause-toggle[aria-pressed="true"]:not(:hover)` (higher
-  // specificity than the forced-colors override) is what supplies the cue, so
-  // the style is a plain underline, not the double one.
+  // At rest, the forced-colors override repeats the `:not(:hover)` selector so
+  // it ties the base pressed rule's specificity and wins on source order.
   await expectPaintsCanvasText(page, pauseToggle);
   await expect
     .poll(() => readTextStyle(pauseToggle))
     .toMatchObject({
       textDecorationLine: "underline",
-      textDecorationStyle: "solid",
+      textDecorationStyle: "double",
     });
 
-  // Hovering makes the :not(:hover) rule stop matching, so the forced-colors
-  // pressed rule wins the tie with `.colorful-btn:hover` and doubles the line.
+  // Hovering makes the :not(:hover) rule stop matching, so the bare forced-colors
+  // pressed selector wins the tie with `.colorful-btn:hover`; a plain hover on an
+  // unpressed button stays a single underline, so the two remain distinct.
   await pauseToggle.hover();
 
   await expectPaintsCanvasText(page, pauseToggle);

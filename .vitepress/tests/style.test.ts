@@ -659,9 +659,29 @@ describe("forced-colors gradient-text fallback", () => {
     expect(sharedSelectors).toContain(".colorful-btn");
 
     expect(stripWhitespace(rules[1].selectors)).toBe(".colorful-btn:hover");
-    expect(stripWhitespace(rules[2].selectors)).toBe(
+    expect(stripWhitespace(rules[2].selectors).split(",")).toEqual([
       '.pause-toggle[aria-pressed="true"]',
-    );
+      '.pause-toggle[aria-pressed="true"]:not(:hover)',
+    ]);
+  });
+
+  // The base pressed rule is `...:not(:hover)` at (0,3,0); a bare
+  // `[aria-pressed="true"]` override at (0,2,0) loses to it at rest, so the
+  // double underline would only ever appear on hover. The override must
+  // repeat the `:not(:hover)` selector and be declared after the base rule.
+  it("overrides the resting pressed rule with equal specificity declared later, so the double underline shows at rest", () => {
+    const { headerIndex } = readForcedColorsRules();
+    // Searching only the CSS before the forced-colors block means a match
+    // proves the base rule is declared earlier, and can't match the override.
+    const baseRestMatch = cssWithoutComments
+      .slice(0, headerIndex)
+      .match(
+        /(?:^|\}|\{|,)\s*\.pause-toggle\[aria-pressed="true"\]:not\(:hover\)\s*\{/,
+      );
+    expect(
+      baseRestMatch,
+      "base resting pressed rule not found before the forced-colors block",
+    ).not.toBeNull();
   });
 
   it("restores text color with no other declaration to go stale", () => {
