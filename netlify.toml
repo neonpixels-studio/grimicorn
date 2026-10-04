@@ -1,5 +1,9 @@
+# Mirrors the CI gates (.github/workflows/ci.yml) so a push that bypasses CI cannot
+# deploy unlinted, untyped or untested code. check:asset-version-bump is deliberately
+# absent: it only diffs a pull request against its base branch (GITHUB_BASE_REF, which
+# Netlify never sets) and Netlify clones shallowly, so it could never run here.
 [build]
-  command = "npm run test:ci && npm run build"
+  command = "npm run lint && npm run typecheck && npm run test:ci && npm run build"
   publish = ".vitepress/dist"
 
 [build.environment]
