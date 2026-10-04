@@ -24,7 +24,7 @@ function readProductionContext() {
 }
 
 describe("netlify.toml production gate", () => {
-  it("only declares ignore inside [context.production], never at build level", () => {
+  it("never declares ignore at build level", () => {
     const config = readFileSync(NETLIFY_CONFIG_PATH, "utf8");
     const buildSection = config.match(/^\[build\]\s*$([\s\S]*?)(?=^\[)/m)?.[1];
     expect(buildSection).toBeDefined();
