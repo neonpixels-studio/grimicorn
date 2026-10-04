@@ -15,7 +15,8 @@ const NPM_RUN_PREFIX = /^npm run /;
 // The `ci` job runs the gates a deploy must share; the separate `e2e` job needs
 // Playwright browsers and is not part of the Netlify build.
 const CI_JOB_PATTERN = /^ {2}ci:\s*$([\s\S]*?)(?=^ {2}[\w-]+:\s*$|(?![\s\S]))/m;
-const CI_RUN_STEP_PATTERN = /^\s*run:\s*(npm run \S+)\s*$/gm;
+const CI_ANY_RUN_PATTERN = /^\s*run:\s*(.+?)\s*$/gm;
+const CI_NPM_SCRIPT_STEP = /^npm run \S+$/;
 
 const BUILD_STEP = "npm run build";
 // Not runnable on Netlify: it only diffs a pull request against its base branch
@@ -31,7 +32,9 @@ function readBuildSteps() {
   const section = config.match(BUILD_SECTION_PATTERN)?.[1];
   const command = section?.match(BUILD_COMMAND_PATTERN)?.[2];
   if (!command) {
-    throw new Error("netlify.toml [build] section has no command");
+    throw new Error(
+      "netlify.toml [build] command is missing or not a simple quoted string",
+    );
   }
   return command.split(COMMAND_SEPARATOR).map((step) => step.trim());
 }
@@ -42,7 +45,18 @@ function readCiGateSteps() {
   if (!ciJob) {
     throw new Error("ci.yml has no `ci` job");
   }
-  return [...ciJob.matchAll(CI_RUN_STEP_PATTERN)].map((match) => match[1]);
+  const runSteps = [...ciJob.matchAll(CI_ANY_RUN_PATTERN)].map(
+    (match) => match[1],
+  );
+  const unrecognized = runSteps.filter(
+    (step) => !CI_NPM_SCRIPT_STEP.test(step),
+  );
+  if (unrecognized.length > 0) {
+    throw new Error(
+      `ci.yml has run steps this test cannot classify: ${unrecognized.join(", ")}`,
+    );
+  }
+  return runSteps;
 }
 
 function readPackageScripts() {
