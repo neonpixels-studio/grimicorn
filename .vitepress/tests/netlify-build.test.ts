@@ -15,7 +15,7 @@ const NPM_RUN_PREFIX = /^npm run /;
 // The `ci` job runs the gates a deploy must share; the separate `e2e` job needs
 // Playwright browsers and is not part of the Netlify build.
 const CI_JOB_PATTERN = /^ {2}ci:\s*$([\s\S]*?)(?=^ {2}[\w-]+:\s*$|(?![\s\S]))/m;
-const CI_ANY_RUN_PATTERN = /^\s*run:\s*(.+?)\s*$/gm;
+const CI_ANY_RUN_PATTERN = /^\s*(?:-\s+)?run:\s*(.+?)\s*$/gm;
 const CI_NPM_SCRIPT_STEP = /^npm run \S+$/;
 
 const BUILD_STEP = "npm run build";
@@ -68,6 +68,9 @@ describe("netlify build command", () => {
     const expectedGates = readCiGateSteps().filter(
       (step) => !CI_STEPS_NOT_RUN_ON_NETLIFY.includes(step),
     );
+    expect(readCiGateSteps()).toEqual(
+      expect.arrayContaining(CI_STEPS_NOT_RUN_ON_NETLIFY),
+    );
     expect(expectedGates.length).toBeGreaterThan(0);
     expect(readBuildSteps()).toEqual([...expectedGates, BUILD_STEP]);
   });
@@ -83,8 +86,9 @@ describe("netlify build command", () => {
   });
 
   it.each(readBuildSteps())("%s is a defined npm script", (step) => {
-    expect(readPackageScripts()).toHaveProperty(
+    expect(step).toMatch(NPM_RUN_PREFIX);
+    expect(readPackageScripts()).toHaveProperty([
       step.replace(NPM_RUN_PREFIX, ""),
-    );
+    ]);
   });
 });
