@@ -1,0 +1,59 @@
+name: Weekly production deploy
+
+# The cron is the single place the deploy cadence lives (Mondays 14:00 UTC).
+on:
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history so the 7-day commit check below sees every recent commit.
+          fetch-depth: 0
+
+      - name: Skip when main has no recent commits
+        id: recent
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "schedule" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          recent_commit="$(git log --since='7 days ago' -1 --format=%H origin/main)"
+          if [ -n "$recent_commit" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "main has no commits in the last 7 days; skipping the production deploy."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Netlify production build hook
+        if: steps.recent.outputs.skip != 'true'
+        env:
+          NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
+            echo "::error::Repository secret NETLIFY_BUILD_HOOK_URL is not set; cannot trigger the production deploy."
+            exit 1
+          fi
+          trigger_title="Manual+production+deploy"
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            trigger_title="Weekly+production+deploy"
+          fi
+          curl --fail --silent --show-error -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title"
+          echo "Triggered Netlify production build ($trigger_title)."
