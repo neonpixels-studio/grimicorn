@@ -44,12 +44,10 @@ describe("createKonamiMatcher", () => {
     expect(results.at(-1)).toBe(false);
   });
 
-  it("restarts at position one when the wrong key is the first key", () => {
+  it("completes when the opening ArrowUp is pressed one extra time", () => {
     const feed = createKonamiMatcher();
     feed(press("ArrowUp"));
-    feed(press("ArrowUp"));
-    feed(press("ArrowUp"));
-    const results = KONAMI_SEQUENCE.slice(1).map((key) => feed(press(key)));
+    const results = KONAMI_SEQUENCE.map((key) => feed(press(key)));
 
     expect(results.at(-1)).toBe(true);
   });

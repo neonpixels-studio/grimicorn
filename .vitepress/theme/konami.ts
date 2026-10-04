@@ -42,27 +42,35 @@ function normalizeKey(key: string): string {
   return key.length === 1 ? key.toLowerCase() : key;
 }
 
+function matchesSequence(
+  keys: readonly string[],
+  sequence: readonly string[],
+): boolean {
+  return (
+    keys.length === sequence.length &&
+    keys.every((key, index) => key === sequence[index])
+  );
+}
+
 // Returns a feed function that reports true on the event that completes the
-// sequence.
+// sequence. Compares a sliding window of recent keys so an overshoot of an
+// overlapping prefix (an extra leading ArrowUp) still completes.
 export function createKonamiMatcher(
   sequence: readonly string[] = KONAMI_SEQUENCE,
 ) {
-  let position = 0;
+  let recentKeys: string[] = [];
 
   return function feed(event: KonamiKeyEvent): boolean {
     if (isIgnorable(event)) {
       return false;
     }
-    const key = normalizeKey(event.key);
-    if (key !== sequence[position]) {
-      position = key === sequence[0] ? 1 : 0;
+    recentKeys = [...recentKeys, normalizeKey(event.key)].slice(
+      -sequence.length,
+    );
+    if (!matchesSequence(recentKeys, sequence)) {
       return false;
     }
-    position++;
-    if (position < sequence.length) {
-      return false;
-    }
-    position = 0;
+    recentKeys = [];
     return true;
   };
 }
