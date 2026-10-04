@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { withAssetCacheBust } from "../../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
 import { MAIN_CONTENT_ID } from "../constants";
+import { createKonamiMatcher } from "../konami";
 
 interface LogEntry {
   t: string;
@@ -32,19 +33,6 @@ const LOG_POOL = [
   "broke the build, fixed the build, denied everything",
   "renamed a variable. 4 files. no regrets.",
   "pinned a dependency before it could betray us",
-];
-
-const KONAMI = [
-  "ArrowUp",
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "ArrowLeft",
-  "ArrowRight",
-  "b",
-  "a",
 ];
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -157,7 +145,7 @@ let logTimer = 0;
 let toastTimer = 0;
 let toastAnnouncementClearTimer = 0;
 let rafId = 0;
-let konamiPos = 0;
+const konamiMatcher = createKonamiMatcher();
 let reducedMotionQuery: MediaQueryList | null = null;
 let finePointerQuery: MediaQueryList | null = null;
 let parallaxActive = false;
@@ -420,15 +408,8 @@ function handleFinePointerChange() {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-  if (key === KONAMI[konamiPos]) {
-    konamiPos++;
-    if (konamiPos === KONAMI.length) {
-      konamiPos = 0;
-      toggleRave();
-    }
-  } else {
-    konamiPos = key === KONAMI[0] ? 1 : 0;
+  if (konamiMatcher(e)) {
+    toggleRave();
   }
 }
 
