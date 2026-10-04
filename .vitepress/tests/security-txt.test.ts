@@ -8,6 +8,8 @@ const SECURITY_TXT = resolve(
 );
 const EXPECTED_CONTACT =
   "https://github.com/neonpixels-studio/grimicorn/security/advisories/new";
+const RENEWAL_WINDOW_DAYS = 30;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const EXPECTED_CANONICAL = "https://grimicorn.dev/.well-known/security.txt";
 
 function readFields(content: string): Map<string, string[]> {
@@ -46,15 +48,21 @@ describe("/.well-known/security.txt (RFC 9116)", () => {
     expect(fields.get("Preferred-Languages")).toEqual(["en"]);
   });
 
-  it("has exactly one valid Expires that is in the future and under one year out", () => {
+  // Deliberate renewal reminder: fails 30 days before expiry. Fix by bumping
+  // Expires in public/.well-known/security.txt to ~11 months out.
+  it("has exactly one valid Expires, at least 30 days out and under one year out", () => {
     const expiresValues = fields.get("Expires") ?? [];
     expect(expiresValues).toHaveLength(1);
-    expect(expiresValues[0]).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
+    expect(expiresValues[0]).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
+    );
 
     const expires = new Date(expiresValues[0]);
     const now = new Date();
     expect(Number.isNaN(expires.getTime())).toBe(false);
-    expect(expires.getTime()).toBeGreaterThan(now.getTime());
+    const renewalDeadline =
+      now.getTime() + RENEWAL_WINDOW_DAYS * MILLISECONDS_PER_DAY;
+    expect(expires.getTime()).toBeGreaterThan(renewalDeadline);
     expect(expires.getTime()).toBeLessThan(addOneYear(now).getTime());
   });
 });
