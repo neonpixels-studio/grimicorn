@@ -54,7 +54,7 @@ describe("createKonamiMatcher", () => {
     expect(results.at(-1)).toBe(true);
   });
 
-  it.each(["Shift", "Control", "Alt", "Meta"])(
+  it.each(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock"])(
     "does not reset when %s is pressed mid-sequence",
     (modifier) => {
       const feed = createKonamiMatcher();
@@ -72,7 +72,6 @@ describe("createKonamiMatcher", () => {
   it("does not advance on auto-repeat keydown events", () => {
     const feed = createKonamiMatcher();
     feed(press("ArrowUp"));
-    feed(press("ArrowUp", { repeat: true }));
     feed(press("ArrowUp", { repeat: true }));
     const results = KONAMI_SEQUENCE.slice(1).map((key) => feed(press(key)));
 

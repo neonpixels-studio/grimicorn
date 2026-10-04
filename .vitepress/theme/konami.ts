@@ -1,4 +1,4 @@
-export const KONAMI_SEQUENCE = [
+export const KONAMI_SEQUENCE: readonly string[] = [
   "ArrowUp",
   "ArrowUp",
   "ArrowDown",
@@ -11,7 +11,14 @@ export const KONAMI_SEQUENCE = [
   "a",
 ];
 
-const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "Meta"]);
+const MODIFIER_KEYS = new Set([
+  "Shift",
+  "Control",
+  "Alt",
+  "AltGraph",
+  "Meta",
+  "CapsLock",
+]);
 
 export type KonamiKeyEvent = Pick<
   KeyboardEvent,
