@@ -16,7 +16,10 @@ const STATIC_HEADERS = {
   "X-Frame-Options": "DENY",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Permissions-Policy":
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Resource-Policy": "same-origin",
 };
 
 const GLOBAL_HEADERS_PATH = "/*";
@@ -105,6 +108,14 @@ describe("netlify security headers", () => {
       expect(readBlockHeader(globalHeadersBlock, name)).toBe(expectedValue);
     },
   );
+
+  // COEP require-corp would block GA4's no-CORS script and beacons, so the
+  // COOP/CORP pair above is only safe while COEP stays unset.
+  it("does not set Cross-Origin-Embedder-Policy on any path", () => {
+    expect(readFileSync(NETLIFY_CONFIG_PATH, "utf8")).not.toMatch(
+      /^\s*Cross-Origin-Embedder-Policy\s*=/im,
+    );
+  });
 
   it("sends an HSTS max-age of at least one year", () => {
     const maxAge = parseHstsMaxAge(readHstsHeaderValue());
