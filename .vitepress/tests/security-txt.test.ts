@@ -11,7 +11,6 @@ const EXPECTED_CONTACT =
 const RENEWAL_WINDOW_DAYS = 30;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 const RFC3339_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
-const RFC3339_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const EXPECTED_CANONICAL = "https://grimicorn.dev/.well-known/security.txt";
 
 function readFields(content: string): Map<string, string[]> {
