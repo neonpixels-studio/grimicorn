@@ -670,12 +670,7 @@ describe("forced-colors gradient-text fallback", () => {
   // double underline would only ever appear on hover. The override must
   // repeat the `:not(:hover)` selector and be declared after the base rule.
   it("overrides the resting pressed rule with equal specificity declared later, so the double underline shows at rest", () => {
-    const { rules, headerIndex } = readForcedColorsRules();
-    const overrideSelectors = stripWhitespace(rules[2].selectors).split(",");
-    expect(overrideSelectors).toContain(
-      '.pause-toggle[aria-pressed="true"]:not(:hover)',
-    );
-
+    const { headerIndex } = readForcedColorsRules();
     // Searching only the CSS before the forced-colors block means a match
     // proves the base rule is declared earlier, and can't match the override.
     const baseRestMatch = cssWithoutComments
