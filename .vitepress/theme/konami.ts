@@ -31,6 +31,7 @@ export type KonamiKeyEvent = Pick<
 function isIgnorable(event: KonamiKeyEvent): boolean {
   return (
     event.repeat ||
+    typeof event.key !== "string" ||
     MODIFIER_KEYS.has(event.key) ||
     event.ctrlKey ||
     event.metaKey ||

@@ -69,9 +69,24 @@ describe("createKonamiMatcher", () => {
 
   it("does not advance on auto-repeat keydown events", () => {
     const feed = createKonamiMatcher();
-    feed(press("ArrowUp"));
-    feed(press("ArrowUp", { repeat: true }));
-    const results = KONAMI_SEQUENCE.slice(1).map((key) => feed(press(key)));
+    const results = KONAMI_SEQUENCE.map((key, index) => {
+      if (index === 5) {
+        feed(press(KONAMI_SEQUENCE[4], { repeat: true }));
+      }
+      return feed(press(key));
+    });
+
+    expect(results.at(-1)).toBe(true);
+  });
+
+  it("ignores events with no key, such as browser autofill", () => {
+    const feed = createKonamiMatcher();
+    const results = KONAMI_SEQUENCE.map((key, index) => {
+      if (index === 5) {
+        feed({ ...press(""), key: undefined as unknown as string });
+      }
+      return feed(press(key));
+    });
 
     expect(results.at(-1)).toBe(true);
   });
