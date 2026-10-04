@@ -11,8 +11,7 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    # Deny powerful features the site never uses (no payments or WebUSB; GA4 here is
-    # measurement only).
+    # Deny powerful features the site never uses (no payments or WebUSB).
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     # The site is static and first-party apart from GA4, which is loaded as a
     # no-CORS script/beacon from Google's origins (CORP only governs responses

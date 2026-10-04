@@ -109,6 +109,14 @@ describe("netlify security headers", () => {
     },
   );
 
+  // COEP require-corp would block GA4's no-CORS script and beacons, so the
+  // COOP/CORP pair above is only safe while COEP stays unset.
+  it("does not set Cross-Origin-Embedder-Policy", () => {
+    expect(globalHeadersBlock).not.toMatch(
+      /^\s*Cross-Origin-Embedder-Policy\s*=/im,
+    );
+  });
+
   it("sends an HSTS max-age of at least one year", () => {
     const maxAge = parseHstsMaxAge(readHstsHeaderValue());
     expect(maxAge).toBeGreaterThanOrEqual(HSTS_MIN_MAX_AGE_SECONDS);
