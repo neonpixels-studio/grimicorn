@@ -21,11 +21,8 @@ const CI_NPM_SCRIPT_STEP = /^npm run \S+$/;
 const BUILD_STEP = "npm run build";
 // Not runnable on Netlify: it only diffs a pull request against its base branch
 // (GITHUB_BASE_REF, never set by Netlify) and needs the full git history Netlify
-// does not clone. Build is excluded here because it must always run last.
-const CI_STEPS_NOT_RUN_ON_NETLIFY = [
-  "npm run check:asset-version-bump",
-  BUILD_STEP,
-];
+// does not clone.
+const CI_STEPS_SKIPPED_ON_NETLIFY = ["npm run check:asset-version-bump"];
 
 function readBuildSteps() {
   const config = readFileSync(NETLIFY_CONFIG_PATH, "utf8");
@@ -65,11 +62,13 @@ function readPackageScripts() {
 
 describe("netlify build command", () => {
   it("runs every CI gate that can run on Netlify, then the build last", () => {
-    const expectedGates = readCiGateSteps().filter(
-      (step) => !CI_STEPS_NOT_RUN_ON_NETLIFY.includes(step),
+    const ciSteps = readCiGateSteps();
+    expect(ciSteps).toEqual(
+      expect.arrayContaining([...CI_STEPS_SKIPPED_ON_NETLIFY, BUILD_STEP]),
     );
-    expect(readCiGateSteps()).toEqual(
-      expect.arrayContaining(CI_STEPS_NOT_RUN_ON_NETLIFY),
+    const expectedGates = ciSteps.filter(
+      (step) =>
+        step !== BUILD_STEP && !CI_STEPS_SKIPPED_ON_NETLIFY.includes(step),
     );
     expect(expectedGates.length).toBeGreaterThan(0);
     expect(readBuildSteps()).toEqual([...expectedGates, BUILD_STEP]);
@@ -85,10 +84,11 @@ describe("netlify build command", () => {
     );
   });
 
-  it.each(readBuildSteps())("%s is a defined npm script", (step) => {
-    expect(step).toMatch(NPM_RUN_PREFIX);
-    expect(readPackageScripts()).toHaveProperty([
-      step.replace(NPM_RUN_PREFIX, ""),
-    ]);
+  it("only runs steps that are defined npm scripts", () => {
+    const scripts = readPackageScripts();
+    for (const step of readBuildSteps()) {
+      expect(step).toMatch(NPM_RUN_PREFIX);
+      expect(scripts).toHaveProperty([step.replace(NPM_RUN_PREFIX, "")]);
+    }
   });
 });
