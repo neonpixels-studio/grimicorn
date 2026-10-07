@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Two hours ahead of the Monday 14:00 UTC production deploy, so a new advisory
+  # or leaked secret surfaces even when main has been quiet. A failed scheduled
+  # run emails the person who last edited the cron, GitHub's built-in notice.
+  # GitHub pauses schedules after 60 days without repo activity, so a long-idle
+  # repo needs a commit or a manual re-enable of this workflow.
+  schedule:
+    - cron: "0 12 * * 1"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -46,7 +54,7 @@ jobs:
             --log-opts "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
 
       - name: Scan full history
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         run: |
           ./gitleaks git \
             --config .gitleaks.toml \
