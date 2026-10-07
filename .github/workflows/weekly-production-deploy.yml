@@ -18,7 +18,8 @@ jobs:
     # The hook always builds main, so a run dispatched from another branch must not deploy.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Covers the Netlify build (lint, typecheck, tests, build) polled by the verify step.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -45,6 +46,7 @@ jobs:
           echo "skip=true" >> "$GITHUB_OUTPUT"
 
       - name: Trigger Netlify production build hook
+        id: trigger
         if: steps.recent.outputs.skip != 'true'
         env:
           NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
@@ -58,5 +60,20 @@ jobs:
           if [ "$EVENT_NAME" = "schedule" ]; then
             trigger_title="Weekly+production+deploy"
           fi
-          curl --fail --silent --show-error --max-time 30 -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title"
-          echo "Triggered Netlify production build ($trigger_title)."
+          hook_response="$(curl --fail --silent --show-error --max-time 30 -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title")"
+          # The hook answers with {"id": "<build id>"}; fail loudly if that shape changes.
+          if ! build_id="$(echo "$hook_response" | jq -er '.id')"; then
+            echo "::error::The build was queued but the hook response had no build id, so the deploy cannot be verified. Response: $hook_response"
+            exit 1
+          fi
+          echo "Triggered Netlify production build ($trigger_title), build $build_id."
+          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+
+      # A 2xx from the hook only means the build was queued; fail this run (and so
+      # notify the owner) if the build fails, is cancelled, or never finishes.
+      - name: Verify the Netlify production deploy
+        if: steps.recent.outputs.skip != 'true'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_BUILD_ID: ${{ steps.trigger.outputs.build_id }}
+        run: node scripts/verify-netlify-deploy.mjs
