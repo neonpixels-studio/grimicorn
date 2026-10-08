@@ -79,3 +79,31 @@ describe("weekly-production-deploy workflow", () => {
     );
   });
 });
+
+describe("weekly-production-deploy verification step", () => {
+  const workflow = readFileSync(DEPLOY_WORKFLOW_PATH, "utf8");
+
+  it("passes the Netlify token and build id to the verify script via env", () => {
+    expect(workflow).toContain(
+      "NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}",
+    );
+    expect(workflow).toContain(
+      "NETLIFY_BUILD_ID: ${{ steps.trigger.outputs.build_id }}",
+    );
+    expect(workflow).toContain("run: node scripts/verify-netlify-deploy.mjs");
+  });
+
+  it("only verifies when the hook was actually triggered", () => {
+    const verifyStep = workflow
+      .split("- name: Verify the Netlify")[1]
+      .split("\n      - name:")[0];
+    expect(verifyStep).toContain("if: steps.recent.outputs.skip != 'true'");
+  });
+
+  it("allows enough time for the Netlify build to be polled", () => {
+    const minutes = Number(
+      workflow.match(/^ {4}timeout-minutes:\s*(\d+)/m)?.[1],
+    );
+    expect(minutes).toBeGreaterThanOrEqual(25);
+  });
+});
