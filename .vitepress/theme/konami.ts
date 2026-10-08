@@ -22,15 +22,16 @@ const MODIFIER_KEYS = new Set([
 
 export type KonamiKeyEvent = Pick<
   KeyboardEvent,
-  "key" | "repeat" | "ctrlKey" | "metaKey" | "altKey"
+  "key" | "repeat" | "isComposing" | "ctrlKey" | "metaKey" | "altKey"
 >;
 
-// Held keys and bare modifier presses are not deliberate input, and
-// ctrl/meta/alt chords are browser shortcuts, so none of them may advance or
-// reset the sequence.
+// Held keys, IME composition keydowns (key "Process"), and bare modifier
+// presses are not deliberate input, and ctrl/meta/alt chords are browser
+// shortcuts, so none of them may advance or reset the sequence.
 function isIgnorable(event: KonamiKeyEvent): boolean {
   return (
     event.repeat ||
+    event.isComposing ||
     typeof event.key !== "string" ||
     MODIFIER_KEYS.has(event.key) ||
     event.ctrlKey ||
