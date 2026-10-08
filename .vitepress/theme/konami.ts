@@ -18,6 +18,13 @@ const MODIFIER_KEYS = new Set([
   "AltGraph",
   "Meta",
   "CapsLock",
+  "OS",
+  "Super",
+  "Hyper",
+  "Fn",
+  "FnLock",
+  "NumLock",
+  "ScrollLock",
 ]);
 
 export type KonamiKeyEvent = Pick<
