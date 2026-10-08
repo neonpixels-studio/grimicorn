@@ -25,7 +25,11 @@ function deploy(
 }
 
 function jsonResponse(body: unknown, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  } as unknown as Response;
 }
 
 describe("findLastDeployedSha", () => {
@@ -88,7 +92,7 @@ describe("fetchLastDeployedSha", () => {
 describe("decideDeploy", () => {
   const log = vi.fn();
   const decide = (
-    fetchImpl: ReturnType<typeof vi.fn>,
+    fetchImpl: typeof fetch,
     overrides: Record<string, unknown> = {},
   ) =>
     decideDeploy({
@@ -139,7 +143,7 @@ describe("decideDeploy", () => {
   });
 
   it("deploys without calling the API when config is missing", async () => {
-    const fetchImpl = vi.fn();
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
     expect(await decide(fetchImpl, { siteId: undefined })).toEqual({
       deploy: true,
     });
