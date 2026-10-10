@@ -52,20 +52,31 @@ describe("createKonamiMatcher", () => {
     expect(results.at(-1)).toBe(true);
   });
 
-  it.each(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock"])(
-    "does not reset when %s is pressed mid-sequence",
-    (modifier) => {
-      const feed = createKonamiMatcher();
-      const results = KONAMI_SEQUENCE.map((key, index) => {
-        if (index === 4) {
-          feed(press(modifier));
-        }
-        return feed(press(key));
-      });
+  it.each([
+    "Shift",
+    "Control",
+    "Alt",
+    "AltGraph",
+    "Meta",
+    "CapsLock",
+    "OS",
+    "Super",
+    "Hyper",
+    "Fn",
+    "FnLock",
+    "NumLock",
+    "ScrollLock",
+  ])("does not reset when %s is pressed mid-sequence", (modifier) => {
+    const feed = createKonamiMatcher();
+    const results = KONAMI_SEQUENCE.map((key, index) => {
+      if (index === 4) {
+        feed(press(modifier));
+      }
+      return feed(press(key));
+    });
 
-      expect(results.at(-1)).toBe(true);
-    },
-  );
+    expect(results.at(-1)).toBe(true);
+  });
 
   it("does not advance on auto-repeat keydown events", () => {
     const feed = createKonamiMatcher();
