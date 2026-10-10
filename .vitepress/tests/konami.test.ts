@@ -10,6 +10,7 @@ function press(key: string, overrides: Partial<KonamiKeyEvent> = {}) {
   return {
     key,
     repeat: false,
+    isComposing: false,
     ctrlKey: false,
     metaKey: false,
     altKey: false,
@@ -122,6 +123,24 @@ describe("createKonamiMatcher", () => {
       expect(results.at(-1)).toBe(true);
     },
   );
+
+  it("ignores IME composition keydowns instead of resetting the sequence", () => {
+    const feed = createKonamiMatcher();
+    feed(press("ArrowUp"));
+    feed(press("Process", { isComposing: true }));
+    const results = KONAMI_SEQUENCE.slice(1).map((key) => feed(press(key)));
+
+    expect(results.at(-1)).toBe(true);
+  });
+
+  it("ignores composing events even when the key would match", () => {
+    const feed = createKonamiMatcher();
+    const results = KONAMI_SEQUENCE.map((key) =>
+      feed(press(key, { isComposing: true })),
+    );
+
+    expect(results.some(Boolean)).toBe(false);
+  });
 
   it("can complete again after finishing", () => {
     const feed = createKonamiMatcher();
