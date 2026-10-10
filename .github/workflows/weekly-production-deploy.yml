@@ -25,25 +25,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history so the 7-day commit check below sees every recent commit.
-          fetch-depth: 0
 
-      - name: Skip when main has no recent commits
+      # Compares main to the last successful production deploy instead of a time
+      # window, so a late cron start or an earlier failed deploy cannot strand a
+      # commit. Any lookup problem deploys rather than skips.
+      - name: Skip when main is already deployed
         id: recent
         env:
           EVENT_NAME: ${{ github.event_name }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
         run: |
           if [ "$EVENT_NAME" != "schedule" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          recent_commit="$(git log --since='7 days ago' -1 --format=%H origin/main)"
-          if [ -n "$recent_commit" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "main has no commits in the last 7 days; skipping the production deploy."
-          echo "skip=true" >> "$GITHUB_OUTPUT"
+          CURRENT_SHA="$(git rev-parse HEAD)" node scripts/check-undeployed-commits.mjs
 
       - name: Trigger Netlify production build hook
         id: trigger

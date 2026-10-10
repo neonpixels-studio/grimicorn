@@ -107,3 +107,25 @@ describe("weekly-production-deploy verification step", () => {
     expect(minutes).toBeGreaterThanOrEqual(25);
   });
 });
+
+describe("weekly-production-deploy skip check", () => {
+  const workflow = readFileSync(DEPLOY_WORKFLOW_PATH, "utf8");
+
+  it("compares main to the last deployed commit, not a time window", () => {
+    expect(workflow).not.toContain("--since");
+    expect(workflow).toContain(
+      'CURRENT_SHA="$(git rev-parse HEAD)" node scripts/check-undeployed-commits.mjs',
+    );
+    expect(workflow).toContain(
+      "NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}",
+    );
+  });
+
+  it("always deploys on manual dispatch", () => {
+    const skipStep = workflow
+      .split("- name: Skip when main is already deployed")[1]
+      .split("\n      - name:")[0];
+    expect(skipStep).toContain('[ "$EVENT_NAME" != "schedule" ]');
+    expect(skipStep).toContain('echo "skip=false"');
+  });
+});
