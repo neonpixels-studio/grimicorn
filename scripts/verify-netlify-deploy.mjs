@@ -37,6 +37,13 @@ export function classifyDeployState(state) {
   return DEPLOY_OUTCOME.PENDING;
 }
 
+// Netlify lists deploys newest first; a page this size covers every deploy a
+// single run could have created, previews included.
+const DEPLOYS_PAGE_SIZE = 20;
+// GitHub's runner clock and Netlify's can disagree by a few seconds, so a
+// deploy created slightly "before" the trigger time still counts.
+const CLOCK_SKEW_MS = 2 * 60 * 1000;
+
 async function getJson({ path, token, fetchImpl }) {
   const response = await fetchImpl(`${NETLIFY_API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -49,7 +56,7 @@ async function getJson({ path, token, fetchImpl }) {
   }
   if (response.status === NOT_FOUND_STATUS) {
     throw new DeployVerificationError(
-      `Netlify API returned 404 for ${path}; the build hook response id is not a known build.`,
+      `Netlify API returned 404 for ${path}; check NETLIFY_SITE_ID names this site.`,
     );
   }
   if (!response.ok) {
@@ -58,25 +65,28 @@ async function getJson({ path, token, fetchImpl }) {
   return response.json();
 }
 
-// The build hook returns a build id. The build carries the failure reason and, once
-// Netlify starts the deploy, the deploy id whose state says whether it went live.
-export async function fetchDeploy({ buildId, token, fetchImpl = fetch }) {
-  const build = await getJson({
-    path: `/builds/${encodeURIComponent(buildId)}`,
+// The hook started the newest production deploy carrying its trigger title
+// that was created after the trigger fired.
+export function findTriggeredDeploy(deploys, { title, triggeredAt }) {
+  const earliest = Date.parse(triggeredAt) - CLOCK_SKEW_MS;
+  return deploys.find(
+    (deploy) =>
+      deploy.title === title && Date.parse(deploy.created_at) >= earliest,
+  );
+}
+
+// A build hook answers with an empty body, not a build id, so each poll
+// finds the deploy the hook started in the site's production deploys. Until
+// Netlify lists it, the deploy is reported as pending.
+export async function fetchDeploy({ target, token, fetchImpl = fetch }) {
+  const query = `production=true&per_page=${DEPLOYS_PAGE_SIZE}`;
+  const deploys = await getJson({
+    path: `/sites/${encodeURIComponent(target.siteId)}/deploys?${query}`,
     token,
     fetchImpl,
   });
-  if (build.error) {
-    return { id: buildId, state: "error", error_message: build.error };
-  }
-  if (!build.deploy_id) {
-    return { id: buildId, state: "new" };
-  }
-  return getJson({
-    path: `/deploys/${encodeURIComponent(build.deploy_id)}`,
-    token,
-    fetchImpl,
-  });
+  const deploy = findTriggeredDeploy(deploys, target);
+  return deploy ?? { id: `"${target.title}"`, state: "new" };
 }
 
 function describeFailure(deploy) {
@@ -84,9 +94,9 @@ function describeFailure(deploy) {
   return `Netlify production deploy ${deploy.id} ended in state "${deploy.state}"${detail}. See ${deploy.admin_url ?? "the Netlify deploys page"}.`;
 }
 
-async function pollOnce({ buildId, token, fetchDeployImpl }) {
+async function pollOnce({ target, token, fetchDeployImpl }) {
   try {
-    return { deploy: await fetchDeployImpl({ buildId, token }) };
+    return { deploy: await fetchDeployImpl({ target, token }) };
   } catch (error) {
     if (error instanceof DeployVerificationError) {
       throw error;
@@ -109,7 +119,7 @@ function settleDeploy(deploy, log) {
 // healthy deploy; auth and not-found errors are not transient and abort immediately.
 // The deadline check runs after a poll, so one last poll always happens at the end.
 export async function verifyDeploy({
-  buildId,
+  target,
   token,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   intervalMs = DEFAULT_INTERVAL_MS,
@@ -123,7 +133,7 @@ export async function verifyDeploy({
   let lastObservation;
   while (true) {
     const { deploy, error } = await pollOnce({
-      buildId,
+      target,
       token,
       fetchDeployImpl,
     });
@@ -143,15 +153,19 @@ export async function verifyDeploy({
     await sleep(intervalMs);
   }
   throw new DeployVerificationError(
-    `Timed out after ${Math.round(timeoutMs / 60000)} minutes waiting for Netlify build ${buildId}; last observed ${lastObservation}.`,
+    `Timed out after ${Math.round(timeoutMs / 60000)} minutes waiting for the Netlify deploy "${target.title}"; last observed ${lastObservation}.`,
   );
 }
 
 const MISSING_CONFIG_HINTS = {
   NETLIFY_AUTH_TOKEN:
     "set the NETLIFY_AUTH_TOKEN repository secret (a Netlify personal access token) so the workflow can confirm the production build succeeded",
-  NETLIFY_BUILD_ID:
-    "the trigger step did not output the build id from the Netlify build hook response",
+  NETLIFY_SITE_ID:
+    "set the NETLIFY_SITE_ID repository secret (Site configuration > Site details > Site ID) so the workflow can find the triggered deploy",
+  NETLIFY_TRIGGER_TITLE:
+    "the trigger step did not output the trigger title it sent to the build hook",
+  NETLIFY_TRIGGERED_AT:
+    "the trigger step did not output when it called the build hook",
 };
 
 export function readConfig(environment = process.env) {
@@ -166,16 +180,18 @@ export function readConfig(environment = process.env) {
   }
   return {
     token: environment.NETLIFY_AUTH_TOKEN,
-    buildId: environment.NETLIFY_BUILD_ID,
+    target: {
+      siteId: environment.NETLIFY_SITE_ID,
+      title: environment.NETLIFY_TRIGGER_TITLE,
+      triggeredAt: environment.NETLIFY_TRIGGERED_AT,
+    },
   };
 }
 
 export async function main(environment = process.env) {
-  const { token, buildId } = readConfig(environment);
-  const deploy = await verifyDeploy({ token, buildId });
-  console.log(
-    `Netlify production deploy ${deploy.id} (build ${buildId}) is live.`,
-  );
+  const { token, target } = readConfig(environment);
+  const deploy = await verifyDeploy({ token, target });
+  console.log(`Netlify production deploy ${deploy.id} is live.`);
 }
 
 // Same shape as scripts/check-asset-version-bump.mjs: import.meta.url is bound to

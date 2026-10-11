@@ -57,14 +57,13 @@ jobs:
           if [ "$EVENT_NAME" = "schedule" ]; then
             trigger_title="Weekly+production+deploy"
           fi
-          hook_response="$(curl --fail --silent --show-error --max-time 30 -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title")"
-          # The hook answers with {"id": "<build id>"}; fail loudly if that shape changes.
-          if ! build_id="$(echo "$hook_response" | jq -er '.id')"; then
-            echo "::error::The build was queued but the hook response had no build id, so the deploy cannot be verified. Response: $hook_response"
-            exit 1
-          fi
-          echo "Triggered Netlify production build ($trigger_title), build $build_id."
-          echo "build_id=$build_id" >> "$GITHUB_OUTPUT"
+          # The hook answers 200 with an empty body (no build id), so the verify
+          # step finds the deploy by this title and time instead.
+          triggered_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          curl --fail --silent --show-error --max-time 30 -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title"
+          echo "Triggered Netlify production build ($trigger_title) at $triggered_at."
+          echo "trigger_title=${trigger_title//+/ }" >> "$GITHUB_OUTPUT"
+          echo "triggered_at=$triggered_at" >> "$GITHUB_OUTPUT"
 
       # A 2xx from the hook only means the build was queued; fail this run (and so
       # notify the owner) if the build fails, is cancelled, or never finishes.
@@ -72,5 +71,7 @@ jobs:
         if: steps.recent.outputs.skip != 'true'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_BUILD_ID: ${{ steps.trigger.outputs.build_id }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NETLIFY_TRIGGER_TITLE: ${{ steps.trigger.outputs.trigger_title }}
+          NETLIFY_TRIGGERED_AT: ${{ steps.trigger.outputs.triggered_at }}
         run: node scripts/verify-netlify-deploy.mjs

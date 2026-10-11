@@ -6,12 +6,17 @@ import {
   DeployVerificationError,
   classifyDeployState,
   fetchDeploy,
+  findTriggeredDeploy,
   isMainModule,
   readConfig,
   verifyDeploy,
 } from "../../scripts/verify-netlify-deploy.mjs";
 
-const BUILD_ID = "deploy-123";
+const DEPLOY_ID = "deploy-123";
+const SITE_ID = "site-1";
+const TITLE = "Manual production deploy";
+const TRIGGERED_AT = "2026-10-11T22:26:29Z";
+const TARGET = { siteId: SITE_ID, title: TITLE, triggeredAt: TRIGGERED_AT };
 const TOKEN = "token-abc";
 const TIMEOUT_MS = 60_000;
 const INTERVAL_MS = 10_000;
@@ -24,14 +29,14 @@ function buildHarness(states: Array<string | Error>) {
     if (next instanceof Error) {
       throw next;
     }
-    return { id: BUILD_ID, state: next, error_message: "boom" };
+    return { id: DEPLOY_ID, state: next, error_message: "boom" };
   });
   const sleep = vi.fn(async (milliseconds: number) => {
     clock += milliseconds;
   });
   const run = () =>
     verifyDeploy({
-      buildId: BUILD_ID,
+      target: TARGET,
       token: TOKEN,
       timeoutMs: TIMEOUT_MS,
       intervalMs: INTERVAL_MS,
@@ -115,7 +120,7 @@ describe("verifyDeploy", () => {
     ]);
     const log = vi.fn();
     await verifyDeploy({
-      buildId: BUILD_ID,
+      target: TARGET,
       token: TOKEN,
       timeoutMs: TIMEOUT_MS,
       intervalMs: INTERVAL_MS,
@@ -134,8 +139,33 @@ describe("verifyDeploy", () => {
   });
 });
 
+describe("findTriggeredDeploy", () => {
+  function deploy(id: string, title: string, createdAt: string) {
+    return { id, title, created_at: createdAt, state: "building" };
+  }
+
+  it("picks the newest deploy with the trigger title created after the trigger", () => {
+    const deploys = [
+      deploy("other", "Bump deps (#257)", "2026-10-11T22:27:00Z"),
+      deploy("ours", TITLE, "2026-10-11T22:26:30.330Z"),
+      deploy("earlier-manual", TITLE, "2026-10-04T10:00:00Z"),
+    ];
+    expect(findTriggeredDeploy(deploys, TARGET)?.id).toBe("ours");
+  });
+
+  it("tolerates a Netlify clock a little behind the runner's", () => {
+    const deploys = [deploy("ours", TITLE, "2026-10-11T22:25:59Z")];
+    expect(findTriggeredDeploy(deploys, TARGET)?.id).toBe("ours");
+  });
+
+  it("ignores an older deploy with the same title", () => {
+    const deploys = [deploy("old", TITLE, "2026-10-11T22:20:00Z")];
+    expect(findTriggeredDeploy(deploys, TARGET)).toBeUndefined();
+  });
+});
+
 describe("fetchDeploy", () => {
-  function response(status: number, body: unknown = {}) {
+  function response(status: number, body: unknown = []) {
     return {
       status,
       ok: status >= 200 && status < 300,
@@ -148,46 +178,34 @@ describe("fetchDeploy", () => {
     return vi.fn(async () => queue.shift()!);
   }
 
-  it("follows the build to its deploy using a bearer token", async () => {
-    const fetchImpl = respondWith(
-      response(200, { deploy_id: "d1" }),
-      response(200, { state: "ready" }),
-    );
+  it("lists the site's production deploys with a bearer token and returns the triggered one", async () => {
+    const triggered = {
+      id: DEPLOY_ID,
+      title: TITLE,
+      created_at: "2026-10-11T22:26:30.330Z",
+      state: "ready",
+    };
+    const fetchImpl = respondWith(response(200, [triggered]));
     const deploy = await fetchDeploy({
-      buildId: BUILD_ID,
+      target: TARGET,
       token: TOKEN,
       fetchImpl,
     });
-    expect(deploy).toEqual({ state: "ready" });
+    expect(deploy).toEqual(triggered);
     const calls = fetchImpl.mock.calls as unknown as Array<
       [string, { headers: Record<string, string> }]
     >;
     expect(calls[0][0]).toBe(
-      `https://api.netlify.com/api/v1/builds/${BUILD_ID}`,
+      `https://api.netlify.com/api/v1/sites/${SITE_ID}/deploys?production=true&per_page=20`,
     );
-    expect(calls[1][0]).toBe("https://api.netlify.com/api/v1/deploys/d1");
     expect(calls[0][1].headers.Authorization).toBe(`Bearer ${TOKEN}`);
   });
 
-  it("reports a build error as a failed deploy", async () => {
+  it("reports pending while Netlify hasn't listed the deploy yet", async () => {
     const deploy = await fetchDeploy({
-      buildId: BUILD_ID,
+      target: TARGET,
       token: TOKEN,
-      fetchImpl: respondWith(
-        response(200, { error: "Build script returned non-zero exit code" }),
-      ),
-    });
-    expect(deploy).toMatchObject({
-      state: "error",
-      error_message: "Build script returned non-zero exit code",
-    });
-  });
-
-  it("reports a build with no deploy yet as pending", async () => {
-    const deploy = await fetchDeploy({
-      buildId: BUILD_ID,
-      token: TOKEN,
-      fetchImpl: respondWith(response(200, {})),
+      fetchImpl: respondWith(response(200, [])),
     });
     expect(classifyDeployState(deploy.state)).toBe(DEPLOY_OUTCOME.PENDING);
   });
@@ -197,7 +215,7 @@ describe("fetchDeploy", () => {
     async (status) => {
       await expect(
         fetchDeploy({
-          buildId: BUILD_ID,
+          target: TARGET,
           token: TOKEN,
           fetchImpl: respondWith(response(status)),
         }),
@@ -207,7 +225,7 @@ describe("fetchDeploy", () => {
 
   it("throws a retryable plain error on other failures", async () => {
     const promise = fetchDeploy({
-      buildId: BUILD_ID,
+      target: TARGET,
       token: TOKEN,
       fetchImpl: respondWith(response(500)),
     });
@@ -217,21 +235,30 @@ describe("fetchDeploy", () => {
 });
 
 describe("readConfig", () => {
-  it("returns the token and build id", () => {
-    expect(
-      readConfig({ NETLIFY_AUTH_TOKEN: TOKEN, NETLIFY_BUILD_ID: BUILD_ID }),
-    ).toEqual({ token: TOKEN, buildId: BUILD_ID });
+  const ENVIRONMENT = {
+    NETLIFY_AUTH_TOKEN: TOKEN,
+    NETLIFY_SITE_ID: SITE_ID,
+    NETLIFY_TRIGGER_TITLE: TITLE,
+    NETLIFY_TRIGGERED_AT: TRIGGERED_AT,
+  };
+
+  it("returns the token and the deploy to look for", () => {
+    expect(readConfig(ENVIRONMENT)).toEqual({ token: TOKEN, target: TARGET });
   });
 
-  it("fails clearly when the token secret is missing", () => {
-    expect(() => readConfig({ NETLIFY_BUILD_ID: BUILD_ID })).toThrow(
-      /Missing NETLIFY_AUTH_TOKEN: set the NETLIFY_AUTH_TOKEN repository secret/,
-    );
-  });
-
-  it("fails clearly when the build id is missing", () => {
-    expect(() => readConfig({ NETLIFY_AUTH_TOKEN: TOKEN })).toThrow(
-      /Missing NETLIFY_BUILD_ID: the trigger step/,
+  it.each([
+    ["NETLIFY_AUTH_TOKEN", /set the NETLIFY_AUTH_TOKEN repository secret/],
+    ["NETLIFY_SITE_ID", /set the NETLIFY_SITE_ID repository secret/],
+    [
+      "NETLIFY_TRIGGER_TITLE",
+      /the trigger step did not output the trigger title/,
+    ],
+    ["NETLIFY_TRIGGERED_AT", /the trigger step did not output when/],
+  ])("fails clearly when %s is missing", (name, hint) => {
+    const environment: Record<string, string> = { ...ENVIRONMENT };
+    delete environment[name];
+    expect(() => readConfig(environment)).toThrow(
+      new RegExp(`Missing ${name}: ${hint.source}`),
     );
   });
 });
