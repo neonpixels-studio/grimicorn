@@ -83,14 +83,29 @@ describe("weekly-production-deploy workflow", () => {
 describe("weekly-production-deploy verification step", () => {
   const workflow = readFileSync(DEPLOY_WORKFLOW_PATH, "utf8");
 
-  it("passes the Netlify token and build id to the verify script via env", () => {
-    expect(workflow).toContain(
+  it("passes the token, site and trigger details to the verify script via env", () => {
+    const verifyStep = workflow
+      .split("- name: Verify the Netlify")[1]
+      .split("\n      - name:")[0];
+    expect(verifyStep).toContain(
       "NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}",
     );
-    expect(workflow).toContain(
-      "NETLIFY_BUILD_ID: ${{ steps.trigger.outputs.build_id }}",
+    expect(verifyStep).toContain(
+      "NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}",
     );
-    expect(workflow).toContain("run: node scripts/verify-netlify-deploy.mjs");
+    expect(verifyStep).toContain(
+      "NETLIFY_TRIGGER_TITLE: ${{ steps.trigger.outputs.trigger_title }}",
+    );
+    expect(verifyStep).toContain(
+      "NETLIFY_TRIGGERED_AT: ${{ steps.trigger.outputs.triggered_at }}",
+    );
+    expect(verifyStep).toContain("run: node scripts/verify-netlify-deploy.mjs");
+  });
+
+  it("doesn't expect a build id in the hook's empty response", () => {
+    expect(workflow).not.toContain("jq -er '.id'");
+    expect(workflow).toContain('echo "trigger_title=${trigger_title//+/ }"');
+    expect(workflow).toContain('echo "triggered_at=$triggered_at"');
   });
 
   it("only verifies when the hook was actually triggered", () => {
