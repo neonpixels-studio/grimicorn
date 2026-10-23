@@ -1,0 +1,77 @@
+# Mirrors the CI gates (.github/workflows/ci.yml) so a push that bypasses CI cannot
+# deploy unlinted, untyped or untested code. check:asset-version-bump is deliberately
+# absent: it only diffs a pull request against its base branch (GITHUB_BASE_REF, which
+# Netlify never sets) and Netlify clones shallowly, so it could never run here.
+[build]
+  command = "npm run lint && npm run typecheck && npm run test:ci && npm run build"
+  publish = ".vitepress/dist"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[context.production]
+  # Netlify cancels the build when this exits 0 and builds when it exits 1.
+  # Production deploys only via the build hook (weekly workflow or manual dispatch).
+  ignore = "if [ -n \"$INCOMING_HOOK_TITLE\" ]; then exit 1; else exit 0; fi"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # Deny powerful features the site never uses (no payments or WebUSB).
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    # The site is static and first-party apart from GA4, which is loaded as a
+    # no-CORS script/beacon from Google's origins (CORP only governs responses
+    # served BY this origin, so it does not affect those). same-origin COOP severs
+    # window.opener from cross-origin popups; the target="_blank" links already
+    # carry noopener. same-origin CORP blocks other sites from embedding our assets
+    # (hotlinking); social crawlers fetch og:image top-level and are unaffected.
+    # No COEP is set, so nothing here requires cross-origin isolation of subresources.
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Resource-Policy = "same-origin"
+    # The preload directive only takes effect once the domain is submitted at
+    # hstspreload.org (manual, one-time, human follow-up — not automated here);
+    # until then this directive is inert (HSTS itself is still fully enforced
+    # after a browser's first successful HTTPS response, per usual trust-on-
+    # first-use behavior). Removal from the browser-baked preload list is slow
+    # (rides browser release trains), and includeSubDomains means every current
+    # and future subdomain of the apex must serve valid HTTPS before submitting,
+    # or it becomes unreachable with no server-side override. Submission also
+    # requires Netlify's "Force HTTPS" domain setting to be on (HTTP->HTTPS
+    # redirect on the apex); that setting is not configurable from this file.
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    # Content-Security-Policy is intentionally NOT set here. It carries per-build
+    # 'sha256-...' hashes for VitePress's inline bootstrap scripts (dark-mode/mac-os
+    # detection, __VP_SITE_DATA__) so script-src can drop 'unsafe-inline', which a
+    # static config cannot express. The buildEnd hook in .vitepress/config.ts writes
+    # it to the generated .vitepress/dist/_headers file instead. Do not add a CSP
+    # here: netlify.toml takes precedence over _headers for a shared header name, so
+    # it would silently override the hashed policy.
+
+# Self-hosted fonts are immutable: their content never changes under a given URL
+# (a real change bumps the ?v= query in fonts.css), so serve them with a one-year
+# cache to match the CDN caching Google Fonts previously provided. Without this,
+# Netlify's static default (must-revalidate) revalidates every font per navigation.
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Static image assets are immutable under a given URL for the same reason the fonts
+# are: the preloaded hero/portrait art (/assets/grimicorn-hero|head.*) and the OG
+# banner carry a ?v= cache-bust on every reference (the hero <picture> in
+# GrimicornPage.vue, the hero preload + og:image in .vitepress/config.ts), and the
+# favicons under /images already do too — a real change bumps that query. Without
+# this, Netlify's static default (must-revalidate) re-validates the LCP art on every
+# navigation for repeat and social-referral visitors.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
