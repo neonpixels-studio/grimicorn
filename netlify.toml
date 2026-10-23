@@ -7,7 +7,7 @@
   publish = ".vitepress/dist"
 
 [build.environment]
-  NODE_VERSION = "24"
+  NODE_VERSION = "24.22.1"
 
 [context.production]
   # Netlify cancels the build when this exits 0 and builds when it exits 1.
