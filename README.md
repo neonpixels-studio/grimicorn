@@ -1,0 +1,123 @@
+# grimicorn-landing
+
+Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](https://vitepress.dev). A single marketing page with a custom theme, self-hosted fonts, a build-time Content-Security-Policy, and a set of guarded invariants that keep the caching and CSP contracts honest. This README documents the npm scripts and, more importantly, the non-obvious build machinery a contributor would otherwise have to reverse-engineer.
+
+## Requirements
+
+- Node `24.22.1` (pinned in `.nvmrc`; Netlify builds on `NODE_VERSION = 24`). The build relies on `Dirent.parentPath` (Node 20.12+), so older Node will break `write-headers.ts` / `scan-origins.ts`. Enforced at install time by `engines.node` (`^24.16.0`) in `package.json` plus `engine-strict=true` in `.npmrc` — `npm install`/`npm ci` fails loud on an unsupported Node instead of only warning.
+- npm (the repo ships a `package-lock.json`; CI runs `npm ci`).
+- For `npm run test:e2e` only: local Chromium, Firefox, and WebKit binaries for Playwright — run `npx playwright install chromium firefox webkit` after `npm install`, and again whenever `@playwright/test` is upgraded (the browser builds are pinned per package version). On Debian/Ubuntu, `npx playwright install --with-deps chromium firefox webkit` also installs the system libraries those browsers need (this is what the `e2e` job in `ci.yml` runs on `ubuntu-latest`); it invokes `sudo` itself for the apt step, so don't prefix the whole command with `sudo` yourself or the browser download lands in root's cache where `playwright test` won't find it. `--with-deps` only supports Debian/Ubuntu, so on other distros run the plain install and add any libraries the browsers report missing via your own package manager. Note: `skip-link-smoke.spec.ts` presses Option+Tab instead of Tab on macOS WebKit, since that engine doesn't Tab-focus links there by default (unlike CI's Linux WebKit) — see `linkTabKeyFor` in that file.
+
+## npm scripts
+
+| Script                             | Command                                          | What it does                                                                                                                                                                                                                                                                             |
+| ---------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                      | `vitepress dev`                                  | Local dev server with HMR. Note: build-only hooks do **not** run here (see below) — canonical/OG/Twitter/JSON-LD/hero-preload render identically to a production build, but the generated CSP and the origin scan don't.                                                                 |
+| `npm run build`                    | `vitepress build`                                | Production build into `.vitepress/dist`. Runs the `buildEnd` hooks that write `_headers` and scan the output for disallowed origins.                                                                                                                                                     |
+| `npm run preview`                  | `vitepress preview`                              | Serves the built `.vitepress/dist` locally. Use this (not `dev`) to check the 404's `noindex` meta tag and other build-only HTML output — it never applies the generated `_headers`, so it **cannot** be used to verify the CSP (see below).                                             |
+| `npm run test`                     | `vitest`                                         | Unit/snapshot tests in watch mode.                                                                                                                                                                                                                                                       |
+| `npm run test:ci`                  | `vitest run`                                     | Single-shot test run used by CI and the Netlify build.                                                                                                                                                                                                                                   |
+| `npm run test:e2e`                 | `vitepress build && playwright test`             | Builds the site, then runs the Playwright real-browser smoke test (Chromium, Firefox, WebKit) against the built production output. Requires `npx playwright install chromium firefox webkit` first (see Requirements).                                                                   |
+| `npm run typecheck`                | `vue-tsc --noEmit`                               | Type-checks the theme (Vue SFCs) and the `.vitepress` TypeScript.                                                                                                                                                                                                                        |
+| `npm run lint`                     | `prettier --check . && eslint .`                 | Formatting + lint check (no writes).                                                                                                                                                                                                                                                     |
+| `npm run lint:fix`                 | `prettier --write . && eslint . --fix`           | Auto-fix formatting and lint issues.                                                                                                                                                                                                                                                     |
+| `npm run generate:og`              | `node scripts/generate-og-banner.mjs`            | Regenerates the Open Graph banner (`public/assets/grimicorn-og.png`) from `og-banner-spec.mjs`. Run and commit the result when the banner changes.                                                                                                                                       |
+| `npm run lock:assets`              | `node scripts/regenerate-asset-version-lock.mjs` | Syncs `site.webmanifest`'s icon `?v=` tokens to the live `ASSET_CACHE_BUST` token, then rewrites `.vitepress/asset-version-lock.json` from the current asset bytes and that token. Run after bumping the token when a versioned asset changes.                                           |
+| `npm run check:asset-version-bump` | `node scripts/check-asset-version-bump.mjs`      | CI-only guard: on a pull request, fails if any versioned asset changed **or was removed from `VERSIONED_ASSET_FILES`** relative to the base branch without the `ASSET_CACHE_BUST` token moving forward past the base branch's locked token. No-op outside a pull request (see CI below). |
+| `npm run audit`                    | `npm audit --omit=dev --audit-level=high`        | Fails on high/critical advisories in **production** deps only (dev-only advisories in vitepress/vite/esbuild never ship to the static site).                                                                                                                                             |
+
+### Dev vs. build
+
+`transformHead` and `buildEnd` are build-time hooks, so the generated CSP and the origin scan only exist under a production build, never under `vitepress dev`. Canonical, Open Graph, Twitter Card, JSON-LD, and the hero image preload live in `transformPageData` instead (see the comment above it in `.vitepress/config.ts`), which runs through the same render pipeline in both dev and build, so those tags render identically either way. The 404's `noindex` meta tag and other build-only HTML output can be checked with `npm run build && npm run preview`, but `vitepress preview` never applies the generated `_headers` file, so it cannot verify the CSP. To verify the CSP, serve the build with the same static server the Playwright smoke test and Lighthouse CI use, which applies the generated CSP from `_headers`: `npm run build && node .vitepress/e2e/serve-dist.mjs 4320`, then open the URL it prints on startup. Use a port other than the 4319 default for manual checks: `playwright.config.ts` reuses whatever is already listening on 4319 locally, so a manual server left on that port can get silently reused (and tested) by a later `npm run test:e2e` run — including one against a different checkout's build.
+
+## Deployment (Netlify)
+
+`netlify.toml` sets the build command to `npm run test:ci && npm run build` and publishes `.vitepress/dist`. It also sets the static security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, HSTS, and immutable one-year caching for `/fonts/*`, `/assets/*`, `/images/*`). The Content-Security-Policy is deliberately **absent** from `netlify.toml` (see below).
+
+## Deploys
+
+Production deploys once a week, on Mondays at 14:00 UTC, via a Netlify build hook called by `.github/workflows/weekly-production-deploy.yml`. Merging to `main` does not start a production build: the `[context.production]` `ignore` command in `netlify.toml` cancels any production build that was not triggered by a hook. The scheduled run is skipped (and logs why) only when `main` is already the commit of the last successful Netlify production deploy (`scripts/check-undeployed-commits.mjs`), so a late cron start or a failed earlier deploy never strands a commit. If the last deploy cannot be determined (missing secrets, API error, no prior deploy) the run deploys. This needs the `NETLIFY_SITE_ID` repo secret (Site configuration > Site details > Site ID) alongside `NETLIFY_AUTH_TOKEN`. Pull requests still get Deploy Previews as usual.
+
+To ship a hotfix now, open the Actions tab, pick **Weekly production deploy**, and choose **Run workflow**. A manual run always deploys. The workflow needs the `NETLIFY_BUILD_HOOK_URL` repo secret and fails if it is missing or the hook returns a non-2xx response.
+
+A 2xx from the hook only means the build was queued, so the workflow then runs `scripts/verify-netlify-deploy.mjs`, which polls the Netlify deploys API (every 15 seconds, up to 20 minutes) for the deploy the hook started. A build hook answers with an empty body rather than a build id, so the script picks the newest production deploy whose title matches the hook's `trigger_title` and that was created after the hook was called. The run fails, and GitHub notifies the owner, if the Netlify build errors, is cancelled, or does not reach `ready` before the timeout. This needs one more repo secret, `NETLIFY_AUTH_TOKEN`: a Netlify personal access token (User settings > Applications > Personal access tokens). It also reads `NETLIFY_SITE_ID` (the same secret as the skip check) to list the site's deploys. If either secret is missing the verify step fails with a message saying so (the build itself is still queued by then).
+
+Production builds started from the Netlify UI (Trigger deploy, Retry deploy) are cancelled by the same gate, so use the workflow instead; publishing an earlier deploy to roll back is unaffected. GitHub disables scheduled workflows after 60 days without repo activity, so if the weekly run stops appearing, re-enable the workflow from the Actions tab.
+
+## CI
+
+- **`ci.yml`** runs two jobs on pushes/PRs to `main`: a `ci` job (`lint`, `typecheck`, `test:ci`, `check:asset-version-bump`, `build`) and an `e2e` job that installs Chromium, Firefox, and WebKit and runs `test:e2e`, uploading `test-results/` on failure. `check:asset-version-bump` diffs the asset-version lock against the PR's base branch (see the script's own comments for why); it only runs on `pull_request` events, so it assumes branch protection requires changes to land through a PR — a direct push to `main` has no asset-bump gate.
+- **`security.yml`** runs a gitleaks secret scan and an `npm audit` gate (production deps, high/critical).
+- Every third-party action across the workflows (and the `setup-node-project` composite action) is pinned to a full commit SHA with a trailing `# vX.Y.Z` comment, so a moved or compromised tag can't change what CI runs; Dependabot's weekly `github-actions` updates bump the pins via that comment. `workflow-action-pinning.test.ts` fails if any `uses:` reference in `.github/workflows` or `.github/actions` is not SHA-pinned.
+- **`lighthouse.yml`** runs [`treosh/lighthouse-ci-action`](https://github.com/treosh/lighthouse-ci-action) (pinned to a commit SHA) against the production build, served with `.vitepress/e2e/serve-dist.mjs` — the same script the Playwright smoke test uses — so the audit sees the real generated CSP, not `vitepress preview`. See the header comment in `.vitepress/e2e/serve-dist.mjs` for exactly what that server does and doesn't replicate from production (CSP, compression, headers). Budgets and score thresholds (performance, accessibility, SEO, best-practices, LCP, and per-resource-type byte budgets) live in `lighthouserc.cjs` at the repo root (CommonJS, not JSON, so the budget rationale — e.g. why the LCP threshold isn't the textbook 2500ms — can live as a comment next to the number it justifies); tune them there as the site's baseline shifts. The `canonical` SEO audit is skipped there since the hardcoded production canonical URL can never match the loopback host this workflow serves from. Reports are uploaded as a workflow artifact (`uploadArtifacts`); `temporaryPublicStorage` is not enabled.
+
+Run `npm run lint && npm run typecheck && npm run test:ci && npm run test:e2e` locally before pushing to match CI (`test:e2e` builds the site itself, and needs the browser installs from Requirements).
+
+## Known test-coverage gaps
+
+### Forced-colors (Windows High Contrast Mode) rendering has no automated check on WebKit
+
+The `forced-colors gradient-text fallback` describe in `.vitepress/tests/style.test.ts` guards the `@media (forced-colors: active)` rules in `style.css` by parsing the stylesheet as text — it proves the right declarations exist and win the cascade, but it never asks a real browser to render the page under forced-colors and check what actually paints. `.vitepress/e2e/forced-colors.spec.ts` closes that gap for Chromium and Firefox by asserting computed styles under `page.emulateMedia({ forcedColors: "active" })`; it skips WebKit (see below).
+
+Verified locally against `@playwright/test@1.63.0` (September 2026, across all three `test:e2e` projects) that `page.emulateMedia({ forcedColors: "active" })` behaves differently per engine — re-check this if `@playwright/test` gets bumped, since Dependabot tracks it here:
+
+- **Chromium and Firefox:** the emulation is real. `matchMedia("(forced-colors: active)").matches` reports `true`, the page's own `@media (forced-colors: active)` rule is actually applied, and `CanvasText`/`Canvas` resolve to real system colors — i.e. `forced-colors.spec.ts` genuinely exercises the fallback CSS here.
+- **WebKit:** the emulation is a false positive. `matchMedia(...).matches` also reports `true`, but the `@media (forced-colors: active)` rule is never applied to the cascade — computed styles come back identical to forced-colors being off. A spec that only checks `matches` would pass while testing nothing; a spec that checks computed styles would correctly fail, but for the wrong reason (Playwright's emulation, not a real app bug).
+
+Chromium and Firefox have genuine automated forced-colors rendering coverage via that spec (on Chromium the wordmark and 404 specs cannot fail, since its UA already forces a visible color; only the `.colorful-btn` hover and pressed specs guard Chromium, and the wordmark `color` fallback is guarded on Firefox only). **WebKit cannot** — its Playwright forced-colors emulation doesn't apply the cascade, and WebKit/Safari has no known OS-level forced-colors trigger on macOS or iOS either (unlike Windows' Contrast Themes or Firefox's own override-colors setting). So there is currently no way, automated or manual, to exercise WebKit's real forced-colors handling. Treat the WebKit half as an accepted, currently-irreducible gap rather than a periodic checklist item: revisit it if a future WebKit/Playwright release starts applying the cascade under emulation, or if Safari/macOS ever exposes a forced-colors trigger.
+
+Beyond the emulation, Chromium and Firefox forced-colors rendering can also be spot-checked against a real OS trigger: build the site (`npm run build && node .vitepress/e2e/serve-dist.mjs <port>`) and load it with `forced-colors: active` triggered for real — a Windows Contrast Theme covers both engines natively; on any OS, Firefox has its own independent toggle (Settings → Language and Appearance → Colors → "Manage Colors…" → set "Override the colors specified by the page with your selections above" to **Always**) — then confirm the GRIMICORN/AGENT wordmarks, the 404 numeral, and `.colorful-btn` (including `:hover` and the pause-toggle's pressed state) all stay visible per the fallback rules asserted in the `forced-colors gradient-text fallback` describe in `style.test.ts`.
+
+## Non-obvious invariants
+
+These are the contracts a naive change can silently break. Each is enforced by code and/or tests; read this before touching fonts, headers, cached assets, or `netlify.toml`.
+
+### 1. The CSP is generated per build into `_headers`, not `netlify.toml`
+
+VitePress emits inline bootstrap scripts (dark-mode / macOS detection, `__VP_SITE_DATA__`) whose contents change per build. To let `script-src` drop `'unsafe-inline'`, the CSP must carry a `'sha256-...'` hash of each of those scripts, which a static config cannot express.
+
+So the CSP is built at build time: `buildEnd` in `.vitepress/config.ts` calls `writeCspHeaders` (`.vitepress/write-headers.ts`), which reads every rendered `.html` file, hashes each executable inline script (`.vitepress/headers.ts`), and writes the policy into the generated `.vitepress/dist/_headers` file. `headers.ts` is filesystem-free and unit-tested against fixture HTML.
+
+Two guardrails fail the build loud rather than shipping a broken policy:
+
+- Zero collected script hashes (VitePress changed its output) throws instead of shipping a CSP that would block the bootstrap scripts.
+- An existing `_headers` in the output (e.g. a `public/_headers`) throws rather than being overwritten.
+
+**Do not add a `Content-Security-Policy` to `netlify.toml`.** For a shared header name, `netlify.toml` takes precedence over `_headers`, so a static CSP there would silently override the hashed policy and break the site. This is why `netlify.toml` carries only an explanatory comment marking the deliberate omission instead of a `Content-Security-Policy` directive.
+
+### 2. First-party origins are scanned in the built output
+
+The site is first-party apart from one deliberate exception, Google Analytics (GA4): the gtag loader (`googletagmanager.com`) and its measurement beacons (`google-analytics.com`, `region1.google-analytics.com`) are the only third-party origins the CSP (`headers.ts`) allows, added to `script-src`/`img-src`/`connect-src` for the GA head entries in `config.ts`. **GA and those origins load only on the Netlify production deploy** (gated by `ANALYTICS_ENABLED = process.env.CONTEXT === "production"` in `config.ts`, threaded into `buildContentSecurityPolicy`); `vitepress dev`, local builds, deploy previews, and branch deploys ship neither the GA tag nor the Google origins, so they stay strictly first-party and dev traffic never reaches the GA property. On production, the GA bootstrap is a single inline script that returns before injecting the gtag loader or creating `dataLayer` when the browser sends Global Privacy Control (`navigator.globalPrivacyControl`) or Do Not Track (`navigator.doNotTrack === "1"`, plus the legacy `window.doNotTrack` and `navigator.msDoNotTrack`), so opted-out visitors fetch and fire nothing (`.vitepress/analytics.ts`). `.vitepress/origins.ts` holds the `DISALLOWED_ORIGINS` list (the Google Fonts origins the site used before self-hosting) as the single source of truth.
+
+Two scans guard it against drift:
+
+- **Source-level** (`.vitepress/tests/fonts.test.ts`): proves the theme source and `index.md` reference no disallowed origin.
+- **Build-output** (`.vitepress/scan-origins.ts`, wired into `buildEnd`): walks the rendered `.html`/`.css`/`.js` and fails the build if a dependency or plugin reintroduced a disallowed origin the source scan can't see.
+
+If you ever need a legitimate third-party origin, add it to the relevant CSP directive in `headers.ts`, remove it from `DISALLOWED_ORIGINS` in `origins.ts` if it is listed there (the list is a deny list), and update the tests together.
+
+### 3. The `?v=` cache-bust invariant
+
+`netlify.toml` serves `/fonts/*`, `/assets/*`, and `/images/*` with a one-year `immutable` cache. Files under `public/` are **not** content-hashed by Vite, so a `?v=` query string is the only way to force a refetch when the bytes behind a stable URL change. There are two independent tokens; bump the relevant one whenever the underlying file changes.
+
+- **Font token** (`?v=20260813`): shared by the `url()`s in `.vitepress/theme/fonts.css` and the font `preload` hrefs in `.vitepress/config.ts`. They must stay in lockstep, or the preload misses the cache and the font double-fetches. `fonts.test.ts` enforces that every preload href matches a declared `@font-face` url.
+- **Asset token** (`ASSET_CACHE_BUST` in `.vitepress/asset-cache-bust.ts`): the single source of truth for the hero/portrait/OG/manifest assets. Imported by `config.ts` (OG image, hero preload, web manifest) and `GrimicornPage.vue` (hero + portrait `<picture>` sources) so an avif client never fetches a different URL than the preload warmed. The favicons in `config.ts` carry their own inline `?v=` and are bumped by hand when they change. Retiring a path from `VERSIONED_ASSET_FILES` also requires a bump: once a path stops being fingerprinted there is no way to prove its bytes didn't change in the same PR, so `check:asset-version-bump` treats every removal as if it had.
+
+### 4. Fonts are self-hosted
+
+Space Grotesk and JetBrains Mono are served first-party from `public/fonts` via `@font-face` in `.vitepress/theme/fonts.css`, not from Google Fonts. This keeps the LCP path free of cross-origin round trips and lets `style-src`/`font-src` stay first-party-only.
+
+- Both are variable fonts: one woff2 per subset spans the `400 700` weight axis, so each `@font-face` declares a weight **range** (not a single weight) with `font-display: swap`.
+- Only the `latin` and `latin-ext` subsets are hosted; other subsets fall back to the system font.
+- To refresh or add a subset, follow the instructions in the header comment of `fonts.css` (re-download with the `wght@400..700` **range** syntax, drop the woff2 into `public/fonts`, and bump the `?v=` token in both `fonts.css` and the `config.ts` preloads).
+- Licenses (SIL OFL 1.1) travel with the binaries in `public/fonts/*-OFL.txt`.
+
+## Project layout
+
+- `index.md` — the single content page (front matter only; the layout is the custom theme).
+- `.vitepress/config.ts` — site config, `<head>` (SEO/OG/preloads), and the `buildEnd` hooks.
+- `.vitepress/theme/` — custom theme: `AppLayout.vue`, `components/GrimicornPage.vue`, `components/NotFound.vue`, `fonts.css`, `style.css`.
+- `.vitepress/headers.ts`, `write-headers.ts`, `scan-origins.ts`, `origins.ts`, `asset-cache-bust.ts` — the build-time CSP / origin / cache-bust machinery described above.
+- `.vitepress/tests/` — Vitest unit and snapshot tests covering the config, headers, origins, fonts, cache-bust, and components.
+- `og-banner-spec.mjs`, `hero-image-spec.mjs`, `scripts/generate-og-banner.mjs` — single-source specs and the OG banner generator.
+- `public/` — static assets (fonts, images, `assets/`, `llms.txt`, `robots.txt`) copied verbatim into the build.
