@@ -32,6 +32,12 @@ const EMPTY_FLOW_MAPPING_PATTERN = /^\{\s*\}$/;
 // nested grant of `write`/`write-all` defeats the top-level read-only
 // guarantee this test checks for.
 const WRITE_KEYWORD_PATTERN = /\bwrite(-all)?\b/i;
+// The one deliberate exception: the security.txt expiry reminder opens a
+// tracking issue, which needs issues: write on its single job. Nothing else
+// is exempt, and the exemption is a per-file allowlist, not a blanket rule.
+const ALLOWED_JOB_WRITE_LINES: Record<string, readonly string[]> = {
+  "security-txt-expiry.yml": ["issues: write"],
+};
 
 type PermissionsResult =
   | { kind: "missing" }
@@ -115,7 +121,10 @@ function parseTopLevelPermissions(lines: string[]): PermissionsResult {
 // whether inline (`permissions: write-all`) or in its block body
 // (`contents: write`). A narrowing override (e.g. `permissions: {}` on a
 // single job) is legitimate least-privilege practice and must not fail here.
-function findWriteScopeOverride(lines: string[]) {
+function findWriteScopeOverride(
+  lines: string[],
+  allowedWriteLines: readonly string[] = [],
+) {
   const nestedHeaderIndexes = lines.flatMap((line, index) => {
     const match = line.match(PERMISSIONS_HEADER_PATTERN);
     return match && match[1] !== "" ? [index] : [];
@@ -128,6 +137,7 @@ function findWriteScopeOverride(lines: string[]) {
     const blockText = readBlockBody(lines, headerIndex)
       .filter((line) => !COMMENT_LINE_PATTERN.test(line))
       .map(normalizeLine)
+      .filter((line) => !allowedWriteLines.includes(line))
       .join("\n");
     const candidateText = `${inlineValue}\n${blockText}`;
     if (WRITE_KEYWORD_PATTERN.test(candidateText)) {
@@ -191,6 +201,7 @@ describe("Workflow permissions", () => {
     (fileName) => {
       const writeOverrideLocation = findWriteScopeOverride(
         readWorkflowLines(fileName),
+        ALLOWED_JOB_WRITE_LINES[fileName] ?? [],
       );
       if (writeOverrideLocation !== undefined) {
         throw new Error(
@@ -312,6 +323,35 @@ describe("parseTopLevelPermissions edge cases", () => {
     ];
     expect(findWriteScopeOverride(lines)).toBe(
       "line 5: permissions: write-all",
+    );
+  });
+
+  it("allows only the explicitly allowlisted write line", () => {
+    const lines = [
+      "permissions:",
+      "  contents: read",
+      "jobs:",
+      "  remind:",
+      "    permissions:",
+      "      contents: read",
+      "      issues: write",
+    ];
+    expect(findWriteScopeOverride(lines, ["issues: write"])).toBeUndefined();
+    expect(findWriteScopeOverride(lines)).toBe("line 5: permissions:");
+  });
+
+  it("still flags other write scopes next to an allowlisted one", () => {
+    const lines = [
+      "permissions:",
+      "  contents: read",
+      "jobs:",
+      "  remind:",
+      "    permissions:",
+      "      contents: write",
+      "      issues: write",
+    ];
+    expect(findWriteScopeOverride(lines, ["issues: write"])).toBe(
+      "line 5: permissions:",
     );
   });
 
