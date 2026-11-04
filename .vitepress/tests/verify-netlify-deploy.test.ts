@@ -276,7 +276,12 @@ describe("verify-only mode", () => {
         ({
           status: 200,
           ok: true,
-          json: async () => ({ id: VERIFY_ID, state: "ready" }),
+          json: async () => ({
+            id: VERIFY_ID,
+            state: "ready",
+            site_id: SITE_ID,
+            context: "production",
+          }),
         }) as Response,
     );
     const deploy = await fetchDeploy({
@@ -290,6 +295,30 @@ describe("verify-only mode", () => {
       `https://api.netlify.com/api/v1/deploys/${VERIFY_ID}`,
     );
   });
+
+  it.each([
+    [{ site_id: "other-site", context: "production" }, /does not belong/],
+    [{ site_id: SITE_ID, context: "deploy-preview" }, /not a production/],
+  ])(
+    "rejects a deploy that is not this site's production deploy",
+    async (body, message) => {
+      const fetchImpl = vi.fn(
+        async () =>
+          ({
+            status: 200,
+            ok: true,
+            json: async () => ({ id: VERIFY_ID, state: "ready", ...body }),
+          }) as Response,
+      );
+      await expect(
+        fetchDeploy({
+          target: { siteId: SITE_ID, deployId: VERIFY_ID },
+          token: TOKEN,
+          fetchImpl,
+        }),
+      ).rejects.toThrow(message);
+    },
+  );
 
   it("names the deploy id in the timeout message", async () => {
     await expect(

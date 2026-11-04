@@ -141,18 +141,24 @@ describe("weekly-production-deploy verify-only dispatch", () => {
   });
 
   it("still verifies when verify_deploy_id is set", () => {
-    expect(verifyStep).not.toContain("inputs.verify_deploy_id == ''");
+    const condition = verifyStep.match(/^\s+if: (.*)$/m)?.[1];
+    expect(condition).toBeDefined();
+    expect(condition).not.toContain("steps.trigger");
+    expect(condition).not.toContain("inputs.verify_deploy_id");
     expect(verifyStep).toContain(
       "NETLIFY_VERIFY_DEPLOY_ID: ${{ inputs.verify_deploy_id }}",
     );
   });
 
-  it("never interpolates the input inside a run script", () => {
-    const runLines = workflow
+  it("only references the input on env lines, never in a run script", () => {
+    const inputLines = workflow
       .split("\n")
-      .filter((line) => /^\s+run:/.test(line));
-    runLines.forEach((line) => {
-      expect(line).not.toContain("inputs.");
+      .filter((line) => line.includes("${{ inputs."));
+    expect(inputLines.length).toBeGreaterThan(0);
+    inputLines.forEach((line) => {
+      expect(line).toMatch(
+        /^\s+(if: .*|[A-Z_]+: \$\{\{ inputs\.[a-z_]+ \}\})\s*$/,
+      );
     });
   });
 });

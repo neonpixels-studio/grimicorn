@@ -75,16 +75,36 @@ export function findTriggeredDeploy(deploys, { title, triggeredAt }) {
   );
 }
 
-// A build hook answers with an empty body, not a build id, so each poll
-// finds the deploy the hook started in the site's production deploys. Until
+const PRODUCTION_CONTEXT = "production";
+
+// GET /deploys/{id} returns any deploy the token can read, so confirm it is
+// this site's production deploy before its state is trusted.
+async function fetchDeployById({ target, token, fetchImpl }) {
+  const deploy = await getJson({
+    path: `/deploys/${encodeURIComponent(target.deployId)}`,
+    token,
+    fetchImpl,
+  });
+  if (deploy.site_id !== target.siteId) {
+    throw new DeployVerificationError(
+      `Deploy ${target.deployId} does not belong to the site named by NETLIFY_SITE_ID.`,
+    );
+  }
+  if (deploy.context !== PRODUCTION_CONTEXT) {
+    throw new DeployVerificationError(
+      `Deploy ${target.deployId} is a "${deploy.context}" deploy, not a production deploy.`,
+    );
+  }
+  return deploy;
+}
+
+// With a deployId (verify-only mode) the deploy is fetched directly. Otherwise
+// a build hook answers with an empty body, not a build id, so each poll finds
+// the deploy the hook started in the site's production deploys. Until
 // Netlify lists it, the deploy is reported as pending.
 export async function fetchDeploy({ target, token, fetchImpl = fetch }) {
   if (target.deployId) {
-    return getJson({
-      path: `/deploys/${encodeURIComponent(target.deployId)}`,
-      token,
-      fetchImpl,
-    });
+    return fetchDeployById({ target, token, fetchImpl });
   }
   const query = `production=true&per_page=${DEPLOYS_PAGE_SIZE}`;
   const deploys = await getJson({
