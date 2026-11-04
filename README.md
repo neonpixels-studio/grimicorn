@@ -42,6 +42,8 @@ To ship a hotfix now, open the Actions tab, pick **Weekly production deploy**, a
 
 A 2xx from the hook only means the build was queued, so the workflow then runs `scripts/verify-netlify-deploy.mjs`, which polls the Netlify deploys API (every 15 seconds, up to 20 minutes) for the deploy the hook started. A build hook answers with an empty body rather than a build id, so the script picks the newest production deploy whose title matches the hook's `trigger_title` and that was created after the hook was called. The run fails, and GitHub notifies the owner, if the Netlify build errors, is cancelled, or does not reach `ready` before the timeout. This needs one more repo secret, `NETLIFY_AUTH_TOKEN`: a Netlify personal access token (User settings > Applications > Personal access tokens). It also reads `NETLIFY_SITE_ID` (the same secret as the skip check) to list the site's deploys. If either secret is missing the verify step fails with a message saying so (the build itself is still queued by then).
 
+To re-run only the verification against an existing deploy without starting a new build, choose **Run workflow** and set `verify_deploy_id` to the Netlify deploy id (24 hex characters, from the deploy's URL on the Netlify deploys page). The trigger step is skipped and the poll runs against that deploy; leave it empty for a normal run.
+
 Production builds started from the Netlify UI (Trigger deploy, Retry deploy) are cancelled by the same gate, so use the workflow instead; publishing an earlier deploy to roll back is unaffected. GitHub disables scheduled workflows after 60 days without repo activity, so if the weekly run stops appearing, re-enable the workflow from the Actions tab.
 
 ## CI

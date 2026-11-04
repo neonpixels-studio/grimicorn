@@ -119,6 +119,44 @@ describe("weekly-production-deploy verification step", () => {
   });
 });
 
+describe("weekly-production-deploy verify-only dispatch", () => {
+  const workflow = readFileSync(DEPLOY_WORKFLOW_PATH, "utf8");
+  const triggerStep = workflow
+    .split("- name: Trigger Netlify")[1]
+    .split("\n      - name:")[0];
+  const verifyStep = workflow
+    .split("- name: Verify the Netlify")[1]
+    .split("\n      - name:")[0];
+
+  it("declares an optional verify_deploy_id dispatch input", () => {
+    const dispatch = workflow
+      .split("workflow_dispatch:")[1]
+      .split("\nconcurrency:")[0];
+    expect(dispatch).toMatch(/^ {6}verify_deploy_id:/m);
+    expect(dispatch).toMatch(/required: false/);
+  });
+
+  it("skips the trigger step when verify_deploy_id is set", () => {
+    expect(triggerStep).toContain("inputs.verify_deploy_id == ''");
+  });
+
+  it("still verifies when verify_deploy_id is set", () => {
+    expect(verifyStep).not.toContain("inputs.verify_deploy_id == ''");
+    expect(verifyStep).toContain(
+      "NETLIFY_VERIFY_DEPLOY_ID: ${{ inputs.verify_deploy_id }}",
+    );
+  });
+
+  it("never interpolates the input inside a run script", () => {
+    const runLines = workflow
+      .split("\n")
+      .filter((line) => /^\s+run:/.test(line));
+    runLines.forEach((line) => {
+      expect(line).not.toContain("inputs.");
+    });
+  });
+});
+
 describe("weekly-production-deploy skip check", () => {
   const workflow = readFileSync(DEPLOY_WORKFLOW_PATH, "utf8");
 

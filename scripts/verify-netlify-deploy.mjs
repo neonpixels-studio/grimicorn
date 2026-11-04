@@ -79,6 +79,13 @@ export function findTriggeredDeploy(deploys, { title, triggeredAt }) {
 // finds the deploy the hook started in the site's production deploys. Until
 // Netlify lists it, the deploy is reported as pending.
 export async function fetchDeploy({ target, token, fetchImpl = fetch }) {
+  if (target.deployId) {
+    return getJson({
+      path: `/deploys/${encodeURIComponent(target.deployId)}`,
+      token,
+      fetchImpl,
+    });
+  }
   const query = `production=true&per_page=${DEPLOYS_PAGE_SIZE}`;
   const deploys = await getJson({
     path: `/sites/${encodeURIComponent(target.siteId)}/deploys?${query}`,
@@ -87,6 +94,10 @@ export async function fetchDeploy({ target, token, fetchImpl = fetch }) {
   });
   const deploy = findTriggeredDeploy(deploys, target);
   return deploy ?? { id: `"${target.title}"`, state: "new" };
+}
+
+function describeTarget(target) {
+  return target.deployId ?? `"${target.title}"`;
 }
 
 function describeFailure(deploy) {
@@ -153,7 +164,7 @@ export async function verifyDeploy({
     await sleep(intervalMs);
   }
   throw new DeployVerificationError(
-    `Timed out after ${Math.round(timeoutMs / 60000)} minutes waiting for the Netlify deploy "${target.title}"; last observed ${lastObservation}.`,
+    `Timed out after ${Math.round(timeoutMs / 60000)} minutes waiting for the Netlify deploy ${describeTarget(target)}; last observed ${lastObservation}.`,
   );
 }
 
@@ -168,8 +179,33 @@ const MISSING_CONFIG_HINTS = {
     "the trigger step did not output when it called the build hook",
 };
 
+// Netlify deploy ids are 24 hex characters; anything else is rejected before
+// it reaches an API path.
+export const DEPLOY_ID_PATTERN = /^[0-9a-f]{24}$/i;
+
+function readVerifyOnlyDeployId(environment) {
+  const deployId = (environment.NETLIFY_VERIFY_DEPLOY_ID ?? "").trim();
+  if (!deployId) {
+    return null;
+  }
+  if (!DEPLOY_ID_PATTERN.test(deployId)) {
+    throw new DeployVerificationError(
+      "verify_deploy_id must be a 24 character hexadecimal Netlify deploy id.",
+    );
+  }
+  return deployId;
+}
+
+function requiredNames(verifyOnly) {
+  const triggerNames = ["NETLIFY_TRIGGER_TITLE", "NETLIFY_TRIGGERED_AT"];
+  return Object.keys(MISSING_CONFIG_HINTS).filter(
+    (name) => !verifyOnly || !triggerNames.includes(name),
+  );
+}
+
 export function readConfig(environment = process.env) {
-  const missing = Object.keys(MISSING_CONFIG_HINTS).filter(
+  const deployId = readVerifyOnlyDeployId(environment);
+  const missing = requiredNames(deployId !== null).filter(
     (name) => !environment[name],
   );
   if (missing.length > 0) {
@@ -177,6 +213,12 @@ export function readConfig(environment = process.env) {
       (name) => `${name}: ${MISSING_CONFIG_HINTS[name]}`,
     );
     throw new DeployVerificationError(`Missing ${hints.join("; ")}.`);
+  }
+  if (deployId) {
+    return {
+      token: environment.NETLIFY_AUTH_TOKEN,
+      target: { siteId: environment.NETLIFY_SITE_ID, deployId },
+    };
   }
   return {
     token: environment.NETLIFY_AUTH_TOKEN,
