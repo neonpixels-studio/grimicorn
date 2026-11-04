@@ -15,6 +15,10 @@ const FONTS_CSS_PATH = resolve(process.cwd(), ".vitepress/theme/fonts.css");
 const NVMRC_PATH = resolve(process.cwd(), ".nvmrc");
 const PRE_COMMIT_HOOK_PATH = resolve(process.cwd(), ".husky/pre-commit");
 
+const GITLEAKS_INSTALL_COMMAND = "brew install gitleaks";
+// The phrase the pre-commit hook uses to point contributors at the README.
+const README_REQUIREMENTS_POINTER = "Requirements section of README.md";
+
 // The core workflow scripts a contributor runs on day one; each must exist in
 // package.json and be documented in the table.
 const CORE_DOCUMENTED_SCRIPTS = ["dev", "build", "test", "typecheck", "lint"];
@@ -127,7 +131,7 @@ describe("README documents the real build workflow", () => {
       "https://github.com/gitleaks/gitleaks",
     );
     expect(requirements, "gitleaks install command").toContain(
-      "brew install gitleaks",
+      GITLEAKS_INSTALL_COMMAND,
     );
   });
 
@@ -139,10 +143,11 @@ describe("README documents the real build workflow", () => {
         env: { PATH: emptyBinDir },
         encoding: "utf8",
       });
+      expect(result.error, "spawn error").toBeUndefined();
       expect(result.status, "hard failure").toBe(1);
       expect(result.stderr, "install hint").toContain("brew install gitleaks");
       expect(result.stderr, "README pointer").toContain(
-        "Requirements section of README.md",
+        README_REQUIREMENTS_POINTER,
       );
     } finally {
       rmSync(emptyBinDir, { recursive: true });
