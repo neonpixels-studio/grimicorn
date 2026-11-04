@@ -7,4 +7,6 @@ if [ "${EVENT_NAME:-}" != "schedule" ]; then
   echo "skip=false" >> "$GITHUB_OUTPUT"
   exit 0
 fi
-CURRENT_SHA="$(git rev-parse HEAD)" node scripts/check-undeployed-commits.mjs
+# Separate assignment so set -e catches a failing rev-parse.
+current_sha="$(git rev-parse HEAD)"
+CURRENT_SHA="$current_sha" node scripts/check-undeployed-commits.mjs

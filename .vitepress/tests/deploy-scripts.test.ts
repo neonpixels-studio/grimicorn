@@ -103,6 +103,32 @@ describe("scripts/skip-check.sh", () => {
     expect(() => readFileSync(callFile, "utf8")).toThrow();
   });
 
+  it("treats an unset event as non-scheduled", () => {
+    const { repoDir } = createRepoWithStubbedCheck();
+    const callFile = join(workDir, "node-call");
+    const result = run(SKIP_SCRIPT, { NODE_CALL_FILE: callFile }, repoDir);
+    expect(result.status).toBe(0);
+    expect(readFileSync(outputFile, "utf8")).toBe("skip=false\n");
+    expect(() => readFileSync(callFile, "utf8")).toThrow();
+  });
+
+  it("fails without running the check when the commit cannot be read", () => {
+    createRepoWithStubbedCheck();
+    const notARepo = mkdtempSync(join(workDir, "plain-"));
+    const callFile = join(workDir, "node-call");
+    const result = run(
+      SKIP_SCRIPT,
+      {
+        EVENT_NAME: "schedule",
+        NODE_CALL_FILE: callFile,
+        GIT_CEILING_DIRECTORIES: workDir,
+      },
+      notARepo,
+    );
+    expect(result.status).not.toBe(0);
+    expect(() => readFileSync(callFile, "utf8")).toThrow();
+  });
+
   it("hands the checked out commit to the undeployed-commits check on schedule", () => {
     const { repoDir, sha } = createRepoWithStubbedCheck();
     const callFile = join(workDir, "node-call");
