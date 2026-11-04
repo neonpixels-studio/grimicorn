@@ -62,8 +62,9 @@ module.exports = {
         // Size budgets are error, not warn (#267): a heavier hero image or font
         // must fail the gate. Transfer sizes measured on the current build
         // (deterministic across runs): total 344 KB, image 206 KB, font 55 KB.
-        // Thresholds leave roughly 50% headroom over that baseline (font is
-        // tighter than before, 100 KB, since 150 KB allowed a 2.7x regression).
+        // Total and image leave roughly 50% headroom over that baseline; font
+        // is capped at 100 KB (~80% headroom), down from 150 KB, which allowed
+        // a 2.7x regression.
         // Raise a number here deliberately when the baseline shifts.
         "resource-summary:total:size": ["error", { maxNumericValue: 512000 }],
         "resource-summary:font:size": ["error", { maxNumericValue: 100000 }],
