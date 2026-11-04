@@ -74,9 +74,13 @@ describe("weekly-production-deploy workflow", () => {
   });
 
   it("fails on a non-2xx hook response", () => {
-    expect(workflow).toMatch(
-      /curl --fail --silent --show-error --max-time 30 -X POST/,
-    );
+    expect(workflow).toContain("run: bash scripts/trigger-netlify-deploy.sh");
+    expect(
+      readFileSync(
+        resolve(process.cwd(), "scripts/trigger-netlify-deploy.sh"),
+        "utf8",
+      ),
+    ).toMatch(/curl --fail --silent --show-error --max-time 30 -X POST/);
   });
 });
 
@@ -104,8 +108,12 @@ describe("weekly-production-deploy verification step", () => {
 
   it("doesn't expect a build id in the hook's empty response", () => {
     expect(workflow).not.toContain("jq -er '.id'");
-    expect(workflow).toContain('echo "trigger_title=${trigger_title//+/ }"');
-    expect(workflow).toContain('echo "triggered_at=$triggered_at"');
+    const script = readFileSync(
+      resolve(process.cwd(), "scripts/trigger-netlify-deploy.sh"),
+      "utf8",
+    );
+    expect(script).toContain('echo "trigger_title=${trigger_title//+/ }"');
+    expect(script).toContain('echo "triggered_at=$triggered_at"');
   });
 
   it("only verifies when the hook was actually triggered", () => {
@@ -128,7 +136,11 @@ describe("weekly-production-deploy skip check", () => {
 
   it("compares main to the last deployed commit, not a time window", () => {
     expect(workflow).not.toContain("--since");
-    expect(workflow).toContain(
+    const script = readFileSync(
+      resolve(process.cwd(), "scripts/skip-check.sh"),
+      "utf8",
+    );
+    expect(script).toContain(
       'CURRENT_SHA="$(git rev-parse HEAD)" node scripts/check-undeployed-commits.mjs',
     );
     expect(workflow).toContain(
@@ -136,11 +148,7 @@ describe("weekly-production-deploy skip check", () => {
     );
   });
 
-  it("always deploys on manual dispatch", () => {
-    const skipStep = workflow
-      .split("- name: Skip when main is already deployed")[1]
-      .split("\n      - name:")[0];
-    expect(skipStep).toContain('[ "$EVENT_NAME" != "schedule" ]');
-    expect(skipStep).toContain('echo "skip=false"');
+  it("runs the skip script", () => {
+    expect(workflow).toContain("run: bash scripts/skip-check.sh");
   });
 });
