@@ -9,8 +9,9 @@ on:
   # or leaked secret surfaces even when main has been quiet. A failed scheduled
   # run emails the person who last edited the cron, GitHub's built-in notice.
   # GitHub pauses schedules after 60 days without repo activity; the keepalive
-  # job re-enables this workflow on every scheduled run to reset that timer, and
-  # fails the run (so GitHub emails) if the re-enable call does not succeed.
+  # job re-enables this workflow on every scheduled run, which GitHub counts as
+  # activity (undocumented, same mechanism as keepalive-workflow), and fails the
+  # run (so GitHub emails) if the call does not succeed.
   schedule:
     - cron: "0 12 * * 1"
   workflow_dispatch:
