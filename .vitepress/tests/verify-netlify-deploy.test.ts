@@ -255,20 +255,26 @@ describe("verify-only mode", () => {
     ).toThrow(/NETLIFY_TRIGGER_TITLE/);
   });
 
-  it.each(["abc", "../sites", `${VERIFY_ID}0`, "g123456789abcdef01234567"])(
-    "rejects the malformed id %s",
-    (deployId) => {
-      expect(() =>
-        readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: deployId }),
-      ).toThrow(DeployVerificationError);
+  it.each([
+    "abc",
+    "../sites",
+    VERIFY_ID.toUpperCase(),
+    `${VERIFY_ID}0`,
+    "g123456789abcdef01234567",
+  ])("rejects the malformed id %s", (deployId) => {
+    expect(() =>
+      readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: deployId }),
+    ).toThrow(DeployVerificationError);
+  });
+
+  it.each(["NETLIFY_AUTH_TOKEN", "NETLIFY_SITE_ID"])(
+    "still requires %s",
+    (name) => {
+      expect(() => readConfig({ ...ENVIRONMENT, [name]: "" })).toThrow(
+        new RegExp(`Missing ${name}`),
+      );
     },
   );
-
-  it("still requires the token and site id", () => {
-    expect(() =>
-      readConfig({ ...ENVIRONMENT, NETLIFY_AUTH_TOKEN: "" }),
-    ).toThrow(/NETLIFY_AUTH_TOKEN/);
-  });
 
   it("fetches the deploy by id instead of listing production deploys", async () => {
     const fetchImpl = vi.fn(
@@ -299,6 +305,7 @@ describe("verify-only mode", () => {
   it.each([
     [{ site_id: "other-site", context: "production" }, /does not belong/],
     [{ site_id: SITE_ID, context: "deploy-preview" }, /not a production/],
+    [{ site_id: SITE_ID }, /"unknown" deploy/],
   ])(
     "rejects a deploy that is not this site's production deploy",
     async (body, message) => {

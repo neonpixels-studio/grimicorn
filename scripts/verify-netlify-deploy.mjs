@@ -92,7 +92,7 @@ async function fetchDeployById({ target, token, fetchImpl }) {
   }
   if (deploy.context !== PRODUCTION_CONTEXT) {
     throw new DeployVerificationError(
-      `Deploy ${target.deployId} is a "${deploy.context}" deploy, not a production deploy.`,
+      `Deploy ${target.deployId} is a "${deploy.context ?? "unknown"}" deploy, not a production deploy.`,
     );
   }
   return deploy;
@@ -199,9 +199,9 @@ const MISSING_CONFIG_HINTS = {
     "the trigger step did not output when it called the build hook",
 };
 
-// Netlify deploy ids are 24 hex characters; anything else is rejected before
+// Netlify deploy ids are 24 lowercase hex characters; anything else is rejected before
 // it reaches an API path.
-export const DEPLOY_ID_PATTERN = /^[0-9a-f]{24}$/i;
+export const DEPLOY_ID_PATTERN = /^[0-9a-f]{24}$/;
 
 function readVerifyOnlyDeployId(environment) {
   const deployId = (environment.NETLIFY_VERIFY_DEPLOY_ID ?? "").trim();
@@ -210,7 +210,7 @@ function readVerifyOnlyDeployId(environment) {
   }
   if (!DEPLOY_ID_PATTERN.test(deployId)) {
     throw new DeployVerificationError(
-      "verify_deploy_id must be a 24 character hexadecimal Netlify deploy id.",
+      "verify_deploy_id must be a 24 character lowercase hexadecimal Netlify deploy id.",
     );
   }
   return deployId;
