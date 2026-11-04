@@ -44,6 +44,8 @@ A 2xx from the hook only means the build was queued, so the workflow then runs `
 
 Production builds started from the Netlify UI (Trigger deploy, Retry deploy) are cancelled by the same gate, so use the workflow instead; publishing an earlier deploy to roll back is unaffected. GitHub disables scheduled workflows after 60 days without repo activity, so if the weekly run stops appearing, re-enable the workflow from the Actions tab.
 
+If the weekly deploy or the Security workflow fails on `main` (scheduled, manual or push runs), a `notify-failure` job runs `scripts/report-workflow-failure.mjs`, which opens one issue per workflow labeled `workflow-failure`, or comments on the one already open instead of opening a duplicate. Close the issue once the cause is fixed. The job uses the workflow `GITHUB_TOKEN` with `issues: write`; no extra secrets are needed.
+
 ## CI
 
 - **`ci.yml`** runs two jobs on pushes/PRs to `main`: a `ci` job (`lint`, `typecheck`, `test:ci`, `check:asset-version-bump`, `build`) and an `e2e` job that installs Chromium, Firefox, and WebKit and runs `test:e2e`, uploading `test-results/` on failure. `check:asset-version-bump` diffs the asset-version lock against the PR's base branch (see the script's own comments for why); it only runs on `pull_request` events, so it assumes branch protection requires changes to land through a PR — a direct push to `main` has no asset-bump gate.

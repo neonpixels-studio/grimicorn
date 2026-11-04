@@ -32,11 +32,14 @@ const EMPTY_FLOW_MAPPING_PATTERN = /^\{\s*\}$/;
 // nested grant of `write`/`write-all` defeats the top-level read-only
 // guarantee this test checks for.
 const WRITE_KEYWORD_PATTERN = /\bwrite(-all)?\b/i;
-// The one deliberate exception: the security.txt expiry reminder opens a
-// tracking issue, which needs issues: write on its single job. Nothing else
-// is exempt, and the exemption is a per-file allowlist, not a blanket rule.
+// The deliberate exceptions: the security.txt expiry reminder and the
+// failure-notification jobs open a tracking issue, which needs issues: write
+// on that single job. Nothing else is exempt, and the exemption is a per-file
+// allowlist, not a blanket rule.
 const ALLOWED_JOB_WRITE_LINES: Record<string, readonly string[]> = {
   "security-txt-expiry.yml": ["issues: write"],
+  "weekly-production-deploy.yml": ["issues: write"],
+  "security.yml": ["issues: write"],
 };
 
 type PermissionsResult =
@@ -201,7 +204,7 @@ describe("Workflow permissions", () => {
     (fileName) => {
       const writeOverrideLocation = findWriteScopeOverride(
         readWorkflowLines(fileName),
-        ALLOWED_JOB_WRITE_LINES[fileName] ?? [],
+        ALLOWED_JOB_WRITE_LINES[fileName],
       );
       if (writeOverrideLocation !== undefined) {
         throw new Error(
