@@ -6,6 +6,7 @@ export const FAILURE_LABEL = "workflow-failure";
 const LABEL_COLOR = "D93F0B";
 const LABEL_DESCRIPTION = "A scheduled or main-branch workflow run failed";
 const ISSUE_LIMIT = 100;
+const ISSUE_URL_PATTERN = /\/issues\/(\d+)\s*$/;
 
 export class WorkflowFailureReportError extends Error {}
 
@@ -95,13 +96,13 @@ export function createGhAdapter(run = defaultRunner) {
         "--body",
         body,
       ]);
-      const issueNumber = Number(output.trim().split("/").pop());
-      if (!Number.isInteger(issueNumber)) {
+      const match = output.match(ISSUE_URL_PATTERN);
+      if (!match) {
         throw new WorkflowFailureReportError(
           `Could not read the issue number from gh output: ${output}`,
         );
       }
-      return issueNumber;
+      return Number(match[1]);
     },
   };
 }

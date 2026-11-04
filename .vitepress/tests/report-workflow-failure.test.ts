@@ -151,12 +151,15 @@ describe("createGhAdapter", () => {
     expect(args).toContain(FAILURE_LABEL);
   });
 
-  it("fails loudly when gh prints no issue URL", () => {
-    const run = vi.fn((_args: string[]) => "unexpected output");
-    expect(() =>
-      createGhAdapter(run).createIssue({ title: "T", body: "B", label: "L" }),
-    ).toThrow(WorkflowFailureReportError);
-  });
+  it.each(["unexpected output", "", "   \n", "https://github.com/o/r/issues/"])(
+    "fails loudly on gh output %j",
+    (output) => {
+      const run = vi.fn((_args: string[]) => output);
+      expect(() =>
+        createGhAdapter(run).createIssue({ title: "T", body: "B", label: "L" }),
+      ).toThrow(WorkflowFailureReportError);
+    },
+  );
 
   it("comments by issue number", () => {
     const run = vi.fn((_args: string[]) => "");
