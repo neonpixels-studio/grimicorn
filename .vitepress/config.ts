@@ -166,6 +166,10 @@ export default defineConfig({
   title: SITE_TITLE,
   description: DESCRIPTION,
   lang: "en-US",
+  // Repo-root markdown is contributor documentation, not site content. Without
+  // this, VitePress renders README.md to /README with the homepage canonical and
+  // JSON-LD and lists it in the sitemap. index.md is the only page source.
+  srcExclude: ["README.md"],
   sitemap: {
     hostname: SITE_URL,
   },
@@ -267,7 +271,7 @@ export default defineConfig({
   // uses a hardcoded not-found pageData, and at build time a notFoundPageData
   // stand-in, neither of which goes through this hook. (Confirmed by
   // instrumenting this function and running `npm run build`: it fires only for
-  // index.md and README.md.) The 404 omits these entries simply because its
+  // index.md; README.md is kept out via srcExclude.) The 404 omits these entries simply because its
   // frontmatter never gets them added. The guard mirrors transformHead's
   // identical `pageData.isNotFound` check below so the two hooks agree on intent,
   // and stops this hook from doing the wrong thing on the day a custom 404.md
