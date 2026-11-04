@@ -8,8 +8,9 @@ on:
   # Two hours ahead of the Monday 14:00 UTC production deploy, so a new advisory
   # or leaked secret surfaces even when main has been quiet. A failed scheduled
   # run emails the person who last edited the cron, GitHub's built-in notice.
-  # GitHub pauses schedules after 60 days without repo activity, so a long-idle
-  # repo needs a commit or a manual re-enable of this workflow.
+  # GitHub pauses schedules after 60 days without repo activity; the keepalive
+  # job re-enables this workflow on every scheduled run to reset that timer, and
+  # fails the run (so GitHub emails) if the re-enable call does not succeed.
   schedule:
     - cron: "0 12 * * 1"
   workflow_dispatch:
@@ -25,6 +26,18 @@ env:
   GITLEAKS_VERSION: 8.30.1
 
 jobs:
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Re-enable this workflow to reset the 60-day inactivity timer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/actions/workflows/security.yml/enable"
+
   gitleaks:
     runs-on: ubuntu-latest
 

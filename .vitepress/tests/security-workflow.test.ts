@@ -39,4 +39,27 @@ describe("security workflow triggers", () => {
     const condition = workflow.match(PR_RANGE_STEP_PATTERN)?.[1];
     expect(condition).toBe("github.event_name == 'pull_request'");
   });
+
+  describe("keepalive job", () => {
+    const keepaliveJob = workflow.match(
+      /^ {2}keepalive:\r?\n([\s\S]*?)(?=^ {2}\w[\w-]*:\r?\n)/m,
+    )?.[1];
+
+    it("exists and runs only on scheduled events", () => {
+      expect(keepaliveJob).toBeDefined();
+      expect(keepaliveJob).toMatch(/if: github\.event_name == 'schedule'/);
+    });
+
+    it("re-enables the security workflow through the API", () => {
+      expect(keepaliveJob).toMatch(
+        /gh api --method PUT .*actions\/workflows\/security\.yml\/enable/,
+      );
+    });
+
+    it("grants actions: write to this job only", () => {
+      expect(keepaliveJob).toMatch(/permissions:\r?\n\s+actions: write/);
+      expect(workflow).toMatch(/^permissions:\r?\n {2}contents: read/m);
+      expect(workflow.match(/actions: write/g)).toHaveLength(1);
+    });
+  });
 });
