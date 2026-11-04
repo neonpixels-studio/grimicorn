@@ -53,10 +53,10 @@ jobs:
           gh label create "${REMINDER_LABEL}" --force --color FBCA04 \
             --description "security.txt Expires date is approaching"
           existing="$(gh issue list --label "${REMINDER_LABEL}" --state open --json number --jq '.[0].number')"
+          if [ "${DUE}" != "true" ] && [ -n "${existing}" ]; then
+            gh issue close "${existing}" --comment "Expires was renewed; closing."
+          fi
           if [ "${DUE}" != "true" ]; then
-            if [ -n "${existing}" ]; then
-              gh issue close "${existing}" --comment "Expires was renewed; closing."
-            fi
             exit 0
           fi
           if [ -n "${existing}" ]; then

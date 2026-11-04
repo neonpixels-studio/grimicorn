@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import {
   REMINDER_THRESHOLD_DAYS,
   SecurityTxtExpiryError,
@@ -16,8 +15,9 @@ import {
 
 const EXPIRES = "2027-09-04T00:00:00.000Z";
 const FILE = `Contact: https://example.com\nExpires: ${EXPIRES}\nCanonical: https://example.com/x\n`;
-const SCRIPT_PATH = fileURLToPath(
-  new URL("../../scripts/check-security-txt-expiry.mjs", import.meta.url),
+const SCRIPT_PATH = resolve(
+  import.meta.dirname,
+  "../../scripts/check-security-txt-expiry.mjs",
 );
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -33,6 +33,12 @@ afterEach(() => {
 describe("parseExpires", () => {
   it("reads the Expires timestamp", () => {
     expect(parseExpires(FILE).toISOString()).toBe(EXPIRES);
+  });
+
+  it("accepts CRLF line endings", () => {
+    expect(
+      parseExpires(`Expires: ${EXPIRES}\r\nContact: x\r\n`).toISOString(),
+    ).toBe(EXPIRES);
   });
 
   it("throws when Expires is missing", () => {

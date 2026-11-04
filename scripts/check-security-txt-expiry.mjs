@@ -5,7 +5,7 @@ export const REMINDER_THRESHOLD_DAYS = 60;
 export const SECURITY_TXT_PATH = "public/.well-known/security.txt";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
-const EXPIRES_FIELD_PATTERN = /^expires:[ \t]*(.+?)[ \t]*$/im;
+const EXPIRES_FIELD_PATTERN = /^expires:[ \t]*(.+?)[ \t\r]*$/im;
 const RFC3339_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 export class SecurityTxtExpiryError extends Error {}
