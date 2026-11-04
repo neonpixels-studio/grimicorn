@@ -32,10 +32,12 @@ const EMPTY_FLOW_MAPPING_PATTERN = /^\{\s*\}$/;
 // nested grant of `write`/`write-all` defeats the top-level read-only
 // guarantee this test checks for.
 const WRITE_KEYWORD_PATTERN = /\bwrite(-all)?\b/i;
-// The deliberate exceptions: the failure-notification jobs open a tracking
-// issue, which needs issues: write on that single job. Nothing else is exempt,
-// and the exemption is a per-file allowlist, not a blanket rule.
+// The deliberate exceptions: the security.txt expiry reminder and the
+// failure-notification jobs open a tracking issue, which needs issues: write
+// on that single job. Nothing else is exempt, and the exemption is a per-file
+// allowlist, not a blanket rule.
 const ALLOWED_JOB_WRITE_LINES: Record<string, readonly string[]> = {
+  "security-txt-expiry.yml": ["issues: write"],
   "weekly-production-deploy.yml": ["issues: write"],
   "security.yml": ["issues: write"],
 };
@@ -324,6 +326,35 @@ describe("parseTopLevelPermissions edge cases", () => {
     ];
     expect(findWriteScopeOverride(lines)).toBe(
       "line 5: permissions: write-all",
+    );
+  });
+
+  it("allows only the explicitly allowlisted write line", () => {
+    const lines = [
+      "permissions:",
+      "  contents: read",
+      "jobs:",
+      "  remind:",
+      "    permissions:",
+      "      contents: read",
+      "      issues: write",
+    ];
+    expect(findWriteScopeOverride(lines, ["issues: write"])).toBeUndefined();
+    expect(findWriteScopeOverride(lines)).toBe("line 5: permissions:");
+  });
+
+  it("still flags other write scopes next to an allowlisted one", () => {
+    const lines = [
+      "permissions:",
+      "  contents: read",
+      "jobs:",
+      "  remind:",
+      "    permissions:",
+      "      contents: write",
+      "      issues: write",
+    ];
+    expect(findWriteScopeOverride(lines, ["issues: write"])).toBe(
+      "line 5: permissions:",
     );
   });
 

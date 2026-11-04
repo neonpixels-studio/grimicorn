@@ -1,0 +1,67 @@
+name: security.txt expiry reminder
+
+# Weekly, Mondays 13:00 UTC. The Expires date in security.txt is checked here
+# instead of in the unit tests so an approaching expiry never blocks a deploy
+# (netlify.toml runs the tests as part of every build).
+on:
+  schedule:
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  REMINDER_LABEL: security-txt-expiry
+
+jobs:
+  remind:
+    # Scheduled runs always use the default branch; a manual run from another branch would
+    # read that branch's file and could open a misleading issue.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The only job that writes: it opens or updates the one tracking issue.
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the Expires date
+        id: check
+        env:
+          ISSUE_BODY_FILE: ${{ runner.temp }}/issue-body.md
+        run: node scripts/check-security-txt-expiry.mjs
+
+      # Due: open the tracking issue, or refresh the open one. Not due: close any open one,
+      # since the Expires date was renewed.
+      - name: Sync the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_BODY_FILE: ${{ runner.temp }}/issue-body.md
+          ISSUE_TITLE: Renew the security.txt Expires date
+          DUE: ${{ steps.check.outputs.due }}
+        run: |
+          gh label create "${REMINDER_LABEL}" --force --color FBCA04 \
+            --description "security.txt Expires date is approaching"
+          existing="$(gh issue list --label "${REMINDER_LABEL}" --state open --json number --jq '.[0].number')"
+          if [ "${DUE}" != "true" ] && [ -n "${existing}" ]; then
+            gh issue close "${existing}" --comment "Expires was renewed; closing."
+          fi
+          if [ "${DUE}" != "true" ]; then
+            exit 0
+          fi
+          if [ -n "${existing}" ]; then
+            gh issue edit "${existing}" --body-file "${ISSUE_BODY_FILE}"
+            exit 0
+          fi
+          gh issue create --title "${ISSUE_TITLE}" --label "${REMINDER_LABEL}" \
+            --body-file "${ISSUE_BODY_FILE}"

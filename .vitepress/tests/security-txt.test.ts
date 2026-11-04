@@ -8,8 +8,10 @@ const SECURITY_TXT = resolve(
 );
 const EXPECTED_CONTACT =
   "https://github.com/neonpixels-studio/grimicorn/security/advisories/new";
-const RENEWAL_WINDOW_DAYS = 30;
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+// Fixed reference instead of the wall clock: a clock-dependent assertion would turn
+// every deploy red as Expires nears. Renewal is flagged by
+// .github/workflows/security-txt-expiry.yml instead.
+const REFERENCE_DATE = new Date("2026-11-04T00:00:00.000Z");
 const RFC3339_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const EXPECTED_CANONICAL = "https://grimicorn.dev/.well-known/security.txt";
 
@@ -28,12 +30,6 @@ function readFields(content: string): Map<string, string[]> {
   return fields;
 }
 
-function addOneYear(date: Date): Date {
-  const limit = new Date(date);
-  limit.setUTCFullYear(limit.getUTCFullYear() + 1);
-  return limit;
-}
-
 describe("/.well-known/security.txt (RFC 9116)", () => {
   const fields = readFields(readFileSync(SECURITY_TXT, "utf8"));
 
@@ -49,19 +45,13 @@ describe("/.well-known/security.txt (RFC 9116)", () => {
     expect(fields.get("preferred-languages")).toEqual(["en"]);
   });
 
-  // Deliberate renewal reminder: fails RENEWAL_WINDOW_DAYS before expiry. Fix by bumping
-  // Expires in public/.well-known/security.txt to ~11 months out.
-  it(`has exactly one valid Expires, at least ${RENEWAL_WINDOW_DAYS} days out and under one year out`, () => {
+  it("has exactly one valid Expires that is later than the fixed reference date", () => {
     const expiresValues = fields.get("expires") ?? [];
     expect(expiresValues).toHaveLength(1);
     expect(expiresValues[0]).toMatch(RFC3339_UTC_TIMESTAMP);
 
     const expires = new Date(expiresValues[0]);
-    const now = new Date();
     expect(Number.isNaN(expires.getTime())).toBe(false);
-    const renewalDeadline =
-      now.getTime() + RENEWAL_WINDOW_DAYS * MILLISECONDS_PER_DAY;
-    expect(expires.getTime()).toBeGreaterThan(renewalDeadline);
-    expect(expires.getTime()).toBeLessThan(addOneYear(now).getTime());
+    expect(expires.getTime()).toBeGreaterThan(REFERENCE_DATE.getTime());
   });
 });
