@@ -32,6 +32,13 @@ const EMPTY_FLOW_MAPPING_PATTERN = /^\{\s*\}$/;
 // nested grant of `write`/`write-all` defeats the top-level read-only
 // guarantee this test checks for.
 const WRITE_KEYWORD_PATTERN = /\bwrite(-all)?\b/i;
+// The deliberate exceptions: the failure-notification jobs open a tracking
+// issue, which needs issues: write on that single job. Nothing else is exempt,
+// and the exemption is a per-file allowlist, not a blanket rule.
+const ALLOWED_JOB_WRITE_LINES: Record<string, readonly string[]> = {
+  "weekly-production-deploy.yml": ["issues: write"],
+  "security.yml": ["issues: write"],
+};
 
 type PermissionsResult =
   | { kind: "missing" }
@@ -115,7 +122,10 @@ function parseTopLevelPermissions(lines: string[]): PermissionsResult {
 // whether inline (`permissions: write-all`) or in its block body
 // (`contents: write`). A narrowing override (e.g. `permissions: {}` on a
 // single job) is legitimate least-privilege practice and must not fail here.
-function findWriteScopeOverride(lines: string[]) {
+function findWriteScopeOverride(
+  lines: string[],
+  allowedWriteLines: readonly string[] = [],
+) {
   const nestedHeaderIndexes = lines.flatMap((line, index) => {
     const match = line.match(PERMISSIONS_HEADER_PATTERN);
     return match && match[1] !== "" ? [index] : [];
@@ -128,6 +138,7 @@ function findWriteScopeOverride(lines: string[]) {
     const blockText = readBlockBody(lines, headerIndex)
       .filter((line) => !COMMENT_LINE_PATTERN.test(line))
       .map(normalizeLine)
+      .filter((line) => !allowedWriteLines.includes(line))
       .join("\n");
     const candidateText = `${inlineValue}\n${blockText}`;
     if (WRITE_KEYWORD_PATTERN.test(candidateText)) {
@@ -191,6 +202,7 @@ describe("Workflow permissions", () => {
     (fileName) => {
       const writeOverrideLocation = findWriteScopeOverride(
         readWorkflowLines(fileName),
+        ALLOWED_JOB_WRITE_LINES[fileName],
       );
       if (writeOverrideLocation !== undefined) {
         throw new Error(

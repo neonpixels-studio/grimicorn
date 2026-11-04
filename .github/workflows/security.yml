@@ -92,3 +92,25 @@ jobs:
       # site. `npm run audit` === `npm audit --omit=dev --audit-level=high`.
       - name: Audit gate (fail on high or critical in production deps)
         run: npm run audit
+
+  # Failed scheduled runs only email whoever last edited the cron, so keep a
+  # durable signal: open (or comment on) one tracking issue per workflow.
+  notify-failure:
+    needs: [gitleaks, audit]
+    if: ${{ failure() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Open or update the failure tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/report-workflow-failure.mjs
