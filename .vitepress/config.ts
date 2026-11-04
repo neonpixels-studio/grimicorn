@@ -270,9 +270,9 @@ export default defineConfig({
   // VitePress never runs transformPageData for the 404 at all — client-side it
   // uses a hardcoded not-found pageData, and at build time a notFoundPageData
   // stand-in, neither of which goes through this hook. (Confirmed by
-  // instrumenting this function and running `npm run build`: it fires only for
-  // index.md; README.md is kept out via srcExclude.) The 404 omits these entries simply because its
-  // frontmatter never gets them added. The guard mirrors transformHead's
+  // instrumenting this function and running `npm run build`: it fired for
+  // index.md and README.md; README.md is now excluded via srcExclude.)
+  // The 404 omits these entries simply because its frontmatter never gets them added. The guard mirrors transformHead's
   // identical `pageData.isNotFound` check below so the two hooks agree on intent,
   // and stops this hook from doing the wrong thing on the day a custom 404.md
   // starts flowing through it — but on that day, a normally-rendered page's
