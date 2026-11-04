@@ -1,4 +1,9 @@
-import { appendFileSync, readFileSync, realpathSync } from "node:fs";
+import {
+  appendFileSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const REMINDER_THRESHOLD_DAYS = 60;
@@ -75,7 +80,7 @@ export function main(
     );
   }
   if (result.due && environment.ISSUE_BODY_FILE) {
-    appendFileSync(environment.ISSUE_BODY_FILE, buildIssueBody(result));
+    writeFileSync(environment.ISSUE_BODY_FILE, buildIssueBody(result));
   }
   return result;
 }
