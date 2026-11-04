@@ -59,9 +59,16 @@ module.exports = {
         // fails on every run, unlike the LCP budget above which only fails if the
         // resulting slowdown is large enough and consistent across runs.
         "uses-text-compression": ["error", { minScore: 1 }],
-        "resource-summary:total:size": ["warn", { maxNumericValue: 512000 }],
-        "resource-summary:font:size": ["warn", { maxNumericValue: 150000 }],
-        "resource-summary:image:size": ["warn", { maxNumericValue: 300000 }],
+        // Size budgets are error, not warn (#267): a heavier hero image or font
+        // must fail the gate. Transfer sizes measured on the current build
+        // (deterministic across runs): total 344 KB, image 206 KB, font 55 KB.
+        // Total and image leave roughly 50% headroom over that baseline; font
+        // is capped at 100 KB (~80% headroom), down from 150 KB, which allowed
+        // a 2.7x regression.
+        // Raise a number here deliberately when the baseline shifts.
+        "resource-summary:total:size": ["error", { maxNumericValue: 512000 }],
+        "resource-summary:font:size": ["error", { maxNumericValue: 100000 }],
+        "resource-summary:image:size": ["error", { maxNumericValue: 300000 }],
       },
     },
   },
