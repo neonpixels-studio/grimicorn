@@ -234,6 +234,148 @@ describe("fetchDeploy", () => {
   });
 });
 
+describe("verify-only mode", () => {
+  const VERIFY_ID = "0123456789abcdef01234567";
+  const ENVIRONMENT = {
+    NETLIFY_AUTH_TOKEN: TOKEN,
+    NETLIFY_SITE_ID: SITE_ID,
+    NETLIFY_VERIFY_DEPLOY_ID: VERIFY_ID,
+  };
+
+  it("targets the deploy id without needing trigger details", () => {
+    expect(readConfig(ENVIRONMENT)).toEqual({
+      token: TOKEN,
+      target: { siteId: SITE_ID, deployId: VERIFY_ID },
+    });
+  });
+
+  it("rejects a whitespace-only id instead of treating it as unset", () => {
+    expect(() =>
+      readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: "  " }),
+    ).toThrow(/verify_deploy_id must be/);
+  });
+
+  it("treats an empty id as unset and requires trigger details", () => {
+    expect(() =>
+      readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: "" }),
+    ).toThrow(/NETLIFY_TRIGGER_TITLE/);
+  });
+
+  it("stops polling immediately when the deploy is the wrong one", async () => {
+    const sleep = vi.fn(async () => {});
+    await expect(
+      verifyDeploy({
+        target: { siteId: SITE_ID, deployId: VERIFY_ID },
+        token: TOKEN,
+        fetchDeployImpl: async () => {
+          throw new DeployVerificationError("does not belong");
+        },
+        sleep,
+        log: () => {},
+      }),
+    ).rejects.toThrow(/does not belong/);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("fails with a non-retryable error when the deploy id does not exist", async () => {
+    const fetchImpl = vi.fn(
+      async () => ({ status: 404, ok: false }) as Response,
+    );
+    await expect(
+      fetchDeploy({
+        target: { siteId: SITE_ID, deployId: VERIFY_ID },
+        token: TOKEN,
+        fetchImpl,
+      }),
+    ).rejects.toBeInstanceOf(DeployVerificationError);
+  });
+
+  it.each([
+    "abc",
+    "../sites",
+    VERIFY_ID.toUpperCase(),
+    `${VERIFY_ID}0`,
+    "g123456789abcdef01234567",
+  ])("rejects the malformed id %s", (deployId) => {
+    expect(() =>
+      readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: deployId }),
+    ).toThrow(DeployVerificationError);
+  });
+
+  it.each(["NETLIFY_AUTH_TOKEN", "NETLIFY_SITE_ID"])(
+    "still requires %s",
+    (name) => {
+      expect(() => readConfig({ ...ENVIRONMENT, [name]: "" })).toThrow(
+        new RegExp(`Missing ${name}`),
+      );
+    },
+  );
+
+  it("fetches the deploy by id instead of listing production deploys", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        ({
+          status: 200,
+          ok: true,
+          json: async () => ({
+            id: VERIFY_ID,
+            state: "ready",
+            site_id: SITE_ID,
+            context: "production",
+          }),
+        }) as Response,
+    );
+    const deploy = await fetchDeploy({
+      target: { siteId: SITE_ID, deployId: VERIFY_ID },
+      token: TOKEN,
+      fetchImpl,
+    });
+    expect(deploy.state).toBe("ready");
+    const calls = fetchImpl.mock.calls as unknown as Array<[string]>;
+    expect(calls[0][0]).toBe(
+      `https://api.netlify.com/api/v1/deploys/${VERIFY_ID}`,
+    );
+  });
+
+  it.each([
+    [{ site_id: "other-site", context: "production" }, /does not belong/],
+    [{ site_id: SITE_ID, context: "deploy-preview" }, /not a production/],
+    [{ site_id: SITE_ID }, /"unknown" deploy/],
+  ])(
+    "rejects a deploy that is not this site's production deploy",
+    async (body, message) => {
+      const fetchImpl = vi.fn(
+        async () =>
+          ({
+            status: 200,
+            ok: true,
+            json: async () => ({ id: VERIFY_ID, state: "ready", ...body }),
+          }) as Response,
+      );
+      await expect(
+        fetchDeploy({
+          target: { siteId: SITE_ID, deployId: VERIFY_ID },
+          token: TOKEN,
+          fetchImpl,
+        }),
+      ).rejects.toThrow(message);
+    },
+  );
+
+  it("names the deploy id in the timeout message", async () => {
+    await expect(
+      verifyDeploy({
+        target: { siteId: SITE_ID, deployId: VERIFY_ID },
+        token: TOKEN,
+        timeoutMs: 0,
+        fetchDeployImpl: async () => ({ id: VERIFY_ID, state: "building" }),
+        sleep: async () => {},
+        log: () => {},
+      }),
+    ).rejects.toThrow(new RegExp(`deploy ${VERIFY_ID}; last`));
+  });
+});
+
 describe("readConfig", () => {
   const ENVIRONMENT = {
     NETLIFY_AUTH_TOKEN: TOKEN,

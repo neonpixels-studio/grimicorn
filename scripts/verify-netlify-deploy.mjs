@@ -75,10 +75,37 @@ export function findTriggeredDeploy(deploys, { title, triggeredAt }) {
   );
 }
 
-// A build hook answers with an empty body, not a build id, so each poll
-// finds the deploy the hook started in the site's production deploys. Until
+const PRODUCTION_CONTEXT = "production";
+
+// GET /deploys/{id} returns any deploy the token can read, so confirm it is
+// this site's production deploy before its state is trusted.
+async function fetchDeployById({ target, token, fetchImpl }) {
+  const deploy = await getJson({
+    path: `/deploys/${encodeURIComponent(target.deployId)}`,
+    token,
+    fetchImpl,
+  });
+  if (deploy.site_id !== target.siteId) {
+    throw new DeployVerificationError(
+      `Deploy ${target.deployId} does not belong to the site named by NETLIFY_SITE_ID.`,
+    );
+  }
+  if (deploy.context !== PRODUCTION_CONTEXT) {
+    throw new DeployVerificationError(
+      `Deploy ${target.deployId} is a "${deploy.context ?? "unknown"}" deploy, not a production deploy.`,
+    );
+  }
+  return deploy;
+}
+
+// With a deployId (verify-only mode) the deploy is fetched directly. Otherwise
+// a build hook answers with an empty body, not a build id, so each poll finds
+// the deploy the hook started in the site's production deploys. Until
 // Netlify lists it, the deploy is reported as pending.
 export async function fetchDeploy({ target, token, fetchImpl = fetch }) {
+  if (target.deployId) {
+    return fetchDeployById({ target, token, fetchImpl });
+  }
   const query = `production=true&per_page=${DEPLOYS_PAGE_SIZE}`;
   const deploys = await getJson({
     path: `/sites/${encodeURIComponent(target.siteId)}/deploys?${query}`,
@@ -87,6 +114,10 @@ export async function fetchDeploy({ target, token, fetchImpl = fetch }) {
   });
   const deploy = findTriggeredDeploy(deploys, target);
   return deploy ?? { id: `"${target.title}"`, state: "new" };
+}
+
+function describeTarget(target) {
+  return target.deployId ?? `"${target.title}"`;
 }
 
 function describeFailure(deploy) {
@@ -153,7 +184,7 @@ export async function verifyDeploy({
     await sleep(intervalMs);
   }
   throw new DeployVerificationError(
-    `Timed out after ${Math.round(timeoutMs / 60000)} minutes waiting for the Netlify deploy "${target.title}"; last observed ${lastObservation}.`,
+    `Timed out after ${Math.round(timeoutMs / 60000)} minutes waiting for the Netlify deploy ${describeTarget(target)}; last observed ${lastObservation}.`,
   );
 }
 
@@ -168,8 +199,34 @@ const MISSING_CONFIG_HINTS = {
     "the trigger step did not output when it called the build hook",
 };
 
+// Netlify deploy ids are 24 lowercase hex characters; anything else is rejected before
+// it reaches an API path.
+export const DEPLOY_ID_PATTERN = /^[0-9a-f]{24}$/;
+
+function readVerifyOnlyDeployId(environment) {
+  const rawDeployId = environment.NETLIFY_VERIFY_DEPLOY_ID ?? "";
+  if (rawDeployId === "") {
+    return null;
+  }
+  const deployId = rawDeployId.trim();
+  if (!DEPLOY_ID_PATTERN.test(deployId)) {
+    throw new DeployVerificationError(
+      "verify_deploy_id must be a 24 character lowercase hexadecimal Netlify deploy id.",
+    );
+  }
+  return deployId;
+}
+
+function requiredNames(verifyOnly) {
+  const triggerNames = ["NETLIFY_TRIGGER_TITLE", "NETLIFY_TRIGGERED_AT"];
+  return Object.keys(MISSING_CONFIG_HINTS).filter(
+    (name) => !verifyOnly || !triggerNames.includes(name),
+  );
+}
+
 export function readConfig(environment = process.env) {
-  const missing = Object.keys(MISSING_CONFIG_HINTS).filter(
+  const deployId = readVerifyOnlyDeployId(environment);
+  const missing = requiredNames(deployId !== null).filter(
     (name) => !environment[name],
   );
   if (missing.length > 0) {
@@ -177,6 +234,12 @@ export function readConfig(environment = process.env) {
       (name) => `${name}: ${MISSING_CONFIG_HINTS[name]}`,
     );
     throw new DeployVerificationError(`Missing ${hints.join("; ")}.`);
+  }
+  if (deployId) {
+    return {
+      token: environment.NETLIFY_AUTH_TOKEN,
+      target: { siteId: environment.NETLIFY_SITE_ID, deployId },
+    };
   }
   return {
     token: environment.NETLIFY_AUTH_TOKEN,

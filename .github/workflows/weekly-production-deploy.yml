@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "0 14 * * 1"
   workflow_dispatch:
+    inputs:
+      verify_deploy_id:
+        description: "Optional Netlify deploy id (24 lowercase hex characters). When set, no build is triggered; only the verify poll runs against this deploy."
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,7 +44,7 @@ jobs:
 
       - name: Trigger Netlify production build hook
         id: trigger
-        if: steps.recent.outputs.skip != 'true'
+        if: steps.recent.outputs.skip != 'true' && inputs.verify_deploy_id == ''
         env:
           NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
           EVENT_NAME: ${{ github.event_name }}
@@ -54,6 +59,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           NETLIFY_TRIGGER_TITLE: ${{ steps.trigger.outputs.trigger_title }}
           NETLIFY_TRIGGERED_AT: ${{ steps.trigger.outputs.triggered_at }}
+          NETLIFY_VERIFY_DEPLOY_ID: ${{ inputs.verify_deploy_id }}
         run: node scripts/verify-netlify-deploy.mjs
 
   # Failed scheduled runs only email whoever last edited the cron, so keep a
