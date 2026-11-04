@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 // The README documents the npm scripts and the build-time invariants. These tests
@@ -63,7 +65,7 @@ function documentedCommands(readme: string): Map<string, string> {
 
 // The text between the "## Requirements" heading and the next "## " heading.
 function requirementsSection(readme: string) {
-  const section = readme.match(/^## Requirements\n([\s\S]*?)(?=^## )/m);
+  const section = readme.match(/^## Requirements\r?\n([\s\S]*?)(?=^## )/m);
   if (!section) {
     throw new Error("No Requirements section found in README.md");
   }
@@ -121,19 +123,29 @@ describe("README documents the real build workflow", () => {
 
   it("lists gitleaks, with an install command, under Requirements", () => {
     const requirements = requirementsSection(readme);
-    expect(requirements, "gitleaks in Requirements").toContain("gitleaks");
+    expect(requirements, "gitleaks upstream link").toContain(
+      "https://github.com/gitleaks/gitleaks",
+    );
     expect(requirements, "gitleaks install command").toContain(
       "brew install gitleaks",
     );
   });
 
-  it("keeps the pre-commit hook failing and pointing at the README when gitleaks is missing", () => {
-    const hook = readFileSync(PRE_COMMIT_HOOK_PATH, "utf8");
-    expect(hook, "missing-binary check").toContain("command -v gitleaks");
-    expect(hook, "hard failure").toContain("exit 1");
-    expect(hook, "install hint").toContain("brew install gitleaks");
-    expect(hook, "README pointer").toContain(
-      "Requirements section of README.md",
-    );
+  it("fails the commit and points at the README when gitleaks is missing", () => {
+    // An empty PATH dir guarantees no gitleaks binary is found, whatever the host has.
+    const emptyBinDir = mkdtempSync(resolve(tmpdir(), "no-gitleaks-"));
+    try {
+      const result = spawnSync("/bin/sh", [PRE_COMMIT_HOOK_PATH], {
+        env: { PATH: emptyBinDir },
+        encoding: "utf8",
+      });
+      expect(result.status, "hard failure").toBe(1);
+      expect(result.stderr, "install hint").toContain("brew install gitleaks");
+      expect(result.stderr, "README pointer").toContain(
+        "Requirements section of README.md",
+      );
+    } finally {
+      rmSync(emptyBinDir, { recursive: true });
+    }
   });
 });
