@@ -41,16 +41,24 @@ jobs:
           ISSUE_BODY_FILE: ${{ runner.temp }}/issue-body.md
         run: node scripts/check-security-txt-expiry.mjs
 
-      - name: Open or update the tracking issue
-        if: steps.check.outputs.due == 'true'
+      # Due: open the tracking issue, or refresh the open one. Not due: close any open one,
+      # since the Expires date was renewed.
+      - name: Sync the tracking issue
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_BODY_FILE: ${{ runner.temp }}/issue-body.md
           ISSUE_TITLE: Renew the security.txt Expires date
+          DUE: ${{ steps.check.outputs.due }}
         run: |
-          gh label create "${REMINDER_LABEL}" --color FBCA04 \
-            --description "security.txt Expires date is approaching" 2>/dev/null || true
+          gh label create "${REMINDER_LABEL}" --force --color FBCA04 \
+            --description "security.txt Expires date is approaching"
           existing="$(gh issue list --label "${REMINDER_LABEL}" --state open --json number --jq '.[0].number')"
+          if [ "${DUE}" != "true" ]; then
+            if [ -n "${existing}" ]; then
+              gh issue close "${existing}" --comment "Expires was renewed; closing."
+            fi
+            exit 0
+          fi
           if [ -n "${existing}" ]; then
             gh issue edit "${existing}" --body-file "${ISSUE_BODY_FILE}"
             exit 0

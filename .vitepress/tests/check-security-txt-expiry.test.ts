@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   REMINDER_THRESHOLD_DAYS,
   SecurityTxtExpiryError,
@@ -15,6 +16,9 @@ import {
 
 const EXPIRES = "2027-09-04T00:00:00.000Z";
 const FILE = `Contact: https://example.com\nExpires: ${EXPIRES}\nCanonical: https://example.com/x\n`;
+const SCRIPT_PATH = fileURLToPath(
+  new URL("../../scripts/check-security-txt-expiry.mjs", import.meta.url),
+);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function daysBeforeExpiry(days: number) {
@@ -33,6 +37,12 @@ describe("parseExpires", () => {
 
   it("throws when Expires is missing", () => {
     expect(() => parseExpires("Contact: x\n")).toThrow(SecurityTxtExpiryError);
+  });
+
+  it("does not read the next line's value when Expires is empty", () => {
+    expect(() => parseExpires("Expires:\nContact: x\n")).toThrow(
+      SecurityTxtExpiryError,
+    );
   });
 
   it("throws when Expires is not an RFC 3339 UTC timestamp", () => {
@@ -157,8 +167,9 @@ describe("main", () => {
 });
 
 describe("isMainModule", () => {
-  it("is false without an entry path or for another file", () => {
+  it("is true only for the script itself", () => {
     expect(isMainModule(undefined)).toBe(false);
+    expect(isMainModule(SCRIPT_PATH)).toBe(true);
     expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
   });
 });

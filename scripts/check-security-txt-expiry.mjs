@@ -5,7 +5,7 @@ export const REMINDER_THRESHOLD_DAYS = 60;
 export const SECURITY_TXT_PATH = "public/.well-known/security.txt";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
-const EXPIRES_FIELD_PATTERN = /^expires:\s*(.+?)\s*$/im;
+const EXPIRES_FIELD_PATTERN = /^expires:[ \t]*(.+?)[ \t]*$/im;
 const RFC3339_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 export class SecurityTxtExpiryError extends Error {}
@@ -52,7 +52,7 @@ export function buildIssueBody({ daysRemaining, expires }) {
   return [
     `\`${SECURITY_TXT_PATH}\` ${state} (Expires: ${expires}).`,
     "",
-    `RFC 9116 requires a current Expires date. Bump it to about 11 months out in \`${SECURITY_TXT_PATH}\`; this issue is closed by that change.`,
+    `RFC 9116 requires a current Expires date. Bump it to about 11 months out in \`${SECURITY_TXT_PATH}\`; the workflow closes this issue on its next run after the change.`,
     "",
     "Opened by `.github/workflows/security-txt-expiry.yml`.",
   ].join("\n");
