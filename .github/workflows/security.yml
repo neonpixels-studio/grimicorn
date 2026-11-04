@@ -8,8 +8,9 @@ on:
   # Two hours ahead of the Monday 14:00 UTC production deploy, so a new advisory
   # or leaked secret surfaces even when main has been quiet. A failed scheduled
   # run emails the person who last edited the cron, GitHub's built-in notice.
-  # GitHub pauses schedules after 60 days without repo activity, so a long-idle
-  # repo needs a commit or a manual re-enable of this workflow.
+  # GitHub pauses schedules after 60 days without repo activity. A paused
+  # schedule cannot report itself, so the schedule-health job in ci.yml fails
+  # on the next push to main while this workflow is not active.
   schedule:
     - cron: "0 12 * * 1"
   workflow_dispatch:
