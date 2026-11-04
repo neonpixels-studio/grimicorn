@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 
 const CI_WORKFLOW_PATH = resolve(process.cwd(), ".github/workflows/ci.yml");
 const SCHEDULE_HEALTH_JOB_PATTERN =
-  /^ {2}schedule-health:\r?\n([\s\S]*?)(?=^ {2}\w[\w-]*:\r?\n)/m;
+  /^ {2}schedule-health:\r?\n([\s\S]*?)(?=^ {2}\w[\w-]*:\r?\n|(?![\s\S]))/m;
 
 describe("schedule-health job in ci.yml", () => {
   const workflow = readFileSync(CI_WORKFLOW_PATH, "utf8");
@@ -17,7 +17,7 @@ describe("schedule-health job in ci.yml", () => {
 
   it("reads the state of security.yml from the workflows API", () => {
     expect(job).toMatch(
-      /gh api "repos\/\$\{\{ github\.repository \}\}\/actions\/workflows\/security\.yml" --jq \.state/,
+      /gh api "repos\/\$\{GITHUB_REPOSITORY\}\/actions\/workflows\/security\.yml" --jq \.state/,
     );
   });
 

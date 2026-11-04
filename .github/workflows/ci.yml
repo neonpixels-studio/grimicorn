@@ -27,7 +27,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          state=$(gh api "repos/${{ github.repository }}/actions/workflows/security.yml" --jq .state)
+          state=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/security.yml" --jq .state)
           echo "security.yml state: ${state}"
           if [ "${state}" != "active" ]; then
             echo "::error title=Security schedule paused::security.yml is '${state}', so the weekly scan is not running. Re-enable it in the Actions tab."
