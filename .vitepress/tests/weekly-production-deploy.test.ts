@@ -108,12 +108,6 @@ describe("weekly-production-deploy verification step", () => {
 
   it("doesn't expect a build id in the hook's empty response", () => {
     expect(workflow).not.toContain("jq -er '.id'");
-    const script = readFileSync(
-      resolve(process.cwd(), "scripts/trigger-netlify-deploy.sh"),
-      "utf8",
-    );
-    expect(script).toContain('echo "trigger_title=${trigger_title//+/ }"');
-    expect(script).toContain('echo "triggered_at=$triggered_at"');
   });
 
   it("only verifies when the hook was actually triggered", () => {
@@ -136,13 +130,6 @@ describe("weekly-production-deploy skip check", () => {
 
   it("compares main to the last deployed commit, not a time window", () => {
     expect(workflow).not.toContain("--since");
-    const script = readFileSync(
-      resolve(process.cwd(), "scripts/skip-check.sh"),
-      "utf8",
-    );
-    expect(script).toContain(
-      'CURRENT_SHA="$(git rev-parse HEAD)" node scripts/check-undeployed-commits.mjs',
-    );
     expect(workflow).toContain(
       "NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}",
     );

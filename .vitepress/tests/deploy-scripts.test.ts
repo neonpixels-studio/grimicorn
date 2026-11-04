@@ -44,6 +44,14 @@ function run(
   });
 }
 
+function runGit(args: string[], cwd: string) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  }
+  return result.stdout;
+}
+
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "deploy-scripts-"));
   binDir = join(workDir, "bin");
@@ -60,9 +68,8 @@ describe("scripts/skip-check.sh", () => {
   function createRepoWithStubbedCheck() {
     const repoDir = join(workDir, "repo");
     mkdirSync(join(repoDir, "scripts"), { recursive: true });
-    spawnSync("git", ["init", "-q"], { cwd: repoDir });
-    spawnSync(
-      "git",
+    runGit(["init", "-q"], repoDir);
+    runGit(
       [
         "-c",
         "user.name=t",
@@ -76,12 +83,9 @@ describe("scripts/skip-check.sh", () => {
         "-m",
         "init",
       ],
-      { cwd: repoDir },
+      repoDir,
     );
-    const sha = spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: repoDir,
-      encoding: "utf8",
-    }).stdout.trim();
+    const sha = runGit(["rev-parse", "HEAD"], repoDir).trim();
     writeStub("node", 'echo "$CURRENT_SHA $1" > "$NODE_CALL_FILE"');
     return { repoDir, sha };
   }
@@ -135,6 +139,9 @@ describe("scripts/trigger-netlify-deploy.sh", () => {
       NETLIFY_BUILD_HOOK_URL: HOOK_URL,
     });
     expect(result.status).toBe(0);
+    expect(readFileSync(callFile, "utf8")).toContain(
+      "--fail --silent --show-error --max-time 30",
+    );
     expect(readFileSync(callFile, "utf8")).toContain(
       `-X POST -d {} ${HOOK_URL}?trigger_title=Weekly+production+deploy`,
     );
