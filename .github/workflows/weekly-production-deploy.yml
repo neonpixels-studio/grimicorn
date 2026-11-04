@@ -35,12 +35,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        run: |
-          if [ "$EVENT_NAME" != "schedule" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          CURRENT_SHA="$(git rev-parse HEAD)" node scripts/check-undeployed-commits.mjs
+        run: bash scripts/skip-check.sh
 
       - name: Trigger Netlify production build hook
         id: trigger
@@ -48,22 +43,7 @@ jobs:
         env:
           NETLIFY_BUILD_HOOK_URL: ${{ secrets.NETLIFY_BUILD_HOOK_URL }}
           EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ -z "$NETLIFY_BUILD_HOOK_URL" ]; then
-            echo "::error::Repository secret NETLIFY_BUILD_HOOK_URL is not set; cannot trigger the production deploy."
-            exit 1
-          fi
-          trigger_title="Manual+production+deploy"
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            trigger_title="Weekly+production+deploy"
-          fi
-          # The hook answers 200 with an empty body (no build id), so the verify
-          # step finds the deploy by this title and time instead.
-          triggered_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          curl --fail --silent --show-error --max-time 30 -X POST -d '{}' "$NETLIFY_BUILD_HOOK_URL?trigger_title=$trigger_title"
-          echo "Triggered Netlify production build ($trigger_title) at $triggered_at."
-          echo "trigger_title=${trigger_title//+/ }" >> "$GITHUB_OUTPUT"
-          echo "triggered_at=$triggered_at" >> "$GITHUB_OUTPUT"
+        run: bash scripts/trigger-netlify-deploy.sh
 
       # A 2xx from the hook only means the build was queued; fail this run (and so
       # notify the owner) if the build fails, is cancelled, or never finishes.
