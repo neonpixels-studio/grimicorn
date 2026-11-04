@@ -11,6 +11,7 @@ const README_PATH = resolve(process.cwd(), "README.md");
 const PACKAGE_JSON_PATH = resolve(process.cwd(), "package.json");
 const FONTS_CSS_PATH = resolve(process.cwd(), ".vitepress/theme/fonts.css");
 const NVMRC_PATH = resolve(process.cwd(), ".nvmrc");
+const PRE_COMMIT_HOOK_PATH = resolve(process.cwd(), ".husky/pre-commit");
 
 // The core workflow scripts a contributor runs on day one; each must exist in
 // package.json and be documented in the table.
@@ -60,6 +61,15 @@ function documentedCommands(readme: string): Map<string, string> {
   );
 }
 
+// The text between the "## Requirements" heading and the next "## " heading.
+function requirementsSection(readme: string) {
+  const section = readme.match(/^## Requirements\n([\s\S]*?)(?=^## )/m);
+  if (!section) {
+    throw new Error("No Requirements section found in README.md");
+  }
+  return section[1];
+}
+
 function fontCacheBustToken() {
   const token = readFileSync(FONTS_CSS_PATH, "utf8").match(
     FONT_DECLARATION_TOKEN_PATTERN,
@@ -107,5 +117,23 @@ describe("README documents the real build workflow", () => {
   it("cites the pinned Node version from .nvmrc", () => {
     const nodeVersion = readFileSync(NVMRC_PATH, "utf8").trim();
     expect(readme, "Node version").toContain(nodeVersion);
+  });
+
+  it("lists gitleaks, with an install command, under Requirements", () => {
+    const requirements = requirementsSection(readme);
+    expect(requirements, "gitleaks in Requirements").toContain("gitleaks");
+    expect(requirements, "gitleaks install command").toContain(
+      "brew install gitleaks",
+    );
+  });
+
+  it("keeps the pre-commit hook failing and pointing at the README when gitleaks is missing", () => {
+    const hook = readFileSync(PRE_COMMIT_HOOK_PATH, "utf8");
+    expect(hook, "missing-binary check").toContain("command -v gitleaks");
+    expect(hook, "hard failure").toContain("exit 1");
+    expect(hook, "install hint").toContain("brew install gitleaks");
+    expect(hook, "README pointer").toContain(
+      "Requirements section of README.md",
+    );
   });
 });
