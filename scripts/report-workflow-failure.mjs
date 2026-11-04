@@ -95,7 +95,13 @@ export function createGhAdapter(run = defaultRunner) {
         "--body",
         body,
       ]);
-      return Number(output.trim().split("/").pop());
+      const issueNumber = Number(output.trim().split("/").pop());
+      if (!Number.isInteger(issueNumber)) {
+        throw new WorkflowFailureReportError(
+          `Could not read the issue number from gh output: ${output}`,
+        );
+      }
+      return issueNumber;
     },
   };
 }
