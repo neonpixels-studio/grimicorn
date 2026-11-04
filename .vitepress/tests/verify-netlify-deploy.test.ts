@@ -249,10 +249,45 @@ describe("verify-only mode", () => {
     });
   });
 
-  it("treats a blank id as unset and requires trigger details again", () => {
+  it("rejects a whitespace-only id instead of treating it as unset", () => {
     expect(() =>
       readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: "  " }),
+    ).toThrow(/verify_deploy_id must be/);
+  });
+
+  it("treats an empty id as unset and requires trigger details", () => {
+    expect(() =>
+      readConfig({ ...ENVIRONMENT, NETLIFY_VERIFY_DEPLOY_ID: "" }),
     ).toThrow(/NETLIFY_TRIGGER_TITLE/);
+  });
+
+  it("stops polling immediately when the deploy is the wrong one", async () => {
+    const sleep = vi.fn(async () => {});
+    await expect(
+      verifyDeploy({
+        target: { siteId: SITE_ID, deployId: VERIFY_ID },
+        token: TOKEN,
+        fetchDeployImpl: async () => {
+          throw new DeployVerificationError("does not belong");
+        },
+        sleep,
+        log: () => {},
+      }),
+    ).rejects.toThrow(/does not belong/);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("fails with a non-retryable error when the deploy id does not exist", async () => {
+    const fetchImpl = vi.fn(
+      async () => ({ status: 404, ok: false }) as Response,
+    );
+    await expect(
+      fetchDeploy({
+        target: { siteId: SITE_ID, deployId: VERIFY_ID },
+        token: TOKEN,
+        fetchImpl,
+      }),
+    ).rejects.toBeInstanceOf(DeployVerificationError);
   });
 
   it.each([

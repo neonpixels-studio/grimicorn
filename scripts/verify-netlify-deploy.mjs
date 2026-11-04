@@ -204,10 +204,11 @@ const MISSING_CONFIG_HINTS = {
 export const DEPLOY_ID_PATTERN = /^[0-9a-f]{24}$/;
 
 function readVerifyOnlyDeployId(environment) {
-  const deployId = (environment.NETLIFY_VERIFY_DEPLOY_ID ?? "").trim();
-  if (!deployId) {
+  const rawDeployId = environment.NETLIFY_VERIFY_DEPLOY_ID ?? "";
+  if (rawDeployId === "") {
     return null;
   }
+  const deployId = rawDeployId.trim();
   if (!DEPLOY_ID_PATTERN.test(deployId)) {
     throw new DeployVerificationError(
       "verify_deploy_id must be a 24 character lowercase hexadecimal Netlify deploy id.",

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       verify_deploy_id:
-        description: "Optional Netlify deploy id (24 hex characters). When set, no build is triggered; only the verify poll runs against this deploy."
+        description: "Optional Netlify deploy id (24 lowercase hex characters). When set, no build is triggered; only the verify poll runs against this deploy."
         required: false
         type: string
 
