@@ -89,6 +89,15 @@ const REQUIRED_VARIABLES = [
   "DUE",
 ];
 
+function parseDue(value) {
+  if (value !== "true" && value !== "false") {
+    throw new SecurityTxtSyncError(
+      `DUE must be "true" or "false", got "${value}".`,
+    );
+  }
+  return value === "true";
+}
+
 export function readConfig(environment) {
   const missing = REQUIRED_VARIABLES.filter((name) => !environment[name]);
   if (missing.length > 0) {
@@ -98,7 +107,7 @@ export function readConfig(environment) {
     label: environment.REMINDER_LABEL,
     title: environment.ISSUE_TITLE,
     bodyFile: environment.ISSUE_BODY_FILE,
-    due: environment.DUE === "true",
+    due: parseDue(environment.DUE),
   };
 }
 

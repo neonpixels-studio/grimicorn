@@ -186,8 +186,18 @@ describe("readConfig", () => {
   });
 
   it("throws naming every missing variable", () => {
-    expect(() => readConfig({})).toThrow(SecurityTxtSyncError);
-    expect(() => readConfig({ ...ENVIRONMENT, DUE: "" })).toThrow(/DUE/);
+    expect(() => readConfig({})).toThrow(
+      "Missing REMINDER_LABEL, ISSUE_TITLE, ISSUE_BODY_FILE, DUE.",
+    );
+    expect(() => readConfig({ ...ENVIRONMENT, DUE: "" })).toThrow(
+      SecurityTxtSyncError,
+    );
+  });
+
+  it("rejects a DUE value that is not true or false", () => {
+    expect(() => readConfig({ ...ENVIRONMENT, DUE: "yes" })).toThrow(
+      'DUE must be "true" or "false"',
+    );
   });
 });
 
@@ -198,6 +208,14 @@ describe("main", () => {
     const result = main(ENVIRONMENT, gh, log);
     expect(result).toEqual({ action: "created" });
     expect(log).toHaveBeenCalledWith("security.txt tracking issue: created");
+  });
+});
+
+describe("main with bad config", () => {
+  it("fails before any GitHub call", () => {
+    const gh = fakeGh();
+    expect(() => main({}, gh, vi.fn())).toThrow(SecurityTxtSyncError);
+    expect(gh.ensureLabel).not.toHaveBeenCalled();
   });
 });
 
