@@ -199,7 +199,8 @@ export default defineConfig({
   // Repo-root markdown is contributor documentation, not site content. Without
   // this, VitePress renders README.md to /README with the homepage canonical and
   // JSON-LD and lists it in the sitemap. index.md is the only page source.
-  srcExclude: ["README.md"],
+  // `_*.md` covers gitignored local notes (_scratch.md, _claude-*.md).
+  srcExclude: ["README.md", "_*.md"],
   sitemap: {
     hostname: SITE_URL,
   },

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -44,8 +44,35 @@ function run(
   });
 }
 
+// Git hooks (e.g. pre-push running test:ci) export GIT_DIR and friends.
+// Inherited, they point the throwaway repos below at the real repository, so
+// `git init` and `git commit` land there instead. git lists them itself.
+const REPOSITORY_GIT_VARIABLES = spawnSync(
+  "git",
+  ["rev-parse", "--local-env-vars"],
+  { encoding: "utf8" },
+)
+  .stdout.split("\n")
+  .filter(Boolean);
+
+if (!REPOSITORY_GIT_VARIABLES.includes("GIT_DIR")) {
+  throw new Error("git rev-parse --local-env-vars did not list GIT_DIR");
+}
+
+function isolatedGitEnvironment() {
+  const environment = { ...process.env };
+  for (const variable of REPOSITORY_GIT_VARIABLES) {
+    delete environment[variable];
+  }
+  return environment;
+}
+
 function runGit(args: string[], cwd: string) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: isolatedGitEnvironment(),
+  });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
   }
@@ -61,6 +88,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   rmSync(workDir, { recursive: true, force: true });
 });
 
@@ -141,6 +169,21 @@ describe("scripts/skip-check.sh", () => {
     expect(readFileSync(callFile, "utf8").trim()).toBe(
       `${sha} scripts/check-undeployed-commits.mjs`,
     );
+  });
+
+  it("keeps its throwaway repo isolated when a git hook exports GIT_DIR", () => {
+    const hostDir = join(workDir, "host");
+    mkdirSync(hostDir);
+    runGit(["init", "-q"], hostDir);
+    vi.stubEnv("GIT_DIR", join(hostDir, ".git"));
+    const { sha } = createRepoWithStubbedCheck();
+    const hostCommits = spawnSync("git", ["rev-list", "--all"], {
+      cwd: hostDir,
+      encoding: "utf8",
+      env: isolatedGitEnvironment(),
+    }).stdout;
+    expect(hostCommits).not.toContain(sha);
+    expect(hostCommits).toBe("");
   });
 
   it("fails when the check script fails, so a broken lookup is not hidden", () => {
