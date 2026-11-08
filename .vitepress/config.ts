@@ -8,6 +8,11 @@ import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 import {
+  buildSentryVitePlugins,
+  readSentryIngestOrigin,
+  shouldUploadSourceMaps,
+} from "./sentry-build";
+import {
   SITE_TITLE,
   NOT_FOUND_TITLE,
   NOT_FOUND_DESCRIPTION,
@@ -28,6 +33,16 @@ const GA_MEASUREMENT_ID = "G-0R2LBBYFB7";
 // buildEnd tells headers.ts to omit the Google origins too, so every
 // non-production build stays strictly first-party.
 const ANALYTICS_ENABLED = process.env.CONTEXT === "production";
+// Sentry is gated on its own values rather than CONTEXT: they exist only in
+// .env.production, which only `npm run build:production` decrypts. Without them
+// the CSP gains no ingest origin and no source maps are generated or uploaded.
+const SENTRY_INGEST_ORIGIN = readSentryIngestOrigin(
+  process.env.VITE_SENTRY_DSN,
+);
+const UPLOAD_SOURCE_MAPS = shouldUploadSourceMaps(process.env);
+// "hidden" emits maps for the Sentry upload without a sourceMappingURL comment,
+// and the plugin deletes them afterwards, so they never deploy.
+const UPLOADED_SOURCE_MAP_MODE = "hidden";
 
 // The inline bootstrap (see ./analytics) skips the gtag loader entirely for
 // visitors whose browser sends Global Privacy Control or Do Not Track, and carries
@@ -376,10 +391,13 @@ export default defineConfig({
     // Plugin types are structurally different even though they're both valid
     // Vite plugin objects at runtime. Cast through `any` to bridge the two
     // physical vite installations rather than fighting npm's dependency graph.
-    plugins: [tailwindcss()] as any,
+    plugins: [tailwindcss(), ...buildSentryVitePlugins(process.env)] as any,
+    build: {
+      sourcemap: UPLOAD_SOURCE_MAPS ? UPLOADED_SOURCE_MAP_MODE : false,
+    },
   },
   buildEnd(siteConfig: SiteConfig) {
-    writeCspHeaders(siteConfig.outDir, ANALYTICS_ENABLED);
+    writeCspHeaders(siteConfig.outDir, ANALYTICS_ENABLED, SENTRY_INGEST_ORIGIN);
     // Guard the rendered output too: the source-level scan can't see an origin a
     // dependency or plugin injects into the built HTML/CSS/JS (see scan-origins.ts).
     assertBuildOutputHasNoDisallowedOrigins(siteConfig.outDir);

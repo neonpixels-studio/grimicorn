@@ -104,11 +104,16 @@ export function collectScriptHashes(htmlDocuments: string[]) {
 // Google Analytics is production-only (see ANALYTICS_ENABLED in config.ts), so its
 // origins are added to the CSP only when analytics ships. Every non-production
 // build then stays strictly first-party rather than advertising origins nothing
-// loads from.
+// loads from. The Sentry ingest origin follows the same rule: it is passed only
+// when the build carries a DSN (see sentry-build.ts).
 export function buildContentSecurityPolicy(
   scriptHashes: string[],
   includeAnalytics = false,
+  errorReportingOrigin: string | null = null,
 ) {
+  const errorReportingConnectOrigins = errorReportingOrigin
+    ? [errorReportingOrigin]
+    : [];
   const analyticsScriptOrigins = includeAnalytics
     ? [GOOGLE_TAG_MANAGER_ORIGIN]
     : [];
@@ -130,7 +135,10 @@ export function buildContentSecurityPolicy(
     ["style-src", [SELF, UNSAFE_INLINE]],
     ["font-src", [SELF]],
     ["img-src", [SELF, DATA_SCHEME, ...analyticsImageOrigins]],
-    ["connect-src", [SELF, ...analyticsConnectOrigins]],
+    [
+      "connect-src",
+      [SELF, ...analyticsConnectOrigins, ...errorReportingConnectOrigins],
+    ],
     ["object-src", [NONE]],
     ["base-uri", [SELF]],
     ["frame-ancestors", [NONE]],

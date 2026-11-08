@@ -64,6 +64,16 @@ describe("writeCspHeaders", () => {
     expect(readFileSync(join(dir, HEADERS_FILENAME), "utf8")).toBe(expected);
   });
 
+  it("passes the error reporting origin through to the written CSP", () => {
+    const dir = makeDistDir();
+    const ingestOrigin = "https://o0.ingest.us.sentry.io";
+    writePage(dir, "index.html", `<script>${INLINE_SCRIPT}</script>`);
+    writeCspHeaders(dir, false, ingestOrigin);
+    expect(readFileSync(join(dir, HEADERS_FILENAME), "utf8")).toContain(
+      `connect-src 'self' ${ingestOrigin};`,
+    );
+  });
+
   it("fails loud when no inline scripts are found, rather than shipping a broken CSP", () => {
     const dir = makeDistDir();
     writePage(dir, "index.html", "<p>no scripts here</p>");

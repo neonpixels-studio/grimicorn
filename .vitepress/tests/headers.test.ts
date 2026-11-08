@@ -179,6 +179,38 @@ describe("buildContentSecurityPolicy with analytics enabled", () => {
   });
 });
 
+describe("buildContentSecurityPolicy with an error reporting origin", () => {
+  const hashes = [hashInlineScript(BOOTSTRAP_SCRIPT)];
+  const ingestOrigin = "https://o0.ingest.us.sentry.io";
+
+  it("adds the ingest origin to connect-src only", () => {
+    const directives = parseDirectives(
+      buildContentSecurityPolicy(hashes, false, ingestOrigin),
+    );
+    const withoutOrigin = parseDirectives(buildContentSecurityPolicy(hashes));
+    expect(directives.get("connect-src")).toEqual(["'self'", ingestOrigin]);
+    for (const [name, sources] of withoutOrigin) {
+      if (name === "connect-src") {
+        continue;
+      }
+      expect(directives.get(name)).toEqual(sources);
+    }
+  });
+
+  it("appends the ingest origin after the GA endpoints when both are enabled", () => {
+    const directives = parseDirectives(
+      buildContentSecurityPolicy(hashes, true, ingestOrigin),
+    );
+    expect(directives.get("connect-src")).toEqual([
+      "'self'",
+      "https://www.googletagmanager.com",
+      "https://www.google-analytics.com",
+      "https://region1.google-analytics.com",
+      ingestOrigin,
+    ]);
+  });
+});
+
 describe("buildHeadersFile", () => {
   it("emits a Netlify global rule with the policy on an indented line", () => {
     const file = buildHeadersFile("default-src 'self'");

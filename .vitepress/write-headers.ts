@@ -26,7 +26,11 @@ export function readRenderedPages(outDir: string) {
 // Netlify gives netlify.toml precedence over `_headers` for a shared header name,
 // so the CSP lives here alone (the other security headers stay static in
 // netlify.toml).
-export function writeCspHeaders(outDir: string, includeAnalytics = false) {
+export function writeCspHeaders(
+  outDir: string,
+  includeAnalytics = false,
+  errorReportingOrigin: string | null = null,
+) {
   const scriptHashes = collectScriptHashes(readRenderedPages(outDir));
   // VitePress always emits inline bootstrap scripts, so zero hashes means the
   // extraction broke (e.g. VitePress changed its output). Fail the build rather
@@ -47,7 +51,11 @@ export function writeCspHeaders(outDir: string, includeAnalytics = false) {
   writeFileSync(
     headersPath,
     buildHeadersFile(
-      buildContentSecurityPolicy(scriptHashes, includeAnalytics),
+      buildContentSecurityPolicy(
+        scriptHashes,
+        includeAnalytics,
+        errorReportingOrigin,
+      ),
     ),
   );
 }
