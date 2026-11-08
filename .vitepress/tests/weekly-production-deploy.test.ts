@@ -176,4 +176,53 @@ describe("weekly-production-deploy skip check", () => {
   it("runs the skip script", () => {
     expect(workflow).toContain("run: bash scripts/skip-check.sh");
   });
+
+  describe("notify-failure condition", () => {
+    const NOTIFY_IF_PATTERN =
+      /^ {2}notify-failure:[\s\S]*?^ {4}if: \$\{\{ (.+) \}\}\s*$/m;
+
+    function shouldNotify(
+      deployResult: string,
+      eventName = "schedule",
+      ref = "refs/heads/main",
+    ) {
+      const expression = workflow.match(NOTIFY_IF_PATTERN)?.[1];
+      expect(expression).toBeDefined();
+      const evaluate = new Function(
+        "always",
+        "needs",
+        "github",
+        `return ${expression};`,
+      );
+      return evaluate(
+        () => true,
+        { deploy: { result: deployResult } },
+        { event_name: eventName, ref },
+      );
+    }
+
+    it("overrides the implicit success() gate so it can run after a bad deploy", () => {
+      expect(workflow.match(NOTIFY_IF_PATTERN)?.[1]).toMatch(/\balways\(\)/);
+    });
+
+    it("notifies when the deploy job fails or times out", () => {
+      expect(shouldNotify("failure")).toBe(true);
+    });
+
+    it("notifies when the deploy job is cancelled", () => {
+      expect(shouldNotify("cancelled")).toBe(true);
+    });
+
+    it("stays quiet on success and skipped deploys", () => {
+      expect(shouldNotify("success")).toBe(false);
+      expect(shouldNotify("skipped")).toBe(false);
+    });
+
+    it("stays quiet off main and on pull requests", () => {
+      expect(shouldNotify("failure", "schedule", "refs/heads/other")).toBe(
+        false,
+      );
+      expect(shouldNotify("cancelled", "pull_request")).toBe(false);
+    });
+  });
 });

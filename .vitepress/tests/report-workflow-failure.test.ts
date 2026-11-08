@@ -219,7 +219,9 @@ describe.each(["weekly-production-deploy.yml", "security.yml"])(
     it("exists and runs only when a needed job failed", () => {
       expect(job).not.toBe("");
       expect(job).toMatch(/^ {4}needs: \[[^\]]+\]/m);
-      expect(job).toMatch(/^ {4}if: .*failure\(\)/m);
+      expect(job).toMatch(
+        /^ {4}if: .*(failure\(\)|always\(\) && .*result == 'failure')/m,
+      );
     });
 
     it("never fires for pull requests and only on main", () => {

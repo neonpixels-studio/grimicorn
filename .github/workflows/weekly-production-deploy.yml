@@ -66,7 +66,10 @@ jobs:
   # durable signal: open (or comment on) one tracking issue per workflow.
   notify-failure:
     needs: [deploy]
-    if: ${{ failure() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    # A job that hits timeout-minutes reports failure, but a cancelled run (manual
+    # cancel, runner loss) reports cancelled, which failure() does not match.
+    # A skipped deploy (non-main ref) matches neither result, so stays quiet.
+    if: ${{ always() && (needs.deploy.result == 'failure' || needs.deploy.result == 'cancelled') && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
