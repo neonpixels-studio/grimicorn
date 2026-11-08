@@ -9,7 +9,7 @@ const SECURITY_WORKFLOW = resolve(
   process.cwd(),
   ".github/workflows/security.yml",
 );
-const JOB_NAME_PATTERN = /^ {2}([A-Za-z0-9_-]+):\s*$/;
+const JOB_NAME_PATTERN = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/;
 const TIMEOUT_PATTERN = /^ {4}timeout-minutes:\s*(\d+)\s*(?:#.*)?$/;
 const TOP_LEVEL_KEY_PATTERN = /^\S/;
 const COMMENT_LINE_PATTERN = /^\s*#/;
@@ -95,5 +95,37 @@ describe("readJobTimeouts edge cases", () => {
   it("stops at the next top-level key", () => {
     const lines = ["jobs:", "  a:", "    timeout-minutes: 3", "other:", "  b:"];
     expect(readJobTimeouts(lines)).toEqual({ a: 3 });
+  });
+
+  it("keeps scanning past a column-0 comment inside jobs", () => {
+    const lines = [
+      "jobs:",
+      "  a:",
+      "    timeout-minutes: 3",
+      "# note",
+      "  b:",
+      "    timeout-minutes: 4",
+    ];
+    expect(readJobTimeouts(lines)).toEqual({ a: 3, b: 4 });
+  });
+
+  it("recognises a job header with a trailing comment", () => {
+    const lines = [
+      "jobs:",
+      "  a:",
+      "    runs-on: ubuntu-latest",
+      "  b: # has its own cap",
+      "    timeout-minutes: 4",
+    ];
+    expect(readJobTimeouts(lines)).toEqual({ a: undefined, b: 4 });
+  });
+
+  it("accepts a trailing comment on timeout-minutes", () => {
+    const lines = ["jobs:", "  a:", "    timeout-minutes: 5 # cap"];
+    expect(readJobTimeouts(lines)).toEqual({ a: 5 });
+  });
+
+  it("returns nothing when there is no jobs key", () => {
+    expect(readJobTimeouts(["name: Example"])).toEqual({});
   });
 });
