@@ -1,7 +1,9 @@
 # dotenvx: refuse the commit if any tracked .env* file holds plaintext values.
-# `ext precommit` is deprecated in favor of `dotenvx protect`, but protect only
-# installs a git clean filter and exits 0 even with plaintext staged, so it
-# can't gate a commit from this hook.
+# `ext precommit` is deprecated in favor of `dotenvx protect`, but protect is not
+# a gate: it exits 0 even with plaintext staged, and it installs a required clean
+# filter into the GLOBAL ~/.gitconfig and ~/.config/git/attributes, pointing every
+# repo's .env* files at this repo's node_modules. Keep ext precommit; ignore its
+# deprecation warning.
 npx dotenvx ext precommit
 
 if ! command -v gitleaks >/dev/null 2>&1; then

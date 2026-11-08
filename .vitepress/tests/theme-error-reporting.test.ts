@@ -25,6 +25,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -45,6 +46,13 @@ describe("theme enhanceApp error reporting", () => {
   it("does nothing during server rendering", async () => {
     vi.stubEnv("VITE_SENTRY_DSN", DSN);
     vi.stubEnv("SSR", true);
+    await enhanceFreshTheme();
+    expect(initErrorReporting).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the visitor sends Global Privacy Control", async () => {
+    vi.stubEnv("VITE_SENTRY_DSN", DSN);
+    vi.stubGlobal("navigator", { globalPrivacyControl: true });
     await enhanceFreshTheme();
     expect(initErrorReporting).not.toHaveBeenCalled();
   });
