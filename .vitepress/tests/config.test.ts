@@ -1065,7 +1065,7 @@ describe("Site URL consistency", () => {
 describe("Structured data identity", () => {
   const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
   const readIdentity = () =>
-    readStructuredData(indexableHead) as unknown as Record<string, unknown>;
+    readStructuredData(indexableHead) as Record<string, unknown>;
 
   it("declares the GitHub profile as the same entity via sameAs", () => {
     expect(readIdentity().sameAs).toEqual([GITHUB_PROFILE_URL]);

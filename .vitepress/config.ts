@@ -81,8 +81,8 @@ const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
 const OFFER_PRICE = "0";
 const OFFER_CURRENCY = "USD";
 
-// The site's only external identity. The same URL is linked from the page, the
-// 404, and llms.txt (config.test.ts keeps llms.txt in sync with this value).
+// The site's only external identity, also linked from the page and the 404
+// (config.test.ts keeps llms.txt in sync with this value).
 const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
 const PUBLISHER = {
   "@type": "Organization",
