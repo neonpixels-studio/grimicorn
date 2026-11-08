@@ -1062,6 +1062,32 @@ describe("Site URL consistency", () => {
   });
 });
 
+describe("Structured data identity", () => {
+  const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
+  const readIdentity = () =>
+    readStructuredData(indexableHead) as unknown as Record<string, unknown>;
+
+  it("declares the GitHub profile as the same entity via sameAs", () => {
+    expect(readIdentity().sameAs).toEqual([GITHUB_PROFILE_URL]);
+  });
+
+  it("names Grimicorn as author and publisher, linked to the site and GitHub", () => {
+    const identity = readIdentity();
+    const expected = {
+      "@type": "Organization",
+      name: "Grimicorn",
+      url: EXPECTED_SITE_URL,
+      sameAs: [GITHUB_PROFILE_URL],
+    };
+    expect(identity.author).toEqual(expected);
+    expect(identity.publisher).toEqual(expected);
+  });
+
+  it("uses the same GitHub profile URL that llms.txt links to", () => {
+    expect(readFileSync(LLMS_TXT, "utf8")).toContain(`(${GITHUB_PROFILE_URL})`);
+  });
+});
+
 describe("Structured data offers", () => {
   it("exposes a truthful free-tier Offer on the SoftwareApplication markup", () => {
     const structuredData = readStructuredData(indexableHead) as Record<
