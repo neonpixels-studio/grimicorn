@@ -9,6 +9,7 @@ const SECURITY_WORKFLOW = resolve(
   process.cwd(),
   ".github/workflows/security.yml",
 );
+const JOBS_KEY_PATTERN = /^jobs:\s*(?:#.*)?$/;
 const JOB_NAME_PATTERN = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/;
 const TIMEOUT_PATTERN = /^ {4}timeout-minutes:\s*(\d+)\s*(?:#.*)?$/;
 const TOP_LEVEL_KEY_PATTERN = /^\S/;
@@ -20,7 +21,7 @@ type JobTimeouts = Record<string, number | undefined>;
 // Maps each job name under the top-level `jobs:` key to its timeout-minutes
 // (undefined when the job declares none).
 function readJobTimeouts(lines: string[]): JobTimeouts {
-  const jobsIndex = lines.findIndex((line) => line === "jobs:");
+  const jobsIndex = lines.findIndex((line) => JOBS_KEY_PATTERN.test(line));
   if (jobsIndex === -1) {
     return {};
   }
@@ -47,7 +48,7 @@ function readJobTimeouts(lines: string[]): JobTimeouts {
 
 describe("security.yml job timeouts", () => {
   const timeouts = readJobTimeouts(
-    readFileSync(SECURITY_WORKFLOW, "utf8").split("\n"),
+    readFileSync(SECURITY_WORKFLOW, "utf8").split(/\r?\n/),
   );
 
   it("finds the gitleaks, audit and notify-failure jobs", () => {
