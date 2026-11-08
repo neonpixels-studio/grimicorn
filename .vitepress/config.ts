@@ -14,6 +14,8 @@ import {
 } from "./not-found-meta";
 
 const SITE_URL = "https://grimicorn.dev";
+// Resolved against the repo root. Must never contain .env* files: see `envDir`.
+const VITE_ENV_DIR = ".vitepress";
 // Google Analytics (GA4) measurement ID. This is the one deliberate third-party
 // integration on an otherwise first-party site: the gtag loader is fetched from
 // googletagmanager.com and measurement beacons go to google-analytics.com, which
@@ -361,6 +363,13 @@ export default defineConfig({
     );
   },
   vite: {
+    // The committed root .env* files hold dotenvx ciphertext. Read directly, Vite
+    // would bake `encrypted:...` strings into import.meta.env on any build without
+    // the private key (CI, Deploy Previews). Pointing envDir at a directory with
+    // no .env files stops that; `dotenvx run` puts the decrypted values in
+    // process.env, which Vite still reads for VITE_* keys. VitePress bundles
+    // Vite 5, which treats `envDir: false` as the root, so it can't be used here.
+    envDir: VITE_ENV_DIR,
     // tailwindcss() is typed against the top-level `vite` package, which npm
     // hoists to v8 to satisfy vitest 5's peer range. vitepress bundles its own
     // vite@5 internally and types `vite.plugins` against that copy, so the two

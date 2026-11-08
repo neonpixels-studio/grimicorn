@@ -1,3 +1,9 @@
+# dotenvx: refuse the commit if any tracked .env* file holds plaintext values.
+# `ext precommit` is deprecated in favor of `dotenvx protect`, but protect only
+# installs a git clean filter and exits 0 even with plaintext staged, so it
+# can't gate a commit from this hook.
+npx dotenvx ext precommit
+
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "gitleaks is not installed; install it with 'brew install gitleaks' (see the Requirements section of README.md for other platforms); the pre-commit secret scan cannot run without it." >&2
   exit 1

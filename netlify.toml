@@ -10,6 +10,12 @@
   NODE_VERSION = "24"
 
 [context.production]
+  # Same gates as [build], but the build decrypts .env.production with
+  # DOTENV_PRIVATE_KEY_PRODUCTION (Netlify env, Production context only). Deploy
+  # Previews and branch deploys keep the plain [build] command, so they never
+  # need the key and never ship production secrets. --strict fails the build if
+  # the key is missing rather than baking ciphertext into the bundle.
+  command = "npm run lint && npm run typecheck && npm run test:ci && npm run build:production"
   # Netlify cancels the build when this exits 0 and builds when it exits 1.
   # Production deploys only via the build hook (weekly workflow or manual dispatch).
   ignore = "if [ -n \"$INCOMING_HOOK_TITLE\" ]; then exit 1; else exit 0; fi"
