@@ -49,19 +49,4 @@ jobs:
           ISSUE_BODY_FILE: ${{ runner.temp }}/issue-body.md
           ISSUE_TITLE: Renew the security.txt Expires date
           DUE: ${{ steps.check.outputs.due }}
-        run: |
-          gh label create "${REMINDER_LABEL}" --force --color FBCA04 \
-            --description "security.txt Expires date is approaching"
-          existing="$(gh issue list --label "${REMINDER_LABEL}" --state open --json number --jq '.[0].number')"
-          if [ "${DUE}" != "true" ] && [ -n "${existing}" ]; then
-            gh issue close "${existing}" --comment "Expires was renewed; closing."
-          fi
-          if [ "${DUE}" != "true" ]; then
-            exit 0
-          fi
-          if [ -n "${existing}" ]; then
-            gh issue edit "${existing}" --body-file "${ISSUE_BODY_FILE}"
-            exit 0
-          fi
-          gh issue create --title "${ISSUE_TITLE}" --label "${REMINDER_LABEL}" \
-            --body-file "${ISSUE_BODY_FILE}"
+        run: node scripts/sync-security-txt-issue.mjs

@@ -1,0 +1,210 @@
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { resolve } from "node:path";
+import {
+  SecurityTxtSyncError,
+  createGhAdapter,
+  isMainModule,
+  main,
+  readConfig,
+  syncTrackingIssue,
+} from "../../scripts/sync-security-txt-issue.mjs";
+
+const SCRIPT_PATH = resolve(
+  import.meta.dirname,
+  "../../scripts/sync-security-txt-issue.mjs",
+);
+const LABEL = "security-txt-expiry";
+const TITLE = "Renew the security.txt Expires date";
+const BODY_FILE = "/tmp/issue-body.md";
+const EXISTING_NUMBER = 42;
+
+const ENVIRONMENT = {
+  REMINDER_LABEL: LABEL,
+  ISSUE_TITLE: TITLE,
+  ISSUE_BODY_FILE: BODY_FILE,
+  DUE: "true",
+};
+
+function fakeGh(existing?: number) {
+  return {
+    ensureLabel: vi.fn(),
+    findOpenIssueNumber: vi.fn(() => existing),
+    closeIssue: vi.fn(),
+    editIssueBody: vi.fn(),
+    createIssue: vi.fn(),
+  };
+}
+
+function sync(gh: ReturnType<typeof fakeGh>, due: boolean) {
+  return syncTrackingIssue({
+    gh,
+    label: LABEL,
+    title: TITLE,
+    bodyFile: BODY_FILE,
+    due,
+  });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("syncTrackingIssue", () => {
+  it("opens an issue when due and none is open", () => {
+    const gh = fakeGh();
+    expect(sync(gh, true)).toEqual({ action: "created" });
+    expect(gh.ensureLabel).toHaveBeenCalledWith(LABEL);
+    expect(gh.createIssue).toHaveBeenCalledWith({
+      title: TITLE,
+      label: LABEL,
+      bodyFile: BODY_FILE,
+    });
+    expect(gh.editIssueBody).not.toHaveBeenCalled();
+    expect(gh.closeIssue).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the open issue instead of duplicating it when due", () => {
+    const gh = fakeGh(EXISTING_NUMBER);
+    expect(sync(gh, true)).toEqual({
+      action: "updated",
+      number: EXISTING_NUMBER,
+    });
+    expect(gh.editIssueBody).toHaveBeenCalledWith(EXISTING_NUMBER, BODY_FILE);
+    expect(gh.createIssue).not.toHaveBeenCalled();
+    expect(gh.closeIssue).not.toHaveBeenCalled();
+  });
+
+  it("closes the open issue once the date was renewed", () => {
+    const gh = fakeGh(EXISTING_NUMBER);
+    expect(sync(gh, false)).toEqual({
+      action: "closed",
+      number: EXISTING_NUMBER,
+    });
+    expect(gh.closeIssue).toHaveBeenCalledWith(
+      EXISTING_NUMBER,
+      "Expires was renewed; closing.",
+    );
+    expect(gh.createIssue).not.toHaveBeenCalled();
+    expect(gh.editIssueBody).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when not due and no issue is open", () => {
+    const gh = fakeGh();
+    expect(sync(gh, false)).toEqual({ action: "none" });
+    expect(gh.createIssue).not.toHaveBeenCalled();
+    expect(gh.editIssueBody).not.toHaveBeenCalled();
+    expect(gh.closeIssue).not.toHaveBeenCalled();
+  });
+});
+
+describe("createGhAdapter", () => {
+  it("ensures the label with force, color and description", () => {
+    const run = vi.fn();
+    createGhAdapter(run).ensureLabel(LABEL);
+    expect(run).toHaveBeenCalledWith([
+      "label",
+      "create",
+      LABEL,
+      "--force",
+      "--color",
+      "FBCA04",
+      "--description",
+      "security.txt Expires date is approaching",
+    ]);
+  });
+
+  it("returns the first open issue number, or undefined when none", () => {
+    const withIssues = vi.fn(() => '[{"number":7},{"number":3}]');
+    expect(createGhAdapter(withIssues).findOpenIssueNumber(LABEL)).toBe(7);
+    expect(withIssues).toHaveBeenCalledWith([
+      "issue",
+      "list",
+      "--label",
+      LABEL,
+      "--state",
+      "open",
+      "--json",
+      "number",
+    ]);
+    const empty = vi.fn(() => "[]");
+    expect(createGhAdapter(empty).findOpenIssueNumber(LABEL)).toBeUndefined();
+  });
+
+  it("closes with a comment", () => {
+    const run = vi.fn();
+    createGhAdapter(run).closeIssue(EXISTING_NUMBER, "done");
+    expect(run).toHaveBeenCalledWith([
+      "issue",
+      "close",
+      "42",
+      "--comment",
+      "done",
+    ]);
+  });
+
+  it("edits the body from a file", () => {
+    const run = vi.fn();
+    createGhAdapter(run).editIssueBody(EXISTING_NUMBER, BODY_FILE);
+    expect(run).toHaveBeenCalledWith([
+      "issue",
+      "edit",
+      "42",
+      "--body-file",
+      BODY_FILE,
+    ]);
+  });
+
+  it("creates an issue with title, label and body file", () => {
+    const run = vi.fn();
+    createGhAdapter(run).createIssue({
+      title: TITLE,
+      label: LABEL,
+      bodyFile: BODY_FILE,
+    });
+    expect(run).toHaveBeenCalledWith([
+      "issue",
+      "create",
+      "--title",
+      TITLE,
+      "--label",
+      LABEL,
+      "--body-file",
+      BODY_FILE,
+    ]);
+  });
+});
+
+describe("readConfig", () => {
+  it("maps the environment and parses DUE", () => {
+    expect(readConfig(ENVIRONMENT)).toEqual({
+      label: LABEL,
+      title: TITLE,
+      bodyFile: BODY_FILE,
+      due: true,
+    });
+    expect(readConfig({ ...ENVIRONMENT, DUE: "false" }).due).toBe(false);
+  });
+
+  it("throws naming every missing variable", () => {
+    expect(() => readConfig({})).toThrow(SecurityTxtSyncError);
+    expect(() => readConfig({ ...ENVIRONMENT, DUE: "" })).toThrow(/DUE/);
+  });
+});
+
+describe("main", () => {
+  it("syncs through the adapter and logs the action", () => {
+    const gh = fakeGh();
+    const log = vi.fn();
+    const result = main(ENVIRONMENT, gh, log);
+    expect(result).toEqual({ action: "created" });
+    expect(log).toHaveBeenCalledWith("security.txt tracking issue: created");
+  });
+});
+
+describe("isMainModule", () => {
+  it("is true only for the script itself", () => {
+    expect(isMainModule(undefined)).toBe(false);
+    expect(isMainModule(SCRIPT_PATH)).toBe(true);
+    expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
+  });
+});
