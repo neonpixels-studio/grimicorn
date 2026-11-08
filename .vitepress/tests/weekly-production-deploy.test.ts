@@ -201,6 +201,10 @@ describe("weekly-production-deploy skip check", () => {
       );
     }
 
+    it("overrides the implicit success() gate so it can run after a bad deploy", () => {
+      expect(workflow.match(NOTIFY_IF_PATTERN)?.[1]).toMatch(/\balways\(\)/);
+    });
+
     it("notifies when the deploy job fails or times out", () => {
       expect(shouldNotify("failure")).toBe(true);
     });
