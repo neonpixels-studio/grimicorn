@@ -212,10 +212,11 @@ describe("buildContentSecurityPolicy with an error reporting origin", () => {
   });
 });
 
+const reportEndpoint =
+  "https://o0.ingest.us.sentry.io/api/1/security/?sentry_key=abc";
+
 describe("buildContentSecurityPolicy with a violation report endpoint", () => {
   const hashes = [hashInlineScript(BOOTSTRAP_SCRIPT)];
-  const reportEndpoint =
-    "https://o0.ingest.us.sentry.io/api/1/security/?sentry_key=abc";
 
   it("adds report-uri and report-to naming the shared reporting group", () => {
     const directives = parseDirectives(
@@ -253,11 +254,9 @@ describe("buildHeadersFile", () => {
   });
 
   it("adds a Reporting-Endpoints header for the same group when given an endpoint", () => {
-    const endpoint =
-      "https://o0.ingest.us.sentry.io/api/1/security/?sentry_key=abc";
-    const file = buildHeadersFile("default-src 'self'", endpoint);
+    const file = buildHeadersFile("default-src 'self'", reportEndpoint);
     expect(file).toBe(
-      `/*\n  Content-Security-Policy: default-src 'self'\n  Reporting-Endpoints: ${CSP_REPORTING_GROUP}="${endpoint}"\n`,
+      `/*\n  Content-Security-Policy: default-src 'self'\n  Reporting-Endpoints: ${CSP_REPORTING_GROUP}="${reportEndpoint}"\n`,
     );
   });
 

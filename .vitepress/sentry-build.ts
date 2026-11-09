@@ -9,6 +9,7 @@ type BuildEnvironment = Record<string, string | undefined>;
 type ConfigEnvironment = { isSsrBuild?: boolean };
 
 const REQUIRED_DSN_PROTOCOL = "https:";
+const NUMERIC_PROJECT_ID = /^\d+$/;
 const SECURITY_ENDPOINT_PATH = "security/";
 // Tags CSP reports like the SDK tags its events; keep in step with
 // SENTRY_ENVIRONMENT in theme/error-reporting.ts (not imported: that file pulls
@@ -70,7 +71,7 @@ export function readSentrySecurityEndpoint(dsn: string | undefined) {
   }
   const url = parseHttpsDsn(dsn);
   const { pathPrefix, projectId } = splitDsnPath(url);
-  if (!url.username || !projectId) {
+  if (!url.username || !projectId || !NUMERIC_PROJECT_ID.test(projectId)) {
     throw new Error(
       "VITE_SENTRY_DSN must carry a public key and a project id to build the CSP report endpoint",
     );

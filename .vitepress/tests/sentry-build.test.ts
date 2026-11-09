@@ -92,6 +92,9 @@ describe("readSentrySecurityEndpoint", () => {
     expect(() =>
       readSentrySecurityEndpoint("https://publicKey@o123.ingest.sentry.io"),
     ).toThrow(/public key and a project id/);
+    expect(() =>
+      readSentrySecurityEndpoint("https://publicKey@sentry.example.com/relay"),
+    ).toThrow(/public key and a project id/);
   });
 });
 
