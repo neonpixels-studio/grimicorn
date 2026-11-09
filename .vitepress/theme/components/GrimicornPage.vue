@@ -943,13 +943,29 @@ onUnmounted(() => {
            visible on every render, not gated behind an interaction. -->
         <p class="mt-3 max-w-[560px] leading-[1.6]">
           Pageviews and basic usage data on the live production site are sent to
-          Google Analytics (GA4) &mdash; the only third-party service this site
-          automatically contacts. Depending on the analytics property&rsquo;s
-          settings, that may include scrolling, outbound link clicks, file
-          downloads, site searches, video engagement (plays, progress,
-          completions), and form interactions. The github links above are the
-          only other place this page points off-site, and those only load if you
-          click them.
+          Google Analytics (GA4) &mdash; the only analytics service this site
+          uses. Depending on the analytics property&rsquo;s settings, that may
+          include scrolling, outbound link clicks, file downloads, site
+          searches, video engagement (plays, progress, completions), and form
+          interactions. The github links above are the only other place this
+          page points off-site, and those only load if you click them.
+        </p>
+        <!-- Browsers send CSP violation reports on their own from the
+           Content-Security-Policy response header (see report-uri / report-to
+           in .vitepress/headers.ts), so JS-level opt-outs like GPC/DNT cannot
+           stop them. The maintainer accepted that limitation on condition that
+           it is disclosed here; keep this line visible on every render. -->
+        <p class="mt-3 max-w-[560px] leading-[1.6]">
+          On the live production site, if a page error occurs, an error report
+          is sent to Sentry unless Global Privacy Control or Do Not Track is on.
+          Content Security Policy violation reports are also sent to Sentry, to
+          detect broken or injected scripts and other security issues. Your
+          browser creates and sends these reports automatically from the
+          site&rsquo;s response headers, so they are sent even when Global
+          Privacy Control or Do Not Track is on (unlike the error reports
+          above). A report includes details such as the page URL, the referrer,
+          the URL of the blocked resource, the script location that triggered
+          it, and your IP address and user agent as received by Sentry.
         </p>
       </footer>
     </div>
