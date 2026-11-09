@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildSentryVitePlugins,
   readSentryIngestOrigin,
+  readSentrySecurityEndpoint,
   shouldUploadSourceMaps,
 } from "../sentry-build";
 
@@ -44,6 +45,56 @@ describe("readSentryIngestOrigin", () => {
     expect(() =>
       readSentryIngestOrigin("http://publicKey@o123.ingest.sentry.io/456"),
     ).toThrow(/must be an https:\/\/ URL/);
+  });
+});
+
+describe("readSentrySecurityEndpoint", () => {
+  it("returns null when no DSN is set, so no reporting is configured", () => {
+    expect(readSentrySecurityEndpoint(undefined)).toBeNull();
+    expect(readSentrySecurityEndpoint("")).toBeNull();
+  });
+
+  it("derives Sentry's security endpoint from the DSN, tagged production", () => {
+    expect(readSentrySecurityEndpoint(DSN)).toBe(
+      "https://o123.ingest.us.sentry.io/api/456/security/?sentry_key=publicKey&sentry_environment=production",
+    );
+  });
+
+  it("keeps a path prefix ahead of /api when the DSN has one", () => {
+    expect(
+      readSentrySecurityEndpoint(
+        "https://publicKey@sentry.example.com/relay/7",
+      ),
+    ).toBe(
+      "https://sentry.example.com/relay/api/7/security/?sentry_key=publicKey&sentry_environment=production",
+    );
+  });
+
+  it("round-trips a percent-encoded public key", () => {
+    expect(
+      readSentrySecurityEndpoint("https://pub%2Bkey@o123.ingest.sentry.io/456"),
+    ).toContain("sentry_key=pub%2Bkey&");
+  });
+
+  it("fails loud on dotenvx ciphertext and non-https DSNs", () => {
+    expect(() =>
+      readSentrySecurityEndpoint("encrypted:BExampleCiphertext"),
+    ).toThrow();
+    expect(() =>
+      readSentrySecurityEndpoint("http://publicKey@o123.ingest.sentry.io/456"),
+    ).toThrow(/must be an https:\/\/ URL/);
+  });
+
+  it("fails loud when the DSN lacks a public key or project id", () => {
+    expect(() =>
+      readSentrySecurityEndpoint("https://o123.ingest.sentry.io/456"),
+    ).toThrow(/public key and a project id/);
+    expect(() =>
+      readSentrySecurityEndpoint("https://publicKey@o123.ingest.sentry.io"),
+    ).toThrow(/public key and a project id/);
+    expect(() =>
+      readSentrySecurityEndpoint("https://publicKey@sentry.example.com/relay"),
+    ).toThrow(/public key and a project id/);
   });
 });
 

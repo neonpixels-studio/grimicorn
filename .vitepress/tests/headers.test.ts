@@ -6,6 +6,7 @@ import {
   collectScriptHashes,
   extractInlineScriptHashes,
   hashInlineScript,
+  CSP_REPORTING_GROUP,
 } from "../headers";
 
 // A real VitePress inline bootstrap script; its CSP hash is pinned so a change to
@@ -211,9 +212,57 @@ describe("buildContentSecurityPolicy with an error reporting origin", () => {
   });
 });
 
+const reportEndpoint =
+  "https://o0.ingest.us.sentry.io/api/1/security/?sentry_key=abc";
+
+describe("buildContentSecurityPolicy with a violation report endpoint", () => {
+  const hashes = [hashInlineScript(BOOTSTRAP_SCRIPT)];
+
+  it("adds report-uri and report-to naming the shared reporting group", () => {
+    const directives = parseDirectives(
+      buildContentSecurityPolicy(hashes, false, null, reportEndpoint),
+    );
+    expect(directives.get("report-uri")).toEqual([reportEndpoint]);
+    expect(directives.get("report-to")).toEqual([CSP_REPORTING_GROUP]);
+  });
+
+  it("emits no reporting directives without an endpoint", () => {
+    const policy = buildContentSecurityPolicy(hashes);
+    expect(policy).not.toContain("report-uri");
+    expect(policy).not.toContain("report-to");
+  });
+
+  it("changes nothing else in the policy", () => {
+    const withReporting = parseDirectives(
+      buildContentSecurityPolicy(hashes, false, null, reportEndpoint),
+    );
+    const without = parseDirectives(buildContentSecurityPolicy(hashes));
+    for (const [name, sources] of without) {
+      expect(withReporting.get(name)).toEqual(sources);
+    }
+    const addedNames = [...withReporting.keys()].filter(
+      (name) => !without.has(name),
+    );
+    expect(addedNames).toEqual(["report-uri", "report-to"]);
+  });
+});
+
 describe("buildHeadersFile", () => {
   it("emits a Netlify global rule with the policy on an indented line", () => {
     const file = buildHeadersFile("default-src 'self'");
     expect(file).toBe("/*\n  Content-Security-Policy: default-src 'self'\n");
+  });
+
+  it("adds a Reporting-Endpoints header for the same group when given an endpoint", () => {
+    const file = buildHeadersFile("default-src 'self'", reportEndpoint);
+    expect(file).toBe(
+      `/*\n  Content-Security-Policy: default-src 'self'\n  Reporting-Endpoints: ${CSP_REPORTING_GROUP}="${reportEndpoint}"\n`,
+    );
+  });
+
+  it("omits Reporting-Endpoints without an endpoint", () => {
+    expect(buildHeadersFile("default-src 'self'")).not.toContain(
+      "Reporting-Endpoints",
+    );
   });
 });

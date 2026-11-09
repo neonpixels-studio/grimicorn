@@ -874,6 +874,37 @@ describe("GrimicornPage", () => {
       wrapper.unmount();
     });
 
+    // Browser-generated CSP reports (report-uri / report-to in headers.ts)
+    // cannot honor GPC/DNT, so the footer must say so. Pins each load-bearing
+    // claim separately so a reword that drops one still fails.
+    it("discloses in the footer that CSP reports go to Sentry even with GPC or DNT enabled", async () => {
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      const footerText = wrapper.find("footer").text();
+      expect(footerText).toMatch(
+        /if a page error occurs, an error report is sent to Sentry unless Global Privacy Control or Do Not Track is on/,
+      );
+      expect(footerText).toMatch(
+        /Content Security Policy violation reports are also sent to Sentry/,
+      );
+      expect(footerText).toMatch(
+        /sent even when Global Privacy Control or Do Not Track is on/,
+      );
+      const disclosedReportContents = [
+        "the page URL",
+        "the referrer",
+        "the URL of the blocked resource",
+        "the script location that triggered it",
+        "your IP address and user agent",
+      ];
+      for (const reportContent of disclosedReportContents) {
+        expect(footerText).toContain(reportContent);
+      }
+
+      wrapper.unmount();
+    });
+
     // GA4 Enhanced Measurement is a property-level setting outside this repo.
     // The copy deliberately lists the full set of Enhanced Measurement events
     // ("may include") so it never under-discloses, whether or not each is on.

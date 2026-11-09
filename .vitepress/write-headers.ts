@@ -30,6 +30,7 @@ export function writeCspHeaders(
   outDir: string,
   includeAnalytics = false,
   errorReportingOrigin: string | null = null,
+  violationReportEndpoint: string | null = null,
 ) {
   const scriptHashes = collectScriptHashes(readRenderedPages(outDir));
   // VitePress always emits inline bootstrap scripts, so zero hashes means the
@@ -55,7 +56,9 @@ export function writeCspHeaders(
         scriptHashes,
         includeAnalytics,
         errorReportingOrigin,
+        violationReportEndpoint,
       ),
+      violationReportEndpoint,
     ),
   );
 }
