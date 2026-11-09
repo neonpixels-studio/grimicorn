@@ -14,6 +14,7 @@ import {
   buildContentSecurityPolicy,
   buildHeadersFile,
   collectScriptHashes,
+  CSP_REPORTING_GROUP,
 } from "../headers";
 
 const HEADERS_FILENAME = "_headers";
@@ -72,6 +73,30 @@ describe("writeCspHeaders", () => {
     expect(readFileSync(join(dir, HEADERS_FILENAME), "utf8")).toContain(
       `connect-src 'self' ${ingestOrigin};`,
     );
+  });
+
+  it("writes report-uri, report-to and Reporting-Endpoints when given a report endpoint", () => {
+    const dir = makeDistDir();
+    const endpoint =
+      "https://o0.ingest.us.sentry.io/api/1/security/?sentry_key=abc";
+    writePage(dir, "index.html", `<script>${INLINE_SCRIPT}</script>`);
+    writeCspHeaders(dir, false, null, endpoint);
+    const written = readFileSync(join(dir, HEADERS_FILENAME), "utf8");
+    expect(written).toContain(`report-uri ${endpoint}`);
+    expect(written).toContain(`report-to ${CSP_REPORTING_GROUP}`);
+    expect(written).toContain(
+      `Reporting-Endpoints: ${CSP_REPORTING_GROUP}="${endpoint}"`,
+    );
+  });
+
+  it("writes no reporting directives or header without a report endpoint", () => {
+    const dir = makeDistDir();
+    writePage(dir, "index.html", `<script>${INLINE_SCRIPT}</script>`);
+    writeCspHeaders(dir);
+    const written = readFileSync(join(dir, HEADERS_FILENAME), "utf8");
+    expect(written).not.toContain("report-uri");
+    expect(written).not.toContain("report-to");
+    expect(written).not.toContain("Reporting-Endpoints");
   });
 
   it("fails loud when no inline scripts are found, rather than shipping a broken CSP", () => {

@@ -10,6 +10,7 @@ import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
 import {
   buildSentryVitePlugins,
   readSentryIngestOrigin,
+  readSentrySecurityEndpoint,
   shouldUploadSourceMaps,
 } from "./sentry-build";
 import {
@@ -37,6 +38,9 @@ const ANALYTICS_ENABLED = process.env.CONTEXT === "production";
 // .env.production, which only `npm run build:production` decrypts. Without them
 // the CSP gains no ingest origin and no source maps are generated or uploaded.
 const SENTRY_INGEST_ORIGIN = readSentryIngestOrigin(
+  process.env.VITE_SENTRY_DSN,
+);
+const CSP_VIOLATION_REPORT_ENDPOINT = readSentrySecurityEndpoint(
   process.env.VITE_SENTRY_DSN,
 );
 const UPLOAD_SOURCE_MAPS = shouldUploadSourceMaps(process.env);
@@ -398,7 +402,12 @@ export default defineConfig({
     },
   },
   buildEnd(siteConfig: SiteConfig) {
-    writeCspHeaders(siteConfig.outDir, ANALYTICS_ENABLED, SENTRY_INGEST_ORIGIN);
+    writeCspHeaders(
+      siteConfig.outDir,
+      ANALYTICS_ENABLED,
+      SENTRY_INGEST_ORIGIN,
+      CSP_VIOLATION_REPORT_ENDPOINT,
+    );
     // Guard the rendered output too: the source-level scan can't see an origin a
     // dependency or plugin injects into the built HTML/CSS/JS (see scan-origins.ts).
     assertBuildOutputHasNoDisallowedOrigins(siteConfig.outDir);

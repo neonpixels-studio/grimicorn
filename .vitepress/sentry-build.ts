@@ -9,6 +9,11 @@ type BuildEnvironment = Record<string, string | undefined>;
 type ConfigEnvironment = { isSsrBuild?: boolean };
 
 const REQUIRED_DSN_PROTOCOL = "https:";
+const SECURITY_ENDPOINT_PATH = "security/";
+// Tags CSP reports like the SDK tags its events; keep in step with
+// SENTRY_ENVIRONMENT in theme/error-reporting.ts (not imported: that file pulls
+// the browser SDK into the build config).
+const CSP_REPORT_ENVIRONMENT = "production";
 const UPLOAD_PROJECT_VARIABLES = ["SENTRY_ORG", "SENTRY_PROJECT"] as const;
 // The client build's output. Hidden source maps are uploaded, then deleted so
 // they never deploy.
@@ -21,13 +26,43 @@ export function readSentryIngestOrigin(dsn: string | undefined) {
   if (!dsn) {
     return null;
   }
+  return parseHttpsDsn(dsn).origin;
+}
+
+function parseHttpsDsn(dsn: string) {
   const url = new URL(dsn);
   if (url.protocol !== REQUIRED_DSN_PROTOCOL) {
     throw new Error(
       `VITE_SENTRY_DSN must be an ${REQUIRED_DSN_PROTOCOL}// URL; got the ${url.protocol} scheme`,
     );
   }
-  return url.origin;
+  return url;
+}
+
+// The Security Policy Reporting URL Sentry documents for CSP violation reports:
+// https://<host>/api/<projectId>/security/?sentry_key=<publicKey>. Derived from the
+// same DSN as the SDK, so no extra env var exists. Like readSentryIngestOrigin it
+// throws on a malformed DSN (no public key or project id, or not https) rather than
+// shipping a production CSP that silently reports nowhere.
+export function readSentrySecurityEndpoint(dsn: string | undefined) {
+  if (!dsn) {
+    return null;
+  }
+  const url = parseHttpsDsn(dsn);
+  const pathSegments = url.pathname.split("/").filter(Boolean);
+  const projectId = pathSegments.pop();
+  if (!url.username || !projectId) {
+    throw new Error(
+      "VITE_SENTRY_DSN must carry a public key and a project id to build the CSP report endpoint",
+    );
+  }
+  const pathPrefix = pathSegments.map((segment) => `/${segment}`).join("");
+  const endpoint = new URL(
+    `${url.origin}${pathPrefix}/api/${projectId}/${SECURITY_ENDPOINT_PATH}`,
+  );
+  endpoint.searchParams.set("sentry_key", decodeURIComponent(url.username));
+  endpoint.searchParams.set("sentry_environment", CSP_REPORT_ENVIRONMENT);
+  return endpoint.toString();
 }
 
 export function shouldUploadSourceMaps(environment: BuildEnvironment) {

@@ -11,6 +11,10 @@ import { createHash } from "node:crypto";
 const CSP_HASH_ALGORITHM = "sha256";
 const GLOBAL_HEADERS_PATH = "/*";
 const CSP_HEADER_NAME = "Content-Security-Policy";
+const REPORTING_ENDPOINTS_HEADER_NAME = "Reporting-Endpoints";
+// Names the endpoint in both the CSP `report-to` directive and the
+// Reporting-Endpoints header, which must agree for the browser to deliver reports.
+export const CSP_REPORTING_GROUP = "csp-endpoint";
 // Netlify's `_headers` format is a path line followed by indented "Name: value".
 const HEADER_INDENT = "  ";
 
@@ -110,7 +114,15 @@ export function buildContentSecurityPolicy(
   scriptHashes: string[],
   includeAnalytics = false,
   errorReportingOrigin: string | null = null,
+  violationReportEndpoint: string | null = null,
 ) {
+  const violationReportDirectives: Array<[string, string[]]> =
+    violationReportEndpoint
+      ? [
+          ["report-uri", [violationReportEndpoint]],
+          ["report-to", [CSP_REPORTING_GROUP]],
+        ]
+      : [];
   const errorReportingConnectOrigins = errorReportingOrigin
     ? [errorReportingOrigin]
     : [];
@@ -143,12 +155,21 @@ export function buildContentSecurityPolicy(
     ["base-uri", [SELF]],
     ["frame-ancestors", [NONE]],
     ["form-action", [SELF]],
+    ...violationReportDirectives,
   ];
   return directives
     .map(([name, sources]) => `${name} ${sources.join(" ")}`)
     .join("; ");
 }
 
-export function buildHeadersFile(contentSecurityPolicy: string) {
-  return `${GLOBAL_HEADERS_PATH}\n${HEADER_INDENT}${CSP_HEADER_NAME}: ${contentSecurityPolicy}\n`;
+// Browsers that support `report-to` (Chromium) read the endpoint from
+// Reporting-Endpoints; the rest fall back to `report-uri` in the CSP itself.
+export function buildHeadersFile(
+  contentSecurityPolicy: string,
+  violationReportEndpoint: string | null = null,
+) {
+  const reportingEndpointsLine = violationReportEndpoint
+    ? `${HEADER_INDENT}${REPORTING_ENDPOINTS_HEADER_NAME}: ${CSP_REPORTING_GROUP}="${violationReportEndpoint}"\n`
+    : "";
+  return `${GLOBAL_HEADERS_PATH}\n${HEADER_INDENT}${CSP_HEADER_NAME}: ${contentSecurityPolicy}\n${reportingEndpointsLine}`;
 }
