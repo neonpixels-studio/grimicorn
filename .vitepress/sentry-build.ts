@@ -39,6 +39,26 @@ function parseHttpsDsn(dsn: string) {
   return url;
 }
 
+function splitDsnPath(url: URL) {
+  const pathSegments = url.pathname.split("/").filter(Boolean);
+  const projectId = pathSegments.pop();
+  const pathPrefix = pathSegments.map((segment) => `/${segment}`).join("");
+  return { pathPrefix, projectId };
+}
+
+function buildSecurityEndpointUrl(
+  dsnUrl: URL,
+  pathPrefix: string,
+  projectId: string,
+) {
+  const endpoint = new URL(
+    `${dsnUrl.origin}${pathPrefix}/api/${projectId}/${SECURITY_ENDPOINT_PATH}`,
+  );
+  endpoint.searchParams.set("sentry_key", decodeURIComponent(dsnUrl.username));
+  endpoint.searchParams.set("sentry_environment", CSP_REPORT_ENVIRONMENT);
+  return endpoint.toString();
+}
+
 // The Security Policy Reporting URL Sentry documents for CSP violation reports:
 // https://<host>/api/<projectId>/security/?sentry_key=<publicKey>. Derived from the
 // same DSN as the SDK, so no extra env var exists. Like readSentryIngestOrigin it
@@ -49,20 +69,13 @@ export function readSentrySecurityEndpoint(dsn: string | undefined) {
     return null;
   }
   const url = parseHttpsDsn(dsn);
-  const pathSegments = url.pathname.split("/").filter(Boolean);
-  const projectId = pathSegments.pop();
+  const { pathPrefix, projectId } = splitDsnPath(url);
   if (!url.username || !projectId) {
     throw new Error(
       "VITE_SENTRY_DSN must carry a public key and a project id to build the CSP report endpoint",
     );
   }
-  const pathPrefix = pathSegments.map((segment) => `/${segment}`).join("");
-  const endpoint = new URL(
-    `${url.origin}${pathPrefix}/api/${projectId}/${SECURITY_ENDPOINT_PATH}`,
-  );
-  endpoint.searchParams.set("sentry_key", decodeURIComponent(url.username));
-  endpoint.searchParams.set("sentry_environment", CSP_REPORT_ENVIRONMENT);
-  return endpoint.toString();
+  return buildSecurityEndpointUrl(url, pathPrefix, projectId);
 }
 
 export function shouldUploadSourceMaps(environment: BuildEnvironment) {

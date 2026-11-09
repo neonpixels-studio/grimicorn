@@ -239,6 +239,10 @@ describe("buildContentSecurityPolicy with a violation report endpoint", () => {
     for (const [name, sources] of without) {
       expect(withReporting.get(name)).toEqual(sources);
     }
+    const addedNames = [...withReporting.keys()].filter(
+      (name) => !without.has(name),
+    );
+    expect(addedNames).toEqual(["report-uri", "report-to"]);
   });
 });
 

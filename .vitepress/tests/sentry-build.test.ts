@@ -70,6 +70,12 @@ describe("readSentrySecurityEndpoint", () => {
     );
   });
 
+  it("round-trips a percent-encoded public key", () => {
+    expect(
+      readSentrySecurityEndpoint("https://pub%2Bkey@o123.ingest.sentry.io/456"),
+    ).toContain("sentry_key=pub%2Bkey&");
+  });
+
   it("fails loud on dotenvx ciphertext and non-https DSNs", () => {
     expect(() =>
       readSentrySecurityEndpoint("encrypted:BExampleCiphertext"),
