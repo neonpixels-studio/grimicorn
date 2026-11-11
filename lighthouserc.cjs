@@ -20,8 +20,9 @@ const HOME_URL = `${ORIGIN}/`;
 const NOT_FOUND_URL = `${ORIGIN}/404.html`;
 
 // assertMatrix matchingUrlPattern values are regexes tested against the audited URL.
-const HOME_PATTERN = `^${ORIGIN}/$`;
-const NOT_FOUND_PATTERN = `^${ORIGIN}/404\\.html$`;
+const ORIGIN_PATTERN = ORIGIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const HOME_PATTERN = `^${ORIGIN_PATTERN}/$`;
+const NOT_FOUND_PATTERN = `^${ORIGIN_PATTERN}/404\\.html$`;
 
 // Homepage gates, values unchanged. The performance and size budgets below are tuned
 // to the homepage's hero and deliberately do not apply to the 404.

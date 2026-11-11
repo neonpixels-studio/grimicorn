@@ -22,11 +22,17 @@ type MatrixEntry = { matchingUrlPattern: string; assertions: Assertions };
 
 const matrix: MatrixEntry[] = config.ci.assert.assertMatrix;
 
-function assertionsFor(url: string): Assertions {
-  const matching = matrix.filter((entry) =>
+function matchingEntries(url: string): MatrixEntry[] {
+  return matrix.filter((entry) =>
     new RegExp(entry.matchingUrlPattern).test(url),
   );
-  return Object.assign({}, ...matching.map((entry) => entry.assertions));
+}
+
+function assertionsFor(url: string): Assertions {
+  return Object.assign(
+    {},
+    ...matchingEntries(url).map((entry) => entry.assertions),
+  );
 }
 
 const homeAssertions = assertionsFor(HOME_URL);
@@ -66,9 +72,7 @@ describe("lighthouserc.cjs URL coverage", () => {
 
   it("matches each collected URL with exactly one assertMatrix entry", () => {
     for (const url of config.ci.collect.url) {
-      const matches = matrix.filter((entry) =>
-        new RegExp(entry.matchingUrlPattern).test(url),
-      );
+      const matches = matchingEntries(url);
 
       expect(matches, url).toHaveLength(1);
     }
@@ -119,16 +123,14 @@ describe("lighthouserc.cjs 404 gates", () => {
     expect(notFoundAssertions[name]).toEqual(["error", { minScore: 1 }]);
   });
 
-  it("does not apply homepage-only performance and size budgets", () => {
-    const homepageOnly = Object.keys(notFoundAssertions).filter(
-      (name) =>
-        name.startsWith("resource-summary:") ||
-        name === "categories:performance" ||
-        name === "largest-contentful-paint" ||
-        name === "uses-text-compression",
-    );
+  it("asserts exactly the shared gates plus the per-audit SEO checks", () => {
+    const expected = [
+      "categories:accessibility",
+      "categories:best-practices",
+      ...NOT_FOUND_SEO_AUDITS,
+    ];
 
-    expect(homepageOnly).toEqual([]);
+    expect(Object.keys(notFoundAssertions).sort()).toEqual(expected.sort());
   });
 
   it("makes every 404 assertion an error", () => {
