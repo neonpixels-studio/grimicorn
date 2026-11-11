@@ -7,7 +7,6 @@ import {
   classifyDeployState,
   fetchDeploy,
   findTriggeredDeploy,
-  isMainModule,
   readConfig,
   verifyDeploy,
 } from "../../scripts/verify-netlify-deploy.mjs";
@@ -402,12 +401,5 @@ describe("readConfig", () => {
     expect(() => readConfig(environment)).toThrow(
       new RegExp(`Missing ${name}: ${hint.source}`),
     );
-  });
-});
-
-describe("isMainModule", () => {
-  it("is false when imported from a test", () => {
-    expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
-    expect(isMainModule(null as unknown as string)).toBe(false);
   });
 });

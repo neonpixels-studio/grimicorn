@@ -1,24 +1,19 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   REMINDER_THRESHOLD_DAYS,
   SecurityTxtExpiryError,
   buildIssueBody,
   daysUntil,
   evaluateExpiry,
-  isMainModule,
   main,
   parseExpires,
 } from "../../scripts/check-security-txt-expiry.mjs";
 
 const EXPIRES = "2027-09-04T00:00:00.000Z";
 const FILE = `Contact: https://example.com\nExpires: ${EXPIRES}\nCanonical: https://example.com/x\n`;
-const SCRIPT_PATH = resolve(
-  import.meta.dirname,
-  "../../scripts/check-security-txt-expiry.mjs",
-);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function daysBeforeExpiry(days: number) {
@@ -169,13 +164,5 @@ describe("main", () => {
   it("reads the real security.txt without throwing", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     expect(() => main({}, new Date("2026-11-04T00:00:00.000Z"))).not.toThrow();
-  });
-});
-
-describe("isMainModule", () => {
-  it("is true only for the script itself", () => {
-    expect(isMainModule(undefined)).toBe(false);
-    expect(isMainModule(SCRIPT_PATH)).toBe(true);
-    expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
   });
 });
