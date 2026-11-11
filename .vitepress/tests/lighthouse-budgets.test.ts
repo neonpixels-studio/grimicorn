@@ -7,6 +7,14 @@ const config = require("../../lighthouserc.cjs");
 const HOME_URL = "http://127.0.0.1:4319/";
 const NOT_FOUND_URL = "http://127.0.0.1:4319/404.html";
 const CATEGORY_MIN_SCORE = 0.9;
+const NOT_FOUND_SEO_AUDITS = [
+  "document-title",
+  "meta-description",
+  "viewport",
+  "link-text",
+  "crawlable-anchors",
+  "hreflang",
+];
 
 type Assertion = [string, { minScore?: number; maxNumericValue?: number }];
 type Assertions = Record<string, Assertion>;
@@ -66,9 +74,10 @@ describe("lighthouserc.cjs URL coverage", () => {
     }
   });
 
-  it("audits the 404 as a real file, not an unknown route", () => {
-    expect(NOT_FOUND_URL.endsWith("/404.html")).toBe(true);
-    expect(config.ci.collect.url).toContain(NOT_FOUND_URL);
+  it("does not match an unknown route, so the 404 is audited as a file", () => {
+    const unknownRoute = "http://127.0.0.1:4319/does-not-exist";
+
+    expect(assertionsFor(unknownRoute)).toEqual({});
   });
 });
 
@@ -101,22 +110,25 @@ describe("lighthouserc.cjs 404 gates", () => {
     },
   );
 
-  it("asserts SEO per audit because the 404 is noindex on purpose", () => {
+  it("leaves the noindex-driven SEO category and is-crawlable out", () => {
     expect(notFoundAssertions["categories:seo"]).toBeUndefined();
     expect(notFoundAssertions["is-crawlable"]).toBeUndefined();
-    expect(notFoundAssertions["document-title"]).toEqual([
-      "error",
-      { minScore: 1 },
-    ]);
-    expect(notFoundAssertions["meta-description"]).toEqual([
-      "error",
-      { minScore: 1 },
-    ]);
+  });
+
+  it.each(NOT_FOUND_SEO_AUDITS)("%s must fully pass on the 404", (name) => {
+    expect(notFoundAssertions[name]).toEqual(["error", { minScore: 1 }]);
   });
 
   it("does not apply homepage-only performance and size budgets", () => {
-    expect(notFoundAssertions["categories:performance"]).toBeUndefined();
-    expect(notFoundAssertions["largest-contentful-paint"]).toBeUndefined();
+    const homepageOnly = Object.keys(notFoundAssertions).filter(
+      (name) =>
+        name.startsWith("resource-summary:") ||
+        name === "categories:performance" ||
+        name === "largest-contentful-paint" ||
+        name === "uses-text-compression",
+    );
+
+    expect(homepageOnly).toEqual([]);
   });
 
   it("makes every 404 assertion an error", () => {

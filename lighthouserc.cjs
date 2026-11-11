@@ -25,10 +25,13 @@ const NOT_FOUND_PATTERN = `^${ORIGIN}/404\\.html$`;
 
 // Homepage gates, values unchanged. The performance and size budgets below are tuned
 // to the homepage's hero and deliberately do not apply to the 404.
+const CATEGORY_GATE = ["error", { minScore: 0.9 }];
+const AUDIT_MUST_PASS = ["error", { minScore: 1 }];
+
 const HOME_ASSERTIONS = {
-  "categories:performance": ["error", { minScore: 0.9 }],
-  "categories:accessibility": ["error", { minScore: 0.9 }],
-  "categories:seo": ["error", { minScore: 0.9 }],
+  "categories:performance": CATEGORY_GATE,
+  "categories:accessibility": CATEGORY_GATE,
+  "categories:seo": CATEGORY_GATE,
   // Error, not warn (#210): this gate assumes GA stays unloaded in the
   // build it audits. GA only loads when `ANALYTICS_ENABLED`
   // (CONTEXT === "production", see .vitepress/config.ts) is true.
@@ -36,7 +39,7 @@ const HOME_ASSERTIONS = {
   // (enforced by lighthouse-context-guard.test.ts). If that guard trips,
   // fix it in lighthouse.yml, not by loosening this assertion back to
   // warn.
-  "categories:best-practices": ["error", { minScore: 0.9 }],
+  "categories:best-practices": CATEGORY_GATE,
   // Not the textbook 2500ms: under lhci's default mobile formFactor +
   // simulated throttling, this page's LCP breakdown is ~450ms TTFB (a fixed
   // floor from the simulated network profile, not real server latency) plus
@@ -60,7 +63,7 @@ const HOME_ASSERTIONS = {
   // COMPRESSIBLE_EXTENSIONS there): if compression is ever dropped, this
   // fails on every run, unlike the LCP budget above which only fails if the
   // resulting slowdown is large enough and consistent across runs.
-  "uses-text-compression": ["error", { minScore: 1 }],
+  "uses-text-compression": AUDIT_MUST_PASS,
   // Size budgets are error, not warn (#267): a heavier hero image or font
   // must fail the gate. Transfer sizes measured on the current build
   // (deterministic across runs): total 344 KB, image 206 KB, font 55 KB.
@@ -79,15 +82,21 @@ const HOME_ASSERTIONS = {
 // is-crawlable audit fails by design and would drag the category under 0.9. Every
 // other SEO audit that applies to a 404 must still pass; http-status-code is left out
 // because a correct 404 page is served with a 404 status on Netlify.
+const NOT_FOUND_SEO_AUDITS = [
+  "document-title",
+  "meta-description",
+  "viewport",
+  "link-text",
+  "crawlable-anchors",
+  "hreflang",
+];
+
 const NOT_FOUND_ASSERTIONS = {
-  "categories:accessibility": ["error", { minScore: 0.9 }],
-  "categories:best-practices": ["error", { minScore: 0.9 }],
-  "document-title": ["error", { minScore: 1 }],
-  "meta-description": ["error", { minScore: 1 }],
-  viewport: ["error", { minScore: 1 }],
-  "link-text": ["error", { minScore: 1 }],
-  "crawlable-anchors": ["error", { minScore: 1 }],
-  hreflang: ["error", { minScore: 1 }],
+  "categories:accessibility": CATEGORY_GATE,
+  "categories:best-practices": CATEGORY_GATE,
+  ...Object.fromEntries(
+    NOT_FOUND_SEO_AUDITS.map((audit) => [audit, AUDIT_MUST_PASS]),
+  ),
 };
 
 module.exports = {
