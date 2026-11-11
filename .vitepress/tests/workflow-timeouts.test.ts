@@ -1,14 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
-// A hung gitleaks download or npm audit would otherwise hold a runner for
-// GitHub's 6 hour default on the weekly schedule, so every job in security.yml
-// must declare its own timeout-minutes.
-const SECURITY_WORKFLOW = resolve(
-  process.cwd(),
-  ".github/workflows/security.yml",
-);
+// A hung step would otherwise hold a runner for GitHub's 6 hour default, so
+// every job in every workflow file must declare its own timeout-minutes.
+const WORKFLOWS_DIR = resolve(process.cwd(), ".github/workflows");
+const WORKFLOW_FILE_PATTERN = /\.ya?ml$/;
 const JOBS_KEY_PATTERN = /^jobs:\s*(?:#.*)?$/;
 const JOB_NAME_PATTERN = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/;
 const TIMEOUT_PATTERN = /^ {4}timeout-minutes:\s*(\d+)\s*(?:#.*)?$/;
@@ -46,26 +43,45 @@ function readJobTimeouts(lines: string[]): JobTimeouts {
   return timeouts;
 }
 
-describe("security.yml job timeouts", () => {
-  const timeouts = readJobTimeouts(
-    readFileSync(SECURITY_WORKFLOW, "utf8").split(/\r?\n/),
-  );
+const workflowFiles = readdirSync(WORKFLOWS_DIR).filter((fileName) =>
+  WORKFLOW_FILE_PATTERN.test(fileName),
+);
 
-  it("finds the gitleaks, audit and notify-failure jobs", () => {
-    expect(Object.keys(timeouts)).toEqual(
-      expect.arrayContaining(["gitleaks", "audit", "notify-failure"]),
+describe("workflow job timeouts", () => {
+  it("finds the workflow files", () => {
+    expect(workflowFiles).toEqual(
+      expect.arrayContaining(["ci.yml", "security.yml"]),
     );
   });
 
-  it.each(Object.keys(timeouts))(
-    "%s declares a sensible timeout-minutes",
-    (jobName) => {
-      const minutes = timeouts[jobName];
-      expect(minutes, `${jobName} has no timeout-minutes`).toBeDefined();
-      expect(minutes).toBeGreaterThan(0);
-      expect(minutes).toBeLessThanOrEqual(MAX_TIMEOUT_MINUTES);
-    },
-  );
+  describe.each(workflowFiles)("%s", (fileName) => {
+    const timeouts = readJobTimeouts(
+      readFileSync(join(WORKFLOWS_DIR, fileName), "utf8").split(/\r?\n/),
+    );
+
+    it("defines at least one job", () => {
+      expect(Object.keys(timeouts).length).toBeGreaterThan(0);
+    });
+
+    it.each(Object.keys(timeouts))(
+      "%s declares a sensible timeout-minutes",
+      (jobName) => {
+        const minutes = timeouts[jobName];
+        expect(minutes, `${jobName} has no timeout-minutes`).toBeDefined();
+        expect(minutes).toBeGreaterThan(0);
+        expect(minutes).toBeLessThanOrEqual(MAX_TIMEOUT_MINUTES);
+      },
+    );
+  });
+
+  it("finds the ci.yml schedule-health and ci jobs", () => {
+    const timeouts = readJobTimeouts(
+      readFileSync(join(WORKFLOWS_DIR, "ci.yml"), "utf8").split(/\r?\n/),
+    );
+    expect(Object.keys(timeouts)).toEqual(
+      expect.arrayContaining(["schedule-health", "ci", "e2e"]),
+    );
+  });
 });
 
 describe("readJobTimeouts edge cases", () => {
