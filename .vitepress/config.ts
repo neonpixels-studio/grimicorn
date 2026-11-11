@@ -3,6 +3,7 @@ import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
+import { GITHUB_PROFILE_URL } from "./theme/constants";
 import { buildGaBootstrapScript } from "./analytics";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
@@ -102,9 +103,6 @@ const HERO_PRELOAD_HEAD_ENTRY: HeadConfig = [
 const OFFER_PRICE = "0";
 const OFFER_CURRENCY = "USD";
 
-// The site's only external identity (also linked from the page and the 404).
-// config.test.ts asserts llms.txt links the same URL.
-const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
 const PUBLISHER = {
   "@type": "Organization",
   name: "Grimicorn",

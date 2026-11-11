@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { MAIN_CONTENT_ID } from "../constants";
+import { GITHUB_PROFILE_URL, MAIN_CONTENT_ID } from "../constants";
 
 const GREMLIN_LINES = [
   "no such page, only gremlins",
@@ -89,7 +89,7 @@ onMounted(() => {
           &#x25B8; back to home
         </a>
         <a
-          href="https://github.com/grimicorn-agent"
+          :href="GITHUB_PROFILE_URL"
           target="_blank"
           rel="noopener noreferrer"
           class="text-fg rounded-lg border border-white/[0.16] bg-white/[0.02] px-[22px] py-[13px] text-[13px] font-medium no-underline"
