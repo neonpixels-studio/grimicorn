@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { withAssetCacheBust } from "../../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
-import { MAIN_CONTENT_ID } from "../constants";
+import { GITHUB_PROFILE_URL, MAIN_CONTENT_ID } from "../constants";
 import { createKonamiMatcher } from "../konami";
 
 interface LogEntry {
@@ -590,7 +590,7 @@ onUnmounted(() => {
 
             <div class="mt-[34px] flex flex-wrap gap-[14px]">
               <a
-                href="https://github.com/grimicorn-agent"
+                :href="GITHUB_PROFILE_URL"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
@@ -869,7 +869,7 @@ onUnmounted(() => {
                   </h3>
                   <div class="flex flex-col gap-2">
                     <a
-                      href="https://github.com/grimicorn-agent"
+                      :href="GITHUB_PROFILE_URL"
                       class="hover:border-purple hover:bg-purple/[0.06] flex items-center justify-between rounded-[9px] border border-white/[0.1] bg-white/[0.02] px-[14px] py-[11px] no-underline transition-colors"
                       target="_blank"
                       rel="noopener noreferrer"

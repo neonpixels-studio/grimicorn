@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { shallowMount } from "@vue/test-utils";
 import NotFound from "@components/NotFound.vue";
-import { MAIN_CONTENT_ID } from "@theme/constants";
+import { GITHUB_PROFILE_URL, MAIN_CONTENT_ID } from "@theme/constants";
 
 // Matches any absolute URL (has a scheme, e.g. "https:", "mailto:") or a
 // protocol-relative URL ("//host/..."). Matching by scheme presence rather
@@ -71,6 +71,7 @@ describe("NotFound", () => {
     expect(externalLinks).toHaveLength(1);
     expect(internalLinks.length).toBeGreaterThan(0);
     externalLinks.forEach((externalLink) => {
+      expect(externalLink.attributes("href")).toBe(GITHUB_PROFILE_URL);
       expect(externalLink.attributes("target")).toBe("_blank");
       const relTokens = (externalLink.attributes("rel") ?? "").split(/\s+/);
       expect(relTokens).toContain("noopener");

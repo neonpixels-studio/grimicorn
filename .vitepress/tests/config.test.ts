@@ -27,6 +27,7 @@ import {
   callTransformPageData,
   type HeadEntry,
 } from "./head-test-helpers";
+import { GITHUB_PROFILE_URL } from "../theme/constants";
 import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
@@ -1063,7 +1064,6 @@ describe("Site URL consistency", () => {
 });
 
 describe("Structured data identity", () => {
-  const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
   const readIdentity = () =>
     readStructuredData(indexableHead) as Record<string, unknown>;
 

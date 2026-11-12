@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { shallowMount, type VueWrapper } from "@vue/test-utils";
 import GrimicornPage from "@components/GrimicornPage.vue";
-import { MAIN_CONTENT_ID } from "@theme/constants";
+import { GITHUB_PROFILE_URL, MAIN_CONTENT_ID } from "@theme/constants";
 
 // Matches any absolute URL (has a scheme, e.g. "https:", "mailto:") or a
 // protocol-relative URL ("//host/..."). Matching by scheme presence rather
@@ -530,6 +530,7 @@ describe("GrimicornPage", () => {
     expect(externalLinks).toHaveLength(2);
     expect(internalLinks.length).toBeGreaterThan(0);
     externalLinks.forEach((externalLink) => {
+      expect(externalLink.attributes("href")).toBe(GITHUB_PROFILE_URL);
       expect(externalLink.attributes("target")).toBe("_blank");
       const relTokens = (externalLink.attributes("rel") ?? "").split(/\s+/);
       expect(relTokens).toContain("noopener");
