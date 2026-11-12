@@ -1,18 +1,10 @@
 import { describe, it, expect } from "vitest";
-import {
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  symlinkSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   checkAssetVersionBump,
   isLockAbsentAtRefError,
-  isMainModule,
   readLockTextAtRef,
   resolveBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
@@ -271,35 +263,6 @@ describe("readLockTextAtRef", () => {
     expect(receivedArgs).toEqual([
       ["show", `${REF}:${ASSET_VERSION_LOCK_FILE}`],
     ]);
-  });
-});
-
-describe("isMainModule", () => {
-  it("returns false when argv1 is undefined (module imported, not invoked)", () => {
-    expect(isMainModule(undefined)).toBe(false);
-  });
-
-  it("returns false for an unrelated existing path", () => {
-    expect(isMainModule(fileURLToPath(import.meta.url))).toBe(false);
-  });
-
-  it("returns false for a path that does not exist on disk, without throwing", () => {
-    expect(isMainModule("/nonexistent/path/does-not-exist.mjs")).toBe(false);
-  });
-
-  it("returns true when argv1 is a symlink resolving to this module's real path", () => {
-    const scriptPath = resolve(
-      TEST_FILE_DIRECTORY,
-      "../../scripts/check-asset-version-bump.mjs",
-    );
-    const tempDirectory = mkdtempSync(join(tmpdir(), "isMainModule-"));
-    const symlinkPath = join(tempDirectory, "check-asset-version-bump.mjs");
-    try {
-      symlinkSync(scriptPath, symlinkPath);
-      expect(isMainModule(symlinkPath)).toBe(true);
-    } finally {
-      rmSync(tempDirectory, { recursive: true, force: true });
-    }
   });
 });
 

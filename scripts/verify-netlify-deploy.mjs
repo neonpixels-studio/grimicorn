@@ -1,5 +1,4 @@
-import { pathToFileURL } from "node:url";
-import { realpathSync } from "node:fs";
+import { isMainModule } from "./is-main-module.mjs";
 
 const NETLIFY_API_BASE_URL = "https://api.netlify.com/api/v1";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -257,22 +256,7 @@ export async function main(environment = process.env) {
   console.log(`Netlify production deploy ${deploy.id} is live.`);
 }
 
-// Same shape as scripts/check-asset-version-bump.mjs: import.meta.url is bound to
-// the defining module, so the helper cannot be shared.
-export function isMainModule(argv1 = process.argv[1]) {
-  if (argv1 == null) {
-    return false;
-  }
-  let resolvedPath;
-  try {
-    resolvedPath = realpathSync(argv1);
-  } catch {
-    resolvedPath = argv1;
-  }
-  return import.meta.url === pathToFileURL(resolvedPath).href;
-}
-
-if (isMainModule()) {
+if (isMainModule(import.meta.url)) {
   try {
     await main();
   } catch (error) {

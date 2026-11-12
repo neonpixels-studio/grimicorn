@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { isMainModule } from "./is-main-module.mjs";
 
 export const FAILURE_LABEL = "workflow-failure";
 const LABEL_COLOR = "D93F0B";
@@ -148,21 +147,6 @@ export async function main(
   return result;
 }
 
-// Same shape as scripts/check-undeployed-commits.mjs: import.meta.url is bound
-// to the defining module, so the helper cannot be shared.
-export function isMainModule(argv1 = process.argv[1]) {
-  if (argv1 == null) {
-    return false;
-  }
-  let resolvedPath;
-  try {
-    resolvedPath = realpathSync(argv1);
-  } catch {
-    resolvedPath = argv1;
-  }
-  return import.meta.url === pathToFileURL(resolvedPath).href;
-}
-
-if (isMainModule()) {
+if (isMainModule(import.meta.url)) {
   await main();
 }

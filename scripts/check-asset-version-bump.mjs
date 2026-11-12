@@ -1,5 +1,3 @@
-import { pathToFileURL } from "node:url";
-import { realpathSync } from "node:fs";
 import {
   ASSET_VERSION_LOCK_FILE,
   assertTokenBumpedForChangedAssets,
@@ -8,6 +6,7 @@ import {
   readAssetCacheBustToken,
   runGit,
 } from "../asset-version-manifest.mjs";
+import { isMainModule } from "./is-main-module.mjs";
 
 // scripts/regenerate-asset-version-lock.mjs already guards a *local* run: it compares
 // the working tree against the lock committed at the developer's own HEAD before they
@@ -132,32 +131,6 @@ export function checkAssetVersionBump({
   return { skipped: false, comparedRef };
 }
 
-// Only run as a side effect when invoked directly (`node scripts/check-asset-version-
-// bump.mjs` / `npm run check:asset-version-bump`), not when imported for its tests.
-// argv1 is realpath'd before comparing so invoking through a symlinked path (a `/tmp`
-// that is itself a symlink, as on macOS) still resolves to the same URL Node computed
-// for this module. Deliberately NOT imported from regenerate-asset-version-lock.mjs's
-// identical helper: import.meta.url is bound to the module that defines it, so an
-// imported copy would always compare argv[1] against that script's own URL, never
-// match, and silently make isMainModule() return false here — the CI step would then
-// exit 0 having checked nothing. Duplicated in miniature instead, and exported so
-// that silent-failure risk is directly unit-tested rather than only asserted in prose.
-// realpathSync throws ENOENT for an argv1 that doesn't exist on disk (e.g. a virtual
-// path when this module is imported from a non-file context); fall back to resolving
-// the raw path rather than crashing the import.
-export function isMainModule(argv1 = process.argv[1]) {
-  if (argv1 == null) {
-    return false;
-  }
-  let resolvedPath;
-  try {
-    resolvedPath = realpathSync(argv1);
-  } catch {
-    resolvedPath = argv1;
-  }
-  return import.meta.url === pathToFileURL(resolvedPath).href;
-}
-
 function formatResultMessage(result) {
   if (result.skipped) {
     return `Skipping asset-version bump check: ${result.reason}.`;
@@ -170,7 +143,7 @@ function main() {
   console.log(formatResultMessage(result));
 }
 
-if (isMainModule()) {
+if (isMainModule(import.meta.url)) {
   try {
     main();
   } catch (error) {

@@ -37,10 +37,7 @@ import {
   syncManifestCacheBustTokens,
   syncWebManifestCacheBustTokensOnDisk,
 } from "../../asset-version-manifest.mjs";
-import {
-  isMainModule,
-  regenerateLock,
-} from "../../scripts/regenerate-asset-version-lock.mjs";
+import { regenerateLock } from "../../scripts/regenerate-asset-version-lock.mjs";
 
 // Assets under /assets/* and /images/* are served immutable for a year (netlify.toml),
 // so the only thing that forces returning visitors to refetch a changed byte is the
@@ -1370,34 +1367,5 @@ describe("regenerateLock", () => {
       expect(readFileSync(manifestPath, "utf8")).toBe(STALE_MANIFEST);
       expect(existsSync(lockPath)).toBe(false);
     });
-  });
-});
-
-describe("isMainModule", () => {
-  it("returns false when there is no argv[1]", () => {
-    expect(isMainModule(undefined)).toBe(false);
-  });
-
-  it("returns false for an unrelated script path", () => {
-    expect(isMainModule(resolve(PROJECT_ROOT, "package.json"))).toBe(false);
-  });
-
-  it("resolves a symlinked argv[1] to the same real script (the /tmp-is-a-symlink case on macOS)", () => {
-    // Node resolves symlinks when it computes import.meta.url for the entry point,
-    // so isMainModule() must realpath argv[1] too, or invoking the script through
-    // any symlinked path — a symlinked /tmp, a linked package bin — would make the
-    // two URLs disagree and the script would silently do nothing.
-    const tempDir = mkdtempSync(resolve(tmpdir(), "is-main-module-"));
-    const symlinkPath = resolve(tempDir, "regenerate-asset-version-lock.mjs");
-    const realScriptPath = resolve(
-      PROJECT_ROOT,
-      "scripts/regenerate-asset-version-lock.mjs",
-    );
-    try {
-      symlinkSync(realScriptPath, symlinkPath);
-      expect(isMainModule(symlinkPath)).toBe(true);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
   });
 });

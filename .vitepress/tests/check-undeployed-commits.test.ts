@@ -4,7 +4,6 @@ import {
   decideDeploy,
   fetchLastDeployedSha,
   findLastDeployedSha,
-  isMainModule,
   main,
 } from "../../scripts/check-undeployed-commits.mjs";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -160,12 +159,5 @@ describe("main", () => {
     await main({ GITHUB_OUTPUT: outputPath, CURRENT_SHA: NEW_SHA });
     logSpy.mockRestore();
     expect(readFileSync(outputPath, "utf8")).toBe("skip=false\n");
-  });
-});
-
-describe("isMainModule", () => {
-  it("is false when imported", () => {
-    expect(isMainModule(undefined)).toBe(false);
-    expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
   });
 });

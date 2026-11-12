@@ -1,18 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { resolve } from "node:path";
 import {
   SecurityTxtSyncError,
   createGhAdapter,
-  isMainModule,
   main,
   readConfig,
   syncTrackingIssue,
 } from "../../scripts/sync-security-txt-issue.mjs";
 
-const SCRIPT_PATH = resolve(
-  import.meta.dirname,
-  "../../scripts/sync-security-txt-issue.mjs",
-);
 const LABEL = "security-txt-expiry";
 const TITLE = "Renew the security.txt Expires date";
 const BODY_FILE = "/tmp/issue-body.md";
@@ -216,13 +210,5 @@ describe("main with bad config", () => {
     const gh = fakeGh();
     expect(() => main({}, gh, vi.fn())).toThrow(SecurityTxtSyncError);
     expect(gh.ensureLabel).not.toHaveBeenCalled();
-  });
-});
-
-describe("isMainModule", () => {
-  it("is true only for the script itself", () => {
-    expect(isMainModule(undefined)).toBe(false);
-    expect(isMainModule(SCRIPT_PATH)).toBe(true);
-    expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
   });
 });

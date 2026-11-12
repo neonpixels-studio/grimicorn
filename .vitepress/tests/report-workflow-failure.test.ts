@@ -9,16 +9,11 @@ import {
   buildRunUrl,
   createGhAdapter,
   findExistingIssue,
-  isMainModule,
   main,
   readConfig,
   reportFailure,
 } from "../../scripts/report-workflow-failure.mjs";
 
-const SCRIPT_PATH = resolve(
-  import.meta.dirname,
-  "../../scripts/report-workflow-failure.mjs",
-);
 const WORKFLOWS_DIR = resolve(process.cwd(), ".github/workflows");
 const NEW_ISSUE_NUMBER = 77;
 
@@ -197,14 +192,6 @@ describe("main", () => {
     const result = await main(ENVIRONMENT, gh as never, log);
     expect(result.action).toBe("created");
     expect(log).toHaveBeenCalledWith(`created issue #${NEW_ISSUE_NUMBER}`);
-  });
-});
-
-describe("isMainModule", () => {
-  it("is true only for the script itself", () => {
-    expect(isMainModule(undefined)).toBe(false);
-    expect(isMainModule(SCRIPT_PATH)).toBe(true);
-    expect(isMainModule("/nonexistent/other.mjs")).toBe(false);
   });
 });
 
