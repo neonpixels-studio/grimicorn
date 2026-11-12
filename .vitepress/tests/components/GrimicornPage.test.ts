@@ -1139,6 +1139,28 @@ describe("GrimicornPage", () => {
       expect(vi.getTimerCount()).toBe(0);
     });
 
+    it("leaves no pending timers and cancels the rAF loop when unmounted with every timer path active", async () => {
+      mockPrefersReducedMotion(false);
+      const { requestAnimationFrameSpy, cancelAnimationFrameSpy } =
+        mockAnimationFrame();
+      const wrapper = shallowMount(GrimicornPage);
+      await wrapper.vm.$nextTick();
+
+      await findRaveButton(wrapper).trigger("click");
+
+      // tagline interval + log interval + toast-hide + announcement-clear
+      // (rAF is spied out, so it is not part of the fake-timer count).
+      expect(vi.getTimerCount()).toBe(4);
+      const pendingFrameId =
+        requestAnimationFrameSpy.mock.results.at(-1)?.value;
+      expect(pendingFrameId).toBeDefined();
+
+      wrapper.unmount();
+
+      expect(vi.getTimerCount()).toBe(0);
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(pendingFrameId);
+    });
+
     it("removes the exact prefers-reduced-motion change listener that was registered, on unmount", async () => {
       const { mediaQueryList } = mockPrefersReducedMotion(false);
       const wrapper = shallowMount(GrimicornPage);
