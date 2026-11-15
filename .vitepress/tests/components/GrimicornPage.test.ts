@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { shallowMount, type VueWrapper } from "@vue/test-utils";
 import GrimicornPage from "@components/GrimicornPage.vue";
-import { GITHUB_PROFILE_URL, MAIN_CONTENT_ID } from "@theme/constants";
+import {
+  GITHUB_PROFILE_URL,
+  MAIN_CONTENT_ID,
+  PRIVACY_PAGE_PATH,
+} from "@theme/constants";
 
 // Matches any absolute URL (has a scheme, e.g. "https:", "mailto:") or a
 // protocol-relative URL ("//host/..."). Matching by scheme presence rather
@@ -852,80 +856,16 @@ describe("GrimicornPage", () => {
     });
   });
 
-  describe("privacy disclosure", () => {
-    // GA4 (see GA_MEASUREMENT_ID / ANALYTICS_ENABLED in .vitepress/config.ts)
-    // is the one deliberate third-party integration on this otherwise
-    // first-party site, and this footer line is its only disclosure to a
-    // visitor. Asserting on the rendered footer text (not just the snapshot)
-    // means a future footer edit that drops or rewords this line fails a
-    // named, purpose-built test instead of only a snapshot that an
-    // unrelated `vitest -u` could silently update away.
-    it("discloses in the footer that pageviews are sent to Google Analytics", async () => {
+  describe("privacy link", () => {
+    // The privacy page is the site's only disclosure that GA4 and Sentry
+    // receive visitor data, so the footer must link to it on every render.
+    it("links to the privacy page from the footer", async () => {
       const wrapper = shallowMount(GrimicornPage);
       await wrapper.vm.$nextTick();
 
-      const footer = wrapper.find("footer");
-      expect(footer.exists()).toBe(true);
-      // Pins the actual claim being made (data flows to Google Analytics),
-      // not just the brand name — a rewording like "we do not use Google
-      // Analytics" would still contain both substrings but must still fail
-      // this test.
-      expect(footer.text()).toMatch(/sent to Google Analytics \(GA4\)/);
-
-      wrapper.unmount();
-    });
-
-    // Browser-generated CSP reports (report-uri / report-to in headers.ts)
-    // cannot honor GPC/DNT, so the footer must say so. Pins each load-bearing
-    // claim separately so a reword that drops one still fails.
-    it("discloses in the footer that CSP reports go to Sentry even with GPC or DNT enabled", async () => {
-      const wrapper = shallowMount(GrimicornPage);
-      await wrapper.vm.$nextTick();
-
-      const footerText = wrapper.find("footer").text();
-      expect(footerText).toMatch(
-        /if a page error occurs, an error report is sent to Sentry unless Global Privacy Control or Do Not Track is on/,
-      );
-      expect(footerText).toMatch(
-        /Content Security Policy violation reports are also sent to Sentry/,
-      );
-      expect(footerText).toMatch(
-        /sent even when Global Privacy Control or Do Not Track is on/,
-      );
-      const disclosedReportContents = [
-        "the page URL",
-        "the referrer",
-        "the URL of the blocked resource",
-        "the script location that triggered it",
-        "your IP address and user agent",
-      ];
-      for (const reportContent of disclosedReportContents) {
-        expect(footerText).toContain(reportContent);
-      }
-
-      wrapper.unmount();
-    });
-
-    // GA4 Enhanced Measurement is a property-level setting outside this repo.
-    // The copy deliberately lists the full set of Enhanced Measurement events
-    // ("may include") so it never under-discloses, whether or not each is on.
-    it("discloses the GA4 Enhanced Measurement event types in the footer", async () => {
-      const wrapper = shallowMount(GrimicornPage);
-      await wrapper.vm.$nextTick();
-
-      const footerText = wrapper.find("footer").text();
-      const disclosedEventTypes = [
-        "scrolling",
-        "outbound link clicks",
-        "file downloads",
-        "site searches",
-        "video engagement",
-        "form interactions",
-      ];
-      expect(footerText).toMatch(/that may include/);
-      for (const eventType of disclosedEventTypes) {
-        expect(footerText).toContain(eventType);
-      }
+      const privacyLink = wrapper.find(`footer a[href="${PRIVACY_PAGE_PATH}"]`);
+      expect(privacyLink.exists()).toBe(true);
+      expect(privacyLink.text()).toBe("privacy");
 
       wrapper.unmount();
     });

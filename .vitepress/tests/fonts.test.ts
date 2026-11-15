@@ -373,12 +373,15 @@ function stripComments(source: string) {
     .replace(/<!--[\s\S]*?-->/g, "");
 }
 
-// index.md is the only content file outside the theme dir that can carry inline
-// styles or an @import, so it is scanned alongside the theme stylesheets.
-const CONTENT_INDEX = resolve(process.cwd(), "index.md");
+// The page sources are the only content files outside the theme dir that can
+// carry inline styles or an @import, so they are scanned alongside the theme
+// stylesheets.
+const CONTENT_PAGES = ["index.md", "privacy.md"].map((page) =>
+  resolve(process.cwd(), page),
+);
 
 function collectFirstPartyScanTargets() {
-  return [...collectThemeStyleFiles(THEME_DIR), CONTENT_INDEX];
+  return [...collectThemeStyleFiles(THEME_DIR), ...CONTENT_PAGES];
 }
 
 describe("theme stylesheets stay first-party", () => {

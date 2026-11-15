@@ -6,3 +6,9 @@ export const MAIN_CONTENT_ID = "main-content";
 // the JSON-LD sameAs; public/llms.txt is static, so config.test.ts asserts it
 // carries the same URL.
 export const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
+
+// The privacy page's route and the frontmatter `layout` value privacy.md sets so
+// AppLayout renders PrivacyPage for it. Shared by the footer link, AppLayout, and
+// config.ts (which derives the page's canonical URL from the same path).
+export const PRIVACY_PAGE_PATH = "/privacy";
+export const PRIVACY_LAYOUT = "privacy";

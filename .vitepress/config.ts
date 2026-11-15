@@ -3,7 +3,7 @@ import type { SiteConfig } from "vitepress";
 import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
-import { GITHUB_PROFILE_URL } from "./theme/constants";
+import { GITHUB_PROFILE_URL, PRIVACY_PAGE_PATH } from "./theme/constants";
 import { buildGaBootstrapScript } from "./analytics";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
@@ -162,6 +162,31 @@ const INDEXABLE_HEAD_ENTRIES: HeadConfig[] = [
   ["script", { type: "application/ld+json" }, JSON_LD],
 ];
 
+// INDEXABLE_HEAD_ENTRIES and HERO_PRELOAD_HEAD_ENTRY describe the homepage
+// specifically (its canonical URL, its SoftwareApplication JSON-LD, its social
+// preview, its hero art), so only index.md gets them. Every other content page
+// gets just its own canonical link.
+const HOME_PAGE_SOURCE = "index.md";
+const PRIVACY_PAGE_SOURCE = "privacy.md";
+const PAGE_CANONICAL_PATHS: Record<string, string> = {
+  [PRIVACY_PAGE_SOURCE]: PRIVACY_PAGE_PATH,
+};
+
+function buildPageHeadEntries(relativePath: string): HeadConfig[] {
+  if (relativePath === HOME_PAGE_SOURCE) {
+    return [...INDEXABLE_HEAD_ENTRIES, HERO_PRELOAD_HEAD_ENTRY];
+  }
+  const canonicalPath = PAGE_CANONICAL_PATHS[relativePath];
+  if (canonicalPath === undefined) {
+    // Fail loud: a new page without a canonical path would otherwise ship with
+    // no canonical link and no signal that it was missed.
+    throw new Error(
+      `transformPageData: no canonical path registered for ${relativePath}`,
+    );
+  }
+  return [["link", { rel: "canonical", href: `${SITE_URL}${canonicalPath}` }]];
+}
+
 // Tells crawlers the 404 itself isn't a real destination while leaving "follow"
 // so the real links it renders (home, GitHub) still pass link equity.
 const NOT_FOUND_ROBOTS_HEAD_ENTRY: HeadConfig = [
@@ -200,9 +225,14 @@ export default defineConfig({
   lang: "en-US",
   // Repo-root markdown is contributor documentation, not site content. Without
   // this, VitePress renders README.md to /README with the homepage canonical and
-  // JSON-LD and lists it in the sitemap. index.md is the only page source.
+  // JSON-LD and lists it in the sitemap. index.md and privacy.md are the only
+  // page sources.
   // `_*.md` covers gitignored local notes (_scratch.md, _claude-*.md).
   srcExclude: ["README.md", "_*.md"],
+  // Netlify (and .vitepress/e2e/serve-dist.mjs) serve /privacy from
+  // privacy.html, so links, canonicals, and the sitemap all use the
+  // extensionless path.
+  cleanUrls: true,
   sitemap: {
     hostname: SITE_URL,
   },
@@ -282,10 +312,10 @@ export default defineConfig({
     ...GA_HEAD_ENTRIES,
   ],
   // Scope INDEXABLE_HEAD_ENTRIES and HERO_PRELOAD_HEAD_ENTRY (see rationale
-  // above) to every page except the 404. AppLayout shows NotFound when
-  // page.isNotFound and GrimicornPage otherwise, so this mirrors that exact
-  // condition — the 404 renders no hero, and preloading it there would burn a
-  // high-priority request and trip Chrome's "preloaded but not used" warning.
+  // above) to the homepage, and give every other content page only its own
+  // canonical (see buildPageHeadEntries). Neither the 404 nor the privacy page
+  // renders the hero, and preloading it there would burn a high-priority
+  // request and trip Chrome's "preloaded but not used" warning.
   //
   // transformPageData runs through the same markdown-render pipeline VitePress
   // uses for both `vitepress dev` and `vitepress build`: it sets
@@ -304,7 +334,7 @@ export default defineConfig({
   // uses a hardcoded not-found pageData, and at build time a notFoundPageData
   // stand-in, neither of which goes through this hook. (Confirmed by
   // instrumenting this function and running `npm run build`: it fires only
-  // for index.md, since README.md is excluded via srcExclude.) The 404 omits
+  // for index.md and privacy.md, since README.md is excluded via srcExclude.) The 404 omits
   // these entries simply because its frontmatter never gets them added. The guard
   // mirrors transformHead's identical `pageData.isNotFound` check below so the two hooks agree on intent,
   // and stops this hook from doing the wrong thing on the day a custom 404.md
@@ -324,8 +354,7 @@ export default defineConfig({
         ...pageData.frontmatter,
         head: [
           ...(pageData.frontmatter.head ?? []),
-          ...INDEXABLE_HEAD_ENTRIES,
-          HERO_PRELOAD_HEAD_ENTRY,
+          ...buildPageHeadEntries(pageData.relativePath),
         ],
       },
     };
