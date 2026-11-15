@@ -9,6 +9,7 @@ const WORKFLOW_FILE_PATTERN = /\.ya?ml$/;
 const JOBS_KEY_PATTERN = /^jobs:\s*(?:#.*)?$/;
 const JOB_NAME_PATTERN = /^ {2}([A-Za-z0-9_-]+):\s*(?:#.*)?$/;
 const TIMEOUT_PATTERN = /^ {4}timeout-minutes:\s*(\d+)\s*(?:#.*)?$/;
+const JOB_USES_PATTERN = /^ {4}uses:\s*\S/;
 const TOP_LEVEL_KEY_PATTERN = /^\S/;
 const COMMENT_LINE_PATTERN = /^\s*#/;
 const MAX_TIMEOUT_MINUTES = 30;
@@ -16,7 +17,8 @@ const MAX_TIMEOUT_MINUTES = 30;
 type JobTimeouts = Record<string, number | undefined>;
 
 // Maps each job name under the top-level `jobs:` key to its timeout-minutes
-// (undefined when the job declares none).
+// (undefined when the job declares none). Jobs that call a reusable workflow
+// (`uses:`) are omitted, because GitHub rejects timeout-minutes on them.
 function readJobTimeouts(lines: string[]): JobTimeouts {
   const jobsIndex = lines.findIndex((line) => JOBS_KEY_PATTERN.test(line));
   if (jobsIndex === -1) {
@@ -24,6 +26,7 @@ function readJobTimeouts(lines: string[]): JobTimeouts {
   }
 
   const timeouts: JobTimeouts = {};
+  const reusableJobs = new Set<string>();
   let currentJob: string | undefined;
   for (const line of lines.slice(jobsIndex + 1)) {
     if (TOP_LEVEL_KEY_PATTERN.test(line) && !COMMENT_LINE_PATTERN.test(line)) {
@@ -35,10 +38,17 @@ function readJobTimeouts(lines: string[]): JobTimeouts {
       timeouts[currentJob] = undefined;
       continue;
     }
+    if (JOB_USES_PATTERN.test(line) && currentJob !== undefined) {
+      reusableJobs.add(currentJob);
+      continue;
+    }
     const timeoutMatch = line.match(TIMEOUT_PATTERN);
     if (timeoutMatch && currentJob !== undefined) {
       timeouts[currentJob] = Number(timeoutMatch[1]);
     }
+  }
+  for (const reusableJob of reusableJobs) {
+    delete timeouts[reusableJob];
   }
   return timeouts;
 }
@@ -140,6 +150,40 @@ describe("readJobTimeouts edge cases", () => {
   it("accepts a trailing comment on timeout-minutes", () => {
     const lines = ["jobs:", "  a:", "    timeout-minutes: 5 # cap"];
     expect(readJobTimeouts(lines)).toEqual({ a: 5 });
+  });
+
+  it("exempts a job that calls a reusable workflow", () => {
+    const lines = [
+      "jobs:",
+      "  caller:",
+      "    uses: ./.github/workflows/reusable.yml",
+      "  normal:",
+      "    runs-on: ubuntu-latest",
+    ];
+    expect(readJobTimeouts(lines)).toEqual({ normal: undefined });
+  });
+
+  it("exempts a reusable caller even when uses follows other keys", () => {
+    const lines = [
+      "jobs:",
+      "  caller:",
+      "    with:",
+      "      x: 1",
+      "    uses: org/repo/.github/workflows/w.yml@main",
+    ];
+    expect(readJobTimeouts(lines)).toEqual({});
+  });
+
+  it("does not treat a step-level uses as a reusable caller", () => {
+    const lines = [
+      "jobs:",
+      "  a:",
+      "    steps:",
+      "      - uses: actions/checkout@v4",
+      "      - name: x",
+      "        uses: ./.github/actions/setup",
+    ];
+    expect(readJobTimeouts(lines)).toEqual({ a: undefined });
   });
 
   it("returns nothing when there is no jobs key", () => {
