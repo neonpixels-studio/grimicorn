@@ -44,6 +44,19 @@ export default defineConfig({
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
     },
+    // Touch-first viewports below the `sm` breakpoint (640px), where the nav links
+    // collapse and the cursor-parallax loop must stay off. Reuse the chromium and
+    // webkit browsers CI already installs. Specs that assume a desktop layout or a
+    // fine pointer skip on these via the `isMobile` fixture; mobile-viewport.spec.ts
+    // runs only here.
+    {
+      name: "mobile-chrome",
+      use: { ...devices["Pixel 7"] },
+    },
+    {
+      name: "mobile-safari",
+      use: { ...devices["iPhone 14"] },
+    },
   ],
   webServer: {
     // Serve the production build with its per-build CSP headers so the smoke test
