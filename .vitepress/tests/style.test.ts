@@ -54,6 +54,17 @@ function hasStaticClass(tag: string, className: string) {
   return classAttribute?.[1].split(/\s+/).includes(className) ?? false;
 }
 
+describe("color-scheme declaration", () => {
+  it("sets color-scheme: dark on the plain :root rule", () => {
+    const css = stripComments(readStyleCss());
+    const rootRules = [...css.matchAll(/(?:^|\})\s*:root\s*\{([^}]*)\}/g)];
+    const declaresDark = rootRules.some((rule) =>
+      /(^|;)\s*color-scheme\s*:\s*dark\s*(;|$)/.test(rule[1]),
+    );
+    expect(declaresDark).toBe(true);
+  });
+});
+
 describe("brand background token", () => {
   const css = readStyleCss();
 
