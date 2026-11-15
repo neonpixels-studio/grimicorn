@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { shallowMount, type VueWrapper } from "@vue/test-utils";
 import GrimicornPage from "@components/GrimicornPage.vue";
-import { GITHUB_PROFILE_URL, MAIN_CONTENT_ID } from "@theme/constants";
+import {
+  AGENTS_REPO_URL,
+  GITHUB_PROFILE_URL,
+  MAIN_CONTENT_ID,
+} from "@theme/constants";
 
 // Matches any absolute URL (has a scheme, e.g. "https:", "mailto:") or a
 // protocol-relative URL ("//host/..."). Matching by scheme presence rather
@@ -525,12 +529,14 @@ describe("GrimicornPage", () => {
     const internalLinks = allLinks.filter(
       (link) => !isExternalHref(link.attributes("href") ?? ""),
     );
-    // Pinned to the two known github links (hero CTA + sidebar link) so
-    // deleting one silently drops out of coverage instead of still passing.
-    expect(externalLinks).toHaveLength(2);
+    // Pinned to the known external links (hero CTA + sidebar profile link,
+    // and the build-your-own agents repo CTA) so deleting one silently drops
+    // out of coverage instead of still passing.
+    expect(
+      externalLinks.map((externalLink) => externalLink.attributes("href")),
+    ).toEqual([GITHUB_PROFILE_URL, GITHUB_PROFILE_URL, AGENTS_REPO_URL]);
     expect(internalLinks.length).toBeGreaterThan(0);
     externalLinks.forEach((externalLink) => {
-      expect(externalLink.attributes("href")).toBe(GITHUB_PROFILE_URL);
       expect(externalLink.attributes("target")).toBe("_blank");
       const relTokens = (externalLink.attributes("rel") ?? "").split(/\s+/);
       expect(relTokens).toContain("noopener");
@@ -675,6 +681,8 @@ describe("GrimicornPage", () => {
     const SECTION_HEADINGS = [
       { tag: "h2", text: "what it's doing right now" },
       { tag: "h3", text: "grimicorn links --all" },
+      { tag: "h2", text: "want your own agent?" },
+      { tag: "h3", text: "what you'll need" },
     ];
 
     it("exposes exactly one h1 carrying the whole wordmark as a single readable name", async () => {
@@ -761,7 +769,7 @@ describe("GrimicornPage", () => {
     // the "pin, don't count" convention this file uses elsewhere, and the
     // obvious place to add "links" back if that panel is ever promoted to a
     // real section.
-    const ADVERTISED_FRAGMENT_TARGETS = ["about", "status"];
+    const ADVERTISED_FRAGMENT_TARGETS = ["about", "build-your-own", "status"];
 
     // Pulls the fragment id out of an in-page anchor href ("/#status" or
     // "#status" -> "status"), returning null for anything that isn't a
@@ -838,6 +846,7 @@ describe("GrimicornPage", () => {
       // The primary content lives inside the landmark...
       expect(main.find("#about").exists()).toBe(true);
       expect(main.find("#status").exists()).toBe(true);
+      expect(main.find("#build-your-own").exists()).toBe(true);
 
       // ...while the nav and footer stay out of it, so the landmark marks only
       // the primary content and the skip link genuinely bypasses the nav.

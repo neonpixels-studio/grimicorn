@@ -6,3 +6,8 @@ export const MAIN_CONTENT_ID = "main-content";
 // the JSON-LD sameAs; public/llms.txt is static, so config.test.ts asserts it
 // carries the same URL.
 export const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
+
+// The open-source orchestrator Grimicorn runs on, linked from the home page's
+// "build your own" section and public/llms.txt (config.test.ts asserts the
+// latter stays in sync).
+export const AGENTS_REPO_URL = "https://github.com/neonpixels-studio/agents";
