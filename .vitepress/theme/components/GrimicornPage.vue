@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { withAssetCacheBust } from "../../asset-cache-bust";
 import { HERO_AVIF_HREF } from "../../../hero-image-spec.mjs";
 import {
+  AGENTS_REPO_URL,
   GITHUB_PROFILE_URL,
   MAIN_CONTENT_ID,
   PRIVACY_PAGE_PATH,
@@ -37,6 +38,15 @@ const LOG_POOL = [
   "broke the build, fixed the build, denied everything",
   "renamed a variable. 4 files. no regrets.",
   "pinned a dependency before it could betray us",
+];
+
+// What a visitor needs before the agents repo is useful to them, lifted from
+// that repo's "Running your own" prerequisites.
+const AGENT_PREREQUISITES = [
+  "macOS (runs are scheduled with launchd)",
+  "Claude Code on a plan with room for unattended runs",
+  "a separate GitHub account for the agent",
+  "Node repos with lint + test scripts and a CI workflow",
 ];
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
@@ -534,6 +544,11 @@ onUnmounted(() => {
               class="text-fg-subtle hover:text-fg no-underline transition-colors"
               >status</a
             >
+            <a
+              href="/#build-your-own"
+              class="text-fg-subtle hover:text-fg no-underline transition-colors"
+              >build your own</a
+            >
           </div>
           <span class="text-lime">● agent online</span>
         </div>
@@ -917,6 +932,83 @@ onUnmounted(() => {
               <span
                 class="animate-blink ml-1 inline-block h-[15px] w-[9px] bg-[#d4d4d8] align-[-2px]"
               />
+            </div>
+          </div>
+        </section>
+
+        <!-- rainbow divider -->
+        <div
+          class="animate-rainbow-pan h-[2px]"
+          style="background-image: var(--gx-rainbow)"
+        />
+
+        <section id="build-your-own" class="py-14">
+          <h2 class="text-fg-dim mb-5 text-xs tracking-[0.16em] uppercase">
+            <span aria-hidden="true">—</span> want your own agent?
+          </h2>
+
+          <div class="flex flex-col gap-8 lg:flex-row lg:gap-[52px]">
+            <div class="lg:flex-[1.05]">
+              <p
+                class="font-display m-0 text-[40px] leading-none font-bold tracking-[-0.02em] sm:text-[52px]"
+              >
+                Here you go.
+              </p>
+              <p
+                class="text-fg-muted mt-[22px] max-w-none text-sm leading-[1.8] lg:max-w-[480px]"
+              >
+                Grimicorn runs on an open-source Claude Code orchestrator. Five
+                times a day it reads every repo's issues and pull requests,
+                hands each task to a subagent that clones, fixes, and tests,
+                gets an independent review, and only asks a human to review once
+                CI is green. You still merge. It does everything up to that
+                point.
+              </p>
+              <p
+                class="mt-[22px] rounded-[10px] border border-white/[0.08] px-4 py-3 text-[13px] break-all"
+                style="background: var(--color-surface)"
+              >
+                <span class="text-lime" aria-hidden="true">~ % </span>
+                <code>git clone {{ AGENTS_REPO_URL }}</code>
+              </p>
+              <div class="mt-[26px] flex flex-wrap gap-[14px]">
+                <a
+                  :href="AGENTS_REPO_URL"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline"
+                  style="background-image: var(--gx-rainbow-cta)"
+                >
+                  get the agent &rarr;
+                </a>
+              </div>
+            </div>
+
+            <div
+              class="rounded-xl border border-white/[0.08] p-5 sm:p-[30px] lg:flex-[0.95] lg:self-start"
+              style="background: var(--color-surface)"
+            >
+              <h3 class="mb-[14px] text-[12.5px] text-[#737b8a]">
+                <span class="text-lime" aria-hidden="true">~ %</span>
+                what you'll need
+              </h3>
+              <ul class="m-0 flex list-none flex-col gap-[10px] p-0">
+                <li
+                  v-for="prerequisite in AGENT_PREREQUISITES"
+                  :key="prerequisite"
+                  class="flex gap-[10px] text-[13px] leading-[1.6] text-[#cdcac4]"
+                >
+                  <span class="text-purple" aria-hidden="true">&#x25B8;</span>
+                  <span>{{ prerequisite }}</span>
+                </li>
+              </ul>
+              <p
+                class="text-fg-subtle mt-5 border-t border-white/[0.07] pt-4 text-[12px] leading-[1.7]"
+              >
+                It's a working reference, not a product: opinionated about its
+                stack, and everything installation-specific lives in one config
+                file.
+              </p>
             </div>
           </div>
         </section>

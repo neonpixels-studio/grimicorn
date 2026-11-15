@@ -7,6 +7,11 @@ export const MAIN_CONTENT_ID = "main-content";
 // carries the same URL.
 export const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
 
+// The open-source orchestrator Grimicorn runs on, linked from the home page's
+// "build your own" section and public/llms.txt (config.test.ts asserts the
+// latter stays in sync).
+export const AGENTS_REPO_URL = "https://github.com/neonpixels-studio/agents";
+
 // The privacy page's route and the frontmatter `layout` value privacy.md sets so
 // AppLayout renders PrivacyPage for it. Shared by the footer link, AppLayout, and
 // config.ts (which derives the page's canonical URL from the same path).

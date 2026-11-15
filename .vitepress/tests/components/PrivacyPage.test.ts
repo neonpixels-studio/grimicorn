@@ -43,6 +43,14 @@ describe("PrivacyPage", () => {
       expect(mountPrivacyText()).toMatch(/sent\s+to Google Analytics \(GA4\)/);
     });
 
+    // The homepage links to both the GitHub profile and the agents repo, so
+    // the copy names GitHub rather than one specific link.
+    it("discloses that GitHub links are the only other off-site destination", () => {
+      expect(mountPrivacyText()).toMatch(
+        /Links to GitHub are the only other place this\s+site points off-site/,
+      );
+    });
+
     // GA4 Enhanced Measurement is a property-level setting outside this repo.
     // The copy deliberately lists the full set of Enhanced Measurement events
     // ("may include") so it never under-discloses, whether or not each is on.

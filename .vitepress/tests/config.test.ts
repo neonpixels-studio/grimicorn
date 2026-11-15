@@ -27,7 +27,11 @@ import {
   callTransformPageData,
   type HeadEntry,
 } from "./head-test-helpers";
-import { GITHUB_PROFILE_URL, PRIVACY_PAGE_PATH } from "../theme/constants";
+import {
+  AGENTS_REPO_URL,
+  GITHUB_PROFILE_URL,
+  PRIVACY_PAGE_PATH,
+} from "../theme/constants";
 import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
@@ -1134,6 +1138,11 @@ describe("llms.txt", () => {
       "description blockquote",
     );
     expect(description).toBe(config.description);
+  });
+
+  it("links to the same agents repo the home page's build-your-own section does", () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    expect(extractMarkdownLinkUrl(llms, "Agents")).toBe(AGENTS_REPO_URL);
   });
 
   it("points its on-site links at the config site URL", () => {

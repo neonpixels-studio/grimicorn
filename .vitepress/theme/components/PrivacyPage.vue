@@ -59,9 +59,8 @@ import { MAIN_CONTENT_ID } from "../constants";
             site uses. Depending on the analytics property&rsquo;s settings,
             that may include scrolling, outbound link clicks, file downloads,
             site searches, video engagement (plays, progress, completions), and
-            form interactions. Links to the Grimicorn GitHub profile are the
-            only other place this site points off-site, and those only load if
-            you click them.
+            form interactions. Links to GitHub are the only other place this
+            site points off-site, and those only load if you click them.
           </p>
         </section>
 

@@ -9,7 +9,7 @@ exports[`GrimicornPage > renders correctly 1`] = `
     <nav class="flex items-center justify-between border-b border-white/[0.07] py-[26px]">
       <div class="flex items-center gap-3"><span class="bg-lime animate-dot h-[9px] w-[9px] rounded-full"></span><span class="text-sm font-bold tracking-[0.02em]">grimicorn.dev</span></div>
       <div class="flex items-center gap-4 text-[12.5px]">
-        <div class="text-fg-subtle hidden items-center gap-[26px] sm:flex"><a href="/#about" class="text-fg-subtle hover:text-fg no-underline transition-colors">about</a><a href="/#status" class="text-fg-subtle hover:text-fg no-underline transition-colors">status</a></div><span class="text-lime">● agent online</span>
+        <div class="text-fg-subtle hidden items-center gap-[26px] sm:flex"><a href="/#about" class="text-fg-subtle hover:text-fg no-underline transition-colors">about</a><a href="/#status" class="text-fg-subtle hover:text-fg no-underline transition-colors">status</a><a href="/#build-your-own" class="text-fg-subtle hover:text-fg no-underline transition-colors">build your own</a></div><span class="text-lime">● agent online</span>
       </div>
     </nav>
     <main id="main-content" tabindex="-1">
@@ -130,6 +130,28 @@ exports[`GrimicornPage > renders correctly 1`] = `
             </div>
           </div><!-- terminal footer prompt -->
           <div class="border-t border-white/[0.07] px-5 py-5 text-[13px] sm:px-[36px]"><span class="text-lime">grimicorn</span><span class="text-[#737b8a]">@</span><span class="text-cyan">dev</span><span class="text-[#737b8a]"> ~ %</span><span class="animate-blink ml-1 inline-block h-[15px] w-[9px] bg-[#d4d4d8] align-[-2px]"></span></div>
+        </div>
+      </section><!-- rainbow divider -->
+      <div class="animate-rainbow-pan h-[2px]" style="background-image: var(--gx-rainbow);"></div>
+      <section id="build-your-own" class="py-14">
+        <h2 class="text-fg-dim mb-5 text-xs tracking-[0.16em] uppercase"><span aria-hidden="true">—</span> want your own agent? </h2>
+        <div class="flex flex-col gap-8 lg:flex-row lg:gap-[52px]">
+          <div class="lg:flex-[1.05]">
+            <p class="font-display m-0 text-[40px] leading-none font-bold tracking-[-0.02em] sm:text-[52px]"> Here you go. </p>
+            <p class="text-fg-muted mt-[22px] max-w-none text-sm leading-[1.8] lg:max-w-[480px]"> Grimicorn runs on an open-source Claude Code orchestrator. Five times a day it reads every repo's issues and pull requests, hands each task to a subagent that clones, fixes, and tests, gets an independent review, and only asks a human to review once CI is green. You still merge. It does everything up to that point. </p>
+            <p class="mt-[22px] rounded-[10px] border border-white/[0.08] px-4 py-3 text-[13px] break-all" style="background: var(--color-surface);"><span class="text-lime" aria-hidden="true">~ % </span><code>git clone https://github.com/neonpixels-studio/agents</code></p>
+            <div class="mt-[26px] flex flex-wrap gap-[14px]"><a href="https://github.com/neonpixels-studio/agents" target="_blank" rel="noopener noreferrer" class="text-bg animate-rainbow-pan rounded-lg px-[22px] py-[13px] text-[13px] font-bold no-underline" style="background-image: var(--gx-rainbow-cta);"> get the agent → </a></div>
+          </div>
+          <div class="rounded-xl border border-white/[0.08] p-5 sm:p-[30px] lg:flex-[0.95] lg:self-start" style="background: var(--color-surface);">
+            <h3 class="mb-[14px] text-[12.5px] text-[#737b8a]"><span class="text-lime" aria-hidden="true">~ %</span> what you'll need </h3>
+            <ul class="m-0 flex list-none flex-col gap-[10px] p-0">
+              <li class="flex gap-[10px] text-[13px] leading-[1.6] text-[#cdcac4]"><span class="text-purple" aria-hidden="true">▸</span><span>macOS (runs are scheduled with launchd)</span></li>
+              <li class="flex gap-[10px] text-[13px] leading-[1.6] text-[#cdcac4]"><span class="text-purple" aria-hidden="true">▸</span><span>Claude Code on a plan with room for unattended runs</span></li>
+              <li class="flex gap-[10px] text-[13px] leading-[1.6] text-[#cdcac4]"><span class="text-purple" aria-hidden="true">▸</span><span>a separate GitHub account for the agent</span></li>
+              <li class="flex gap-[10px] text-[13px] leading-[1.6] text-[#cdcac4]"><span class="text-purple" aria-hidden="true">▸</span><span>Node repos with lint + test scripts and a CI workflow</span></li>
+            </ul>
+            <p class="text-fg-subtle mt-5 border-t border-white/[0.07] pt-4 text-[12px] leading-[1.7]"> It's a working reference, not a product: opinionated about its stack, and everything installation-specific lives in one config file. </p>
+          </div>
         </div>
       </section>
     </main><!-- page footer -->
