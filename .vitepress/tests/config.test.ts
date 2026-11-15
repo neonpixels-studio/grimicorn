@@ -27,7 +27,11 @@ import {
   callTransformPageData,
   type HeadEntry,
 } from "./head-test-helpers";
-import { AGENTS_REPO_URL, GITHUB_PROFILE_URL } from "../theme/constants";
+import {
+  AGENTS_REPO_URL,
+  GITHUB_PROFILE_URL,
+  PRIVACY_PAGE_PATH,
+} from "../theme/constants";
 import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
 const PUBLIC_DIR = resolve(process.cwd(), "public");
@@ -351,6 +355,7 @@ function metaIdentifiersWithPrefix(head: HeadEntry[], prefix: string) {
 // in favor of a noindex signal.
 const indexableHead = await resolveHeadForPage({ isNotFound: false });
 const notFoundHead = await resolveHeadForPage({ isNotFound: true });
+const privacyHead = await resolveHeadForPage({ relativePath: "privacy.md" });
 
 function filterPreloadImageEntries(head: HeadEntry[]) {
   return head.filter(
@@ -1187,6 +1192,45 @@ describe("404 page noindex", () => {
 
   it("does not carry a robots meta tag on indexable pages", () => {
     expect(hasMetaTag(indexableHead, "robots")).toBe(false);
+  });
+});
+
+// The privacy page is a real, indexable page, but the homepage-specific tags
+// (homepage canonical, social preview, SoftwareApplication JSON-LD, hero
+// preload) would mislabel it as the homepage, so it carries only its own
+// canonical.
+describe("Privacy page head", () => {
+  it("points the canonical link at the privacy page URL", () => {
+    expect(findLinkHref(privacyHead, "canonical")).toBe(
+      `${EXPECTED_SITE_URL}${PRIVACY_PAGE_PATH}`,
+    );
+  });
+
+  it("omits the homepage Open Graph and Twitter Card tags", () => {
+    expect(metaIdentifiersWithPrefix(privacyHead, "og:")).toEqual([]);
+    expect(metaIdentifiersWithPrefix(privacyHead, "twitter:")).toEqual([]);
+  });
+
+  it("omits the SoftwareApplication JSON-LD script", () => {
+    expect(hasJsonLdScript(privacyHead)).toBe(false);
+  });
+
+  it("omits the hero image preload, since it renders no hero", () => {
+    expect(filterPreloadImageEntries(privacyHead)).toHaveLength(0);
+  });
+
+  it("is indexable", () => {
+    expect(hasMetaTag(privacyHead, "robots")).toBe(false);
+  });
+});
+
+describe("Unregistered page head", () => {
+  it("fails loud instead of shipping a page with no canonical link", async () => {
+    await expect(
+      callTransformPageData(
+        buildFixturePageData({ relativePath: "unregistered.md" }),
+      ),
+    ).rejects.toThrow(/no canonical path registered for unregistered\.md/);
   });
 });
 

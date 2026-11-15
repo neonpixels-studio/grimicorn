@@ -101,6 +101,7 @@ export async function callTransformPageData(
 // missing hook is handled.
 export async function resolveHeadForPage(pageData: {
   isNotFound?: boolean;
+  relativePath?: string;
 }): Promise<HeadEntry[]> {
   const { transformHead } = config;
   if (typeof transformHead !== "function") {

@@ -6,6 +6,7 @@ import {
   AGENTS_REPO_URL,
   GITHUB_PROFILE_URL,
   MAIN_CONTENT_ID,
+  PRIVACY_PAGE_PATH,
 } from "../constants";
 import { createKonamiMatcher } from "../konami";
 
@@ -1016,8 +1017,17 @@ onUnmounted(() => {
       <!-- page footer -->
       <footer class="text-fg-dim border-t border-white/[0.07] py-7 text-[11px]">
         <div class="flex justify-between">
+          <!-- The privacy page is the site's only disclosure of the GA4 and
+             Sentry data flows, so this link must stay visible on every render,
+             not gated behind an interaction. -->
           <span
-            >grimicorn.dev &mdash; &copy; {{ new Date().getFullYear() }}</span
+            >grimicorn.dev &mdash; &copy; {{ new Date().getFullYear() }}
+            &middot;
+            <a
+              :href="PRIVACY_PAGE_PATH"
+              class="hover:text-fg underline underline-offset-[3px] transition-colors"
+              >privacy</a
+            ></span
           >
           <span
             >built dark &middot; shipped
@@ -1030,38 +1040,6 @@ onUnmounted(() => {
             </button></span
           >
         </div>
-        <!-- The one deliberate third-party integration on this otherwise
-           first-party site (see GA_MEASUREMENT_ID / ANALYTICS_ENABLED in
-           .vitepress/config.ts) — this line is the site's only disclosure that
-           pageviews (and, depending on the GA4 property's Enhanced Measurement
-           settings, other interaction events) leave the origin, so it must stay
-           visible on every render, not gated behind an interaction. -->
-        <p class="mt-3 max-w-[560px] leading-[1.6]">
-          Pageviews and basic usage data on the live production site are sent to
-          Google Analytics (GA4) &mdash; the only analytics service this site
-          uses. Depending on the analytics property&rsquo;s settings, that may
-          include scrolling, outbound link clicks, file downloads, site
-          searches, video engagement (plays, progress, completions), and form
-          interactions. The github links above are the only other place this
-          page points off-site, and those only load if you click them.
-        </p>
-        <!-- Browsers send CSP violation reports on their own from the
-           Content-Security-Policy response header (see report-uri / report-to
-           in .vitepress/headers.ts), so JS-level opt-outs like GPC/DNT cannot
-           stop them. The maintainer accepted that limitation on condition that
-           it is disclosed here; keep this line visible on every render. -->
-        <p class="mt-3 max-w-[560px] leading-[1.6]">
-          On the live production site, if a page error occurs, an error report
-          is sent to Sentry unless Global Privacy Control or Do Not Track is on.
-          Content Security Policy violation reports are also sent to Sentry, to
-          detect broken or injected scripts and other security issues. Your
-          browser creates and sends these reports automatically from the
-          site&rsquo;s response headers, so they are sent even when Global
-          Privacy Control or Do Not Track is on (unlike the error reports
-          above). A report includes details such as the page URL, the referrer,
-          the URL of the blocked resource, the script location that triggered
-          it, and your IP address and user agent as received by Sentry.
-        </p>
       </footer>
     </div>
 

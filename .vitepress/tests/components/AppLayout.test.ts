@@ -12,6 +12,7 @@ import { shallowMount, mount, enableAutoUnmount } from "@vue/test-utils";
 const initialPageState = vi.hoisted(() => ({
   isNotFound: false,
   relativePath: "",
+  layout: undefined as string | undefined,
 }));
 const pageState = reactive(initialPageState);
 
@@ -23,12 +24,14 @@ vi.mock("vitepress", async () => {
         isNotFound: pageState.isNotFound,
         relativePath: pageState.relativePath,
       })),
+      frontmatter: computed(() => ({ layout: pageState.layout })),
     }),
   };
 });
 
 import AppLayout from "@theme/AppLayout.vue";
 import SkipLink from "@components/SkipLink.vue";
+import { PRIVACY_LAYOUT } from "@theme/constants";
 import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../../not-found-meta";
 
 describe("AppLayout", () => {
@@ -40,6 +43,7 @@ describe("AppLayout", () => {
   afterEach(() => {
     pageState.isNotFound = false;
     pageState.relativePath = "";
+    pageState.layout = undefined;
     document.title = "";
     // Belt-and-suspenders even for tests that clean up their own <meta>: if
     // an assertion throws before an inline cleanup runs, a stray tag would
@@ -66,6 +70,26 @@ describe("AppLayout", () => {
     expect(wrapper.findComponent({ name: "GrimicornPage" }).exists()).toBe(
       false,
     );
+    wrapper.unmount();
+  });
+
+  it("renders the privacy page for a page whose frontmatter sets the privacy layout", () => {
+    pageState.layout = PRIVACY_LAYOUT;
+    const wrapper = shallowMount(AppLayout);
+    expect(wrapper.findComponent({ name: "PrivacyPage" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "GrimicornPage" }).exists()).toBe(
+      false,
+    );
+    expect(wrapper.findComponent({ name: "NotFound" }).exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("renders the 404 rather than the privacy page when a not-found page carries the privacy layout", () => {
+    pageState.isNotFound = true;
+    pageState.layout = PRIVACY_LAYOUT;
+    const wrapper = shallowMount(AppLayout);
+    expect(wrapper.findComponent({ name: "NotFound" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "PrivacyPage" }).exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -104,12 +128,14 @@ describe("AppLayout", () => {
   );
 
   it.each([
-    ["homepage", false],
-    ["404", true],
+    ["homepage", false, undefined],
+    ["404", true, undefined],
+    ["privacy page", false, PRIVACY_LAYOUT],
   ])(
     "moves focus into the %s main landmark when the skip link is activated",
-    async (_label, isNotFound) => {
+    async (_label, isNotFound, layout) => {
       pageState.isNotFound = isNotFound;
+      pageState.layout = layout;
       const wrapper = mount(AppLayout, { attachTo: document.body });
       await wrapper.vm.$nextTick();
 

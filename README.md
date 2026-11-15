@@ -1,6 +1,6 @@
 # grimicorn-landing
 
-Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](https://vitepress.dev). A single marketing page with a custom theme, self-hosted fonts, a build-time Content-Security-Policy, and a set of guarded invariants that keep the caching and CSP contracts honest. This README documents the npm scripts and, more importantly, the non-obvious build machinery a contributor would otherwise have to reverse-engineer.
+Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](https://vitepress.dev). A marketing page plus a privacy page, with a custom theme, self-hosted fonts, a build-time Content-Security-Policy, and a set of guarded invariants that keep the caching and CSP contracts honest. This README documents the npm scripts and, more importantly, the non-obvious build machinery a contributor would otherwise have to reverse-engineer.
 
 ## Requirements
 
@@ -30,7 +30,7 @@ Landing page for [grimicorn.dev](https://grimicorn.dev), built with [VitePress](
 
 ### Dev vs. build
 
-`transformHead` and `buildEnd` are build-time hooks, so the generated CSP and the origin scan only exist under a production build, never under `vitepress dev`. Canonical, Open Graph, Twitter Card, JSON-LD, and the hero image preload live in `transformPageData` instead (see the comment above it in `.vitepress/config.ts`), which runs through the same render pipeline in both dev and build, so those tags render identically either way. The 404's `noindex` meta tag and other build-only HTML output can be checked with `npm run build && npm run preview`, but `vitepress preview` never applies the generated `_headers` file, so it cannot verify the CSP. To verify the CSP, serve the build with the same static server the Playwright smoke test and Lighthouse CI use, which applies the generated CSP from `_headers`: `npm run build && node .vitepress/e2e/serve-dist.mjs 4320`, then open the URL it prints on startup. Use a port other than the 4319 default for manual checks: `playwright.config.ts` reuses whatever is already listening on 4319 locally, so a manual server left on that port can get silently reused (and tested) by a later `npm run test:e2e` run — including one against a different checkout's build.
+`transformHead` and `buildEnd` are build-time hooks, so the generated CSP and the origin scan only exist under a production build, never under `vitepress dev`. Canonical, Open Graph, Twitter Card, JSON-LD, and the hero image preload (all homepage-only; the privacy page gets just its own canonical) live in `transformPageData` instead (see the comment above it in `.vitepress/config.ts`), which runs through the same render pipeline in both dev and build, so those tags render identically either way. The 404's `noindex` meta tag and other build-only HTML output can be checked with `npm run build && npm run preview`, but `vitepress preview` never applies the generated `_headers` file, so it cannot verify the CSP. To verify the CSP, serve the build with the same static server the Playwright smoke test and Lighthouse CI use, which applies the generated CSP from `_headers`: `npm run build && node .vitepress/e2e/serve-dist.mjs 4320`, then open the URL it prints on startup. Use a port other than the 4319 default for manual checks: `playwright.config.ts` reuses whatever is already listening on 4319 locally, so a manual server left on that port can get silently reused (and tested) by a later `npm run test:e2e` run — including one against a different checkout's build.
 
 ## Environment variables
 
@@ -51,7 +51,7 @@ See `.env.example` for every variable and where to obtain it. Read or change a v
 Browser errors on the live site are reported to [Sentry](https://sentry.io) (`@sentry/vue`). The four Sentry values (`VITE_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`) live only in `.env.production`, so dev, CI, Lighthouse, Deploy Previews and branch deploys report nothing to Sentry. The e2e suite (`.vitepress/e2e/error-reporting.spec.ts`) fails if a plain build ships the SDK or contacts Sentry.
 
 - **Loading:** `enhanceApp` in `.vitepress/theme/index.ts` dynamically imports `.vitepress/theme/error-reporting.ts` only when the build carries a DSN, so other builds don't emit the SDK chunk at all. VitePress awaits `enhanceApp` before mounting, so production pays one extra chunk fetch before hydration in exchange for catching hydration errors. The chunk is named `error-reporting` rather than `sentry` so ad-blocker filename rules don't drop it. If the import or init fails, the error is logged and the site still mounts.
-- **Privacy:** visitors sending Global Privacy Control or Do Not Track never load the SDK, the same opt-out GA honors (`hasPrivacyOptOut` in `.vitepress/privacy-opt-out.ts`). For everyone else it reports errors only. Tracing, session replay and release-health sessions (one request per page load) are all off, `dataCollection` disables user info (so Sentry infers no IP) and cookies, and a visitor who hits no error sends Sentry nothing. CSP violation reports are the exception: the browser sends them from the `report-uri`/`report-to` response headers regardless of GPC/DNT, so the footer in `GrimicornPage.vue` discloses them (the maintainer accepted this limitation).
+- **Privacy:** visitors sending Global Privacy Control or Do Not Track never load the SDK, the same opt-out GA honors (`hasPrivacyOptOut` in `.vitepress/privacy-opt-out.ts`). For everyone else it reports errors only. Tracing, session replay and release-health sessions (one request per page load) are all off, `dataCollection` disables user info (so Sentry infers no IP) and cookies, and a visitor who hits no error sends Sentry nothing. CSP violation reports are the exception: the browser sends them from the `report-uri`/`report-to` response headers regardless of GPC/DNT, so the privacy page (`PrivacyPage.vue`, linked from the homepage footer) discloses them (the maintainer accepted this limitation).
 - **Source maps:** when `SENTRY_AUTH_TOKEN` is set, `.vitepress/sentry-build.ts` turns on `hidden` source maps (no `sourceMappingURL` comment), uploads them for the client build with `@sentry/vite-plugin`, and deletes them from `dist` before deploy. A token without `SENTRY_ORG`/`SENTRY_PROJECT` fails the build. The release is named from the git commit.
 - **CSP:** the DSN's ingest origin is added to `connect-src` only on builds that carry the DSN (see invariant 2).
 
@@ -143,9 +143,10 @@ Space Grotesk and JetBrains Mono are served first-party from `public/fonts` via 
 
 ## Project layout
 
-- `index.md` — the single content page (front matter only; the layout is the custom theme).
+- `index.md` — the homepage (front matter only; the layout is the custom theme).
+- `privacy.md` — the privacy page (front matter only; `layout: privacy` makes `AppLayout.vue` render `PrivacyPage.vue`).
 - `.vitepress/config.ts` — site config, `<head>` (SEO/OG/preloads), and the `buildEnd` hooks.
-- `.vitepress/theme/` — custom theme: `AppLayout.vue`, `components/GrimicornPage.vue`, `components/NotFound.vue`, `fonts.css`, `style.css`.
+- `.vitepress/theme/` — custom theme: `AppLayout.vue`, `components/GrimicornPage.vue`, `components/PrivacyPage.vue`, `components/NotFound.vue`, `fonts.css`, `style.css`.
 - `.vitepress/headers.ts`, `write-headers.ts`, `scan-origins.ts`, `origins.ts`, `asset-cache-bust.ts` — the build-time CSP / origin / cache-bust machinery described above.
 - `.vitepress/tests/` — Vitest unit and snapshot tests covering the config, headers, origins, fonts, cache-bust, and components.
 - `og-banner-spec.mjs`, `hero-image-spec.mjs`, `scripts/generate-og-banner.mjs` — single-source specs and the OG banner generator.

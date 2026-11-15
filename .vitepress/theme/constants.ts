@@ -11,3 +11,9 @@ export const GITHUB_PROFILE_URL = "https://github.com/grimicorn-agent";
 // "build your own" section and public/llms.txt (config.test.ts asserts the
 // latter stays in sync).
 export const AGENTS_REPO_URL = "https://github.com/neonpixels-studio/agents";
+
+// The privacy page's route and the frontmatter `layout` value privacy.md sets so
+// AppLayout renders PrivacyPage for it. Shared by the footer link, AppLayout, and
+// config.ts (which derives the page's canonical URL from the same path).
+export const PRIVACY_PAGE_PATH = "/privacy";
+export const PRIVACY_LAYOUT = "privacy";

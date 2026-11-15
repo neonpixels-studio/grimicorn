@@ -3,10 +3,12 @@ import { onMounted, watch } from "vue";
 import { useData } from "vitepress";
 import GrimicornPage from "./components/GrimicornPage.vue";
 import NotFound from "./components/NotFound.vue";
+import PrivacyPage from "./components/PrivacyPage.vue";
 import SkipLink from "./components/SkipLink.vue";
+import { PRIVACY_LAYOUT } from "./constants";
 import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
-const { page } = useData();
+const { page, frontmatter } = useData();
 
 const DESCRIPTION_META_SELECTOR = 'meta[name="description"]';
 const DESCRIPTION_META_NAME = "description";
@@ -68,5 +70,6 @@ onMounted(() => {
 <template>
   <SkipLink />
   <NotFound v-if="page.isNotFound" />
+  <PrivacyPage v-else-if="frontmatter.layout === PRIVACY_LAYOUT" />
   <GrimicornPage v-else />
 </template>
