@@ -166,7 +166,11 @@ test("hiding the focused pause control via reduced motion redirects and announce
 
 test("cursor movement drives the hero parallax and reduced motion rests it", async ({
   page,
+  isMobile,
 }) => {
+  // Touch devices have no fine hover pointer, so the loop never starts there on
+  // purpose; mobile-viewport.spec.ts asserts that inverse.
+  test.skip(isMobile, "the parallax loop is gated to fine hover pointers");
   await page.goto("/");
   await waitForHydration(page);
 
