@@ -31,6 +31,7 @@
    compiled CSS actually references, so a template-only consumer belongs in
    plain :root instead. */
 :root {
+  color-scheme: dark;
   --gx-rainbow: linear-gradient(
     90deg,
     #ff2d9b,

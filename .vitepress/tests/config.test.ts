@@ -895,6 +895,16 @@ describe("theme-color", () => {
   });
 });
 
+describe("color-scheme", () => {
+  it("declares the site dark-only in a meta tag so the first paint is dark", () => {
+    expect(findMetaContent(STATIC_HEAD, "color-scheme")).toBe("dark");
+  });
+
+  it("still ships the color-scheme meta on the 404", () => {
+    expect(hasMetaTag(notFoundHead, "color-scheme")).toBe(true);
+  });
+});
+
 describe("brand background color parsing", () => {
   const FIXTURE_LABEL = "<fixture>";
 

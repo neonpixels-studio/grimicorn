@@ -267,6 +267,10 @@ export default defineConfig({
     // Theme color. Canonical, Open Graph, Twitter Card, and structured data are
     // page-conditional — see INDEXABLE_HEAD_ENTRIES above — omitted on the 404.
     ["meta", { name: "theme-color", content: "#0a0a0b" }],
+    // The site is dark-only, so tell the browser before CSS loads to render
+    // scrollbars, overscroll, and form controls dark and avoid a white flash.
+    // style.css repeats this on :root.
+    ["meta", { name: "color-scheme", content: "dark" }],
     // Favicon
     [
       "link",
