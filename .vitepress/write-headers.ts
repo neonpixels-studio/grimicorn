@@ -16,7 +16,7 @@ const HTML_EXTENSION = ".html";
 const HEADERS_FILENAME = "_headers";
 
 // `parentPath` names the directory of a recursive Dirent (Node 20.12+); the repo
-// pins Node 24 via .nvmrc/NODE_VERSION, so it is always present.
+// pins Node via .nvmrc, so it is always present.
 export function readRenderedPages(outDir: string) {
   return readdirSync(outDir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(HTML_EXTENSION))
