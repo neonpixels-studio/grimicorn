@@ -6,9 +6,6 @@
   command = "npm run lint && npm run typecheck && npm run test:ci && npm run build"
   publish = ".vitepress/dist"
 
-[build.environment]
-  NODE_VERSION = "24"
-
 [context.production]
   # Same gates as [build], but the build decrypts .env.production with
   # DOTENV_PRIVATE_KEY_PRODUCTION (Netlify env, Production context only). Deploy
