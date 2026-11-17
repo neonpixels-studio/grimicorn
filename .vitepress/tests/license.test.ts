@@ -21,6 +21,8 @@ const MIT_EXCLUSION = "not covered by the MIT license";
 const PACKAGE_JSON_PATH = resolve(ROOT_DIR, "package.json");
 const README_PATH = resolve(ROOT_DIR, "README.md");
 const EXPECTED_LICENSE_ID = "MIT";
+const MIT_TITLE = "MIT License";
+const OFL_NAME = "SIL Open Font License";
 const MIT_GRANT = "Permission is hereby granted, free of charge";
 const MIT_WARRANTY = 'THE SOFTWARE IS PROVIDED "AS IS"';
 
@@ -39,7 +41,7 @@ describe("LICENSE", () => {
 
   it("is the MIT license with the copyright holder named", () => {
     const text = readFlattenedText(LICENSE_PATH);
-    expect(text.startsWith("MIT License")).toBe(true);
+    expect(text.startsWith(MIT_TITLE)).toBe(true);
     expect(text).toMatch(COPYRIGHT_PATTERN);
     expect(text).toContain(MIT_GRANT);
     expect(text).toContain(MIT_WARRANTY);
@@ -51,7 +53,7 @@ describe("LICENSE", () => {
 });
 
 describe("package.json license field", () => {
-  it("matches the LICENSE file", () => {
+  it("declares the MIT license", () => {
     const manifest = JSON.parse(readText(PACKAGE_JSON_PATH));
     expect(manifest.license).toBe(EXPECTED_LICENSE_ID);
   });
