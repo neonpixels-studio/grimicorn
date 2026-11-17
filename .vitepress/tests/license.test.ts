@@ -14,6 +14,7 @@ const COPYRIGHT_HOLDER = "Danny Holloran";
 const COPYRIGHT_PATTERN = new RegExp(
   `Copyright \\(c\\) \\d{4} ${COPYRIGHT_HOLDER}`,
 );
+const LICENSE_SECTION_PATTERN = /^## License\n([\s\S]*?)(?=^## |(?![\s\S]))/m;
 const ALL_RIGHTS_RESERVED = "All rights reserved";
 const MIT_EXCLUSION = "not covered by the MIT license";
 const PACKAGE_JSON_PATH = resolve(ROOT_DIR, "package.json");
@@ -73,7 +74,8 @@ describe("content notice", () => {
   );
 
   it("is linked from the README license section", () => {
-    const licenseSection = readText(README_PATH).split("## License")[1] ?? "";
+    const licenseSection =
+      readText(README_PATH).match(LICENSE_SECTION_PATTERN)?.[1] ?? "";
     expect(licenseSection).toContain(`](${CONTENT_LICENSE_FILENAME})`);
   });
 });
