@@ -14,7 +14,8 @@ const COPYRIGHT_HOLDER = "Danny Holloran";
 const COPYRIGHT_PATTERN = new RegExp(
   `Copyright \\(c\\) \\d{4} ${COPYRIGHT_HOLDER}`,
 );
-const LICENSE_SECTION_PATTERN = /^## License\n([\s\S]*?)(?=^## |(?![\s\S]))/m;
+const LICENSE_SECTION_PATTERN =
+  /^## License\r?\n([\s\S]*?)(?=^## |(?![\s\S]))/m;
 const ALL_RIGHTS_RESERVED = "All rights reserved";
 const MIT_EXCLUSION = "not covered by the MIT license";
 const PACKAGE_JSON_PATH = resolve(ROOT_DIR, "package.json");
@@ -27,13 +28,17 @@ function readText(filePath: string): string {
   return readFileSync(filePath, "utf8");
 }
 
+function readFlattenedText(filePath: string): string {
+  return readText(filePath).replace(/\s+/g, " ");
+}
+
 describe("LICENSE", () => {
   it("exists", () => {
     expect(existsSync(LICENSE_PATH)).toBe(true);
   });
 
   it("is the MIT license with the copyright holder named", () => {
-    const text = readText(LICENSE_PATH);
+    const text = readFlattenedText(LICENSE_PATH);
     expect(text.startsWith("MIT License")).toBe(true);
     expect(text).toMatch(COPYRIGHT_PATTERN);
     expect(text).toContain(MIT_GRANT);
@@ -55,15 +60,16 @@ describe("package.json license field", () => {
 describe("content notice", () => {
   it("exists and reserves all rights to the content", () => {
     expect(existsSync(CONTENT_LICENSE_PATH)).toBe(true);
-    const text = readText(CONTENT_LICENSE_PATH);
+    const text = readFlattenedText(CONTENT_LICENSE_PATH);
     expect(text).toMatch(COPYRIGHT_PATTERN);
     expect(text).toContain(ALL_RIGHTS_RESERVED);
     expect(text).toContain(MIT_EXCLUSION);
   });
 
   it("notes that the fonts keep their OFL license", () => {
-    const flattened = readText(CONTENT_LICENSE_PATH).replace(/\s+/g, " ");
-    expect(flattened).toContain("SIL Open Font License");
+    expect(readFlattenedText(CONTENT_LICENSE_PATH)).toContain(
+      "SIL Open Font License",
+    );
   });
 
   it.each(FONT_LICENSE_PATHS)(
