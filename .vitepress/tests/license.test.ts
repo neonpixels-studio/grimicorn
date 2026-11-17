@@ -69,9 +69,7 @@ describe("content notice", () => {
   });
 
   it("notes that the fonts keep their OFL license", () => {
-    expect(readFlattenedText(CONTENT_LICENSE_PATH)).toContain(
-      "SIL Open Font License",
-    );
+    expect(readFlattenedText(CONTENT_LICENSE_PATH)).toContain(OFL_NAME);
   });
 
   it.each(FONT_LICENSE_PATHS)(
