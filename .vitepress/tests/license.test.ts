@@ -47,8 +47,8 @@ describe("LICENSE", () => {
     expect(text).toContain(MIT_WARRANTY);
   });
 
-  it("points at the content notice", () => {
-    expect(readText(LICENSE_PATH)).toContain(CONTENT_LICENSE_FILENAME);
+  it("is the verbatim MIT template with no preamble, so license detectors match it", () => {
+    expect(readText(LICENSE_PATH)).not.toContain(CONTENT_LICENSE_FILENAME);
   });
 });
 
