@@ -4,13 +4,23 @@ import { resolve } from "node:path";
 
 const ROOT_DIR = process.cwd();
 const LICENSE_PATH = resolve(ROOT_DIR, "LICENSE");
-const CONTENT_LICENSE_PATH = resolve(ROOT_DIR, "LICENSE-CONTENT");
+const CONTENT_LICENSE_FILENAME = "LICENSE-CONTENT";
+const CONTENT_LICENSE_PATH = resolve(ROOT_DIR, CONTENT_LICENSE_FILENAME);
+const FONT_LICENSE_PATHS = [
+  "jetbrains-mono-OFL.txt",
+  "space-grotesk-OFL.txt",
+].map((fileName) => resolve(ROOT_DIR, "public/fonts", fileName));
+const COPYRIGHT_HOLDER = "Danny Holloran";
+const COPYRIGHT_PATTERN = new RegExp(
+  `Copyright \\(c\\) \\d{4} ${COPYRIGHT_HOLDER}`,
+);
+const ALL_RIGHTS_RESERVED = "All rights reserved";
+const MIT_EXCLUSION = "not covered by the MIT license";
 const PACKAGE_JSON_PATH = resolve(ROOT_DIR, "package.json");
 const README_PATH = resolve(ROOT_DIR, "README.md");
 const EXPECTED_LICENSE_ID = "MIT";
 const MIT_GRANT = "Permission is hereby granted, free of charge";
 const MIT_WARRANTY = 'THE SOFTWARE IS PROVIDED "AS IS"';
-const COPYRIGHT_HOLDER = "Danny Holloran";
 
 function readText(filePath: string): string {
   return readFileSync(filePath, "utf8");
@@ -24,15 +34,13 @@ describe("LICENSE", () => {
   it("is the MIT license with the copyright holder named", () => {
     const text = readText(LICENSE_PATH);
     expect(text.startsWith("MIT License")).toBe(true);
-    expect(text).toMatch(
-      new RegExp(`Copyright \\(c\\) \\d{4} ${COPYRIGHT_HOLDER}`),
-    );
+    expect(text).toMatch(COPYRIGHT_PATTERN);
     expect(text).toContain(MIT_GRANT);
     expect(text).toContain(MIT_WARRANTY);
   });
 
   it("points at the content notice", () => {
-    expect(readText(LICENSE_PATH)).toContain("LICENSE-CONTENT");
+    expect(readText(LICENSE_PATH)).toContain(CONTENT_LICENSE_FILENAME);
   });
 });
 
@@ -47,18 +55,25 @@ describe("content notice", () => {
   it("exists and reserves all rights to the content", () => {
     expect(existsSync(CONTENT_LICENSE_PATH)).toBe(true);
     const text = readText(CONTENT_LICENSE_PATH);
-    expect(text).toContain(`Copyright (c) 2026 ${COPYRIGHT_HOLDER}`);
-    expect(text).toContain("All rights reserved");
-    expect(text).toContain("not covered by the MIT license");
+    expect(text).toMatch(COPYRIGHT_PATTERN);
+    expect(text).toContain(ALL_RIGHTS_RESERVED);
+    expect(text).toContain(MIT_EXCLUSION);
   });
 
   it("notes that the fonts keep their OFL license", () => {
-    expect(readText(CONTENT_LICENSE_PATH)).toContain("SIL Open Font License");
+    const flattened = readText(CONTENT_LICENSE_PATH).replace(/\s+/g, " ");
+    expect(flattened).toContain("SIL Open Font License");
   });
 
+  it.each(FONT_LICENSE_PATHS)(
+    "ships the font license %s",
+    (fontLicensePath) => {
+      expect(existsSync(fontLicensePath)).toBe(true);
+    },
+  );
+
   it("is linked from the README license section", () => {
-    const readme = readText(README_PATH);
-    expect(readme).toContain("## License");
-    expect(readme).toContain("LICENSE-CONTENT");
+    const licenseSection = readText(README_PATH).split("## License")[1] ?? "";
+    expect(licenseSection).toContain(`](${CONTENT_LICENSE_FILENAME})`);
   });
 });
