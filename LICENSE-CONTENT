@@ -1,0 +1,23 @@
+Content license
+
+Copyright (c) 2026 Danny Holloran. All rights reserved.
+
+The site content in this repository is not covered by the MIT license in the
+LICENSE file, which applies to source code only. No permission is granted to
+copy, redistribute, or reuse this content without written permission.
+
+Covered content:
+
+- Page copy and writing: index.md, privacy.md, and public/llms.txt.
+- Copy embedded as string literals in the site source (titles, descriptions,
+  meta tags, and page text in .vitepress/ components and config, plus the
+  banner and hero text in og-banner-spec.mjs and hero-image-spec.mjs). This
+  text is not licensed under the MIT terms in LICENSE, which cover the code; the surrounding code
+  remains MIT.
+- Images and original media: everything in public/assets/ (hero art, head art,
+  OG banner, including the generated output of og-banner-spec.mjs and
+  hero-image-spec.mjs) and public/images/ (favicons, app icons, touch icons).
+
+Third-party assets keep their own licenses. The fonts in public/fonts/
+(JetBrains Mono and Space Grotesk) are licensed under the SIL Open Font
+License 1.1; the license texts ship alongside them as public/fonts/*-OFL.txt.

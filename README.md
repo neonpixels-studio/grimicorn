@@ -151,3 +151,9 @@ Space Grotesk and JetBrains Mono are served first-party from `public/fonts` via 
 - `.vitepress/tests/` — Vitest unit and snapshot tests covering the config, headers, origins, fonts, cache-bust, and components.
 - `og-banner-spec.mjs`, `hero-image-spec.mjs`, `scripts/generate-og-banner.mjs` — single-source specs and the OG banner generator.
 - `public/` — static assets (fonts, images, `assets/`, `llms.txt`, `robots.txt`) copied verbatim into the build.
+
+## License
+
+- Source code is released under the [MIT license](LICENSE).
+- Site content (writing, hero art, OG banner, icons, and other original media) is copyright Danny Holloran, all rights reserved. See [LICENSE-CONTENT](LICENSE-CONTENT).
+- Third-party fonts in `public/fonts` keep their own SIL OFL 1.1 licenses.
