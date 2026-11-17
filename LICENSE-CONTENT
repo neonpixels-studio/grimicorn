@@ -12,7 +12,7 @@ Covered content:
 - Copy embedded as string literals in the site source (titles, descriptions,
   meta tags, and page text in .vitepress/ components and config, plus the
   banner and hero text in og-banner-spec.mjs and hero-image-spec.mjs). This
-  text is excluded from the MIT grant in LICENSE; the surrounding code
+  text is not licensed under the MIT terms in LICENSE, which cover the code; the surrounding code
   remains MIT.
 - Images and original media: everything in public/assets/ (hero art, head art,
   OG banner, including the generated output of og-banner-spec.mjs and

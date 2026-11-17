@@ -23,6 +23,7 @@ const README_PATH = resolve(ROOT_DIR, "README.md");
 const EXPECTED_LICENSE_ID = "MIT";
 const MIT_TITLE = "MIT License";
 const OFL_NAME = "SIL Open Font License";
+const MIT_ENDING = "OTHER DEALINGS IN THE SOFTWARE.";
 const MIT_GRANT = "Permission is hereby granted, free of charge";
 const MIT_WARRANTY = 'THE SOFTWARE IS PROVIDED "AS IS"';
 
@@ -49,6 +50,9 @@ describe("LICENSE", () => {
 
   it("is the verbatim MIT template with no preamble, so license detectors match it", () => {
     expect(readText(LICENSE_PATH)).not.toContain(CONTENT_LICENSE_FILENAME);
+    expect(readFlattenedText(LICENSE_PATH).trimEnd().endsWith(MIT_ENDING)).toBe(
+      true,
+    );
   });
 });
 
