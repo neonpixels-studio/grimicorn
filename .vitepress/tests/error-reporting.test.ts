@@ -73,7 +73,10 @@ describe("initErrorReporting", () => {
     const isAllowed = (url: string) => matchesAny(allowUrls, url);
     expect(isAllowed("https://grimicorn.dev/assets/app.abc.js")).toBe(true);
     expect(isAllowed("https://www.grimicorn.dev/assets/app.js")).toBe(true);
+    expect(isAllowed("https://grimicorn.dev")).toBe(true);
+    expect(isAllowed("https://grimicorn.devx/app.js")).toBe(false);
     expect(isAllowed("http://localhost:4173/assets/app.js")).toBe(true);
+    expect(isAllowed("http://127.0.0.1:4319/assets/app.js")).toBe(true);
     expect(isAllowed("https://grimicorn.dev.evil.com/app.js")).toBe(false);
     expect(isAllowed("https://cdn.example.com/inject.js")).toBe(false);
     expect(isAllowed("chrome-extension://abc/content.js")).toBe(false);
@@ -83,6 +86,7 @@ describe("initErrorReporting", () => {
     const { denyUrls } = initOptions().options;
     const isDenied = (url: string) => matchesAny(denyUrls, url);
     expect(isDenied("chrome-extension://abc/content.js")).toBe(true);
+    expect(isDenied("safari-extension://abc/content.js")).toBe(true);
     expect(isDenied("moz-extension://abc/content.js")).toBe(true);
     expect(isDenied("safari-web-extension://abc/content.js")).toBe(true);
     expect(isDenied("https://grimicorn.dev/assets/app.js")).toBe(false);
