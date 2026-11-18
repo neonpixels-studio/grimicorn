@@ -11,9 +11,9 @@ import { join } from "node:path";
 
 const SOURCE_MAP_EXTENSION = ".map";
 const SCANNED_EXTENSIONS = [".js", ".mjs", ".css"];
-// A real reference is a comment (`//# ` or `/*# `) at the end of a line, not the
+// A real reference is a comment (`//# ` or `/*# `) at the start of its own line, not the
 // bare string inside a bundled library that merely talks about source maps.
-const SOURCE_MAPPING_URL_COMMENT = /(?:\/\/|\/\*)[#@]\s*sourceMappingURL=/;
+const SOURCE_MAPPING_URL_COMMENT = /^(?:\/\/|\/\*)[#@]\s*sourceMappingURL=/m;
 
 export type SourceMapFinding = {
   file: string;

@@ -39,6 +39,20 @@ describe("hasSourceMappingUrlComment", () => {
     ).toBe(true);
   });
 
+  it("matches the legacy //@ form", () => {
+    expect(
+      hasSourceMappingUrlComment("a();\n//@ sourceMappingURL=a.js.map"),
+    ).toBe(true);
+  });
+
+  it("ignores a comment marker built inside a string literal", () => {
+    expect(
+      hasSourceMappingUrlComment(
+        'const tail = "\\n" + "//# sourceMappingURL=" + url;',
+      ),
+    ).toBe(false);
+  });
+
   it("ignores a bare mention inside a bundled string", () => {
     expect(
       hasSourceMappingUrlComment('const note = "sourceMappingURL=";'),
@@ -68,6 +82,22 @@ describe("scanBuildOutputForSourceMaps", () => {
     expect(scanBuildOutputForSourceMaps(dir)).toEqual([
       { file: join(dir, "assets/app.js"), reason: "sourceMappingURL comment" },
     ]);
+  });
+});
+
+describe("scanBuildOutputForSourceMaps file types", () => {
+  const COMMENT = "/*# sourceMappingURL=app.css.map */";
+
+  it("reads css files", () => {
+    const dir = makeDistDir();
+    writeFile(dir, "assets/app.css", COMMENT);
+    expect(scanBuildOutputForSourceMaps(dir)).toHaveLength(1);
+  });
+
+  it("skips file types that are not scripts or styles", () => {
+    const dir = makeDistDir();
+    writeFile(dir, "index.html", COMMENT);
+    expect(scanBuildOutputForSourceMaps(dir)).toEqual([]);
   });
 });
 
