@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, matchesGlob, resolve } from "node:path";
 import sharp from "sharp";
 
 import config from "../config";
@@ -461,13 +461,13 @@ function extractMarkdownLinkUrl(source: string, label: string) {
   return extractSingleCapture(source, pattern, `"${label}" link`);
 }
 
-// Mirrors srcExclude in config.ts: repo-root markdown other than README.md and
-// gitignored _*.md notes is a page source and therefore lands in the sitemap.
+// Root-level markdown not excluded by config.srcExclude is a page source and lands
+// in the sitemap. Subdirectory pages are not scanned; none exist (no srcDir).
 function isSitemapPageSource(fileName: string) {
+  const excludedPatterns = config.srcExclude ?? [];
   return (
     fileName.endsWith(".md") &&
-    fileName !== "README.md" &&
-    !fileName.startsWith("_")
+    !excludedPatterns.some((pattern) => matchesGlob(fileName, pattern))
   );
 }
 
@@ -1181,7 +1181,7 @@ describe("llms.txt", () => {
     );
   });
 
-  it("links every page in the sitemap", async () => {
+  it("links every root-level page in the sitemap", async () => {
     const llms = readFileSync(LLMS_TXT, "utf8");
     const pageSources = readdirSync(process.cwd()).filter(isSitemapPageSource);
     expect(pageSources.length).toBeGreaterThan(0);
