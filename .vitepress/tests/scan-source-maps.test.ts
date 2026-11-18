@@ -117,9 +117,15 @@ describe("scanBuildOutputForSourceMaps file types", () => {
     expect(scanBuildOutputForSourceMaps(directory)).toHaveLength(1);
   });
 
-  it("skips file types that are not scripts or styles", () => {
+  it("reads html files, where an inline script could carry a map", () => {
     const directory = makeDistDirectory();
     writeFile(directory, "index.html", COMMENT);
+    expect(scanBuildOutputForSourceMaps(directory)).toHaveLength(1);
+  });
+
+  it("skips file types that are not scripts, styles or pages", () => {
+    const directory = makeDistDirectory();
+    writeFile(directory, "notes.txt", COMMENT);
     expect(scanBuildOutputForSourceMaps(directory)).toEqual([]);
   });
 });

@@ -10,7 +10,7 @@ import { join } from "node:path";
 // maps are generated at all, so a clean local or CI build passes trivially.
 
 const SOURCE_MAP_EXTENSION = ".map";
-const SCANNED_EXTENSIONS = [".js", ".mjs", ".css"];
+const SCANNED_EXTENSIONS = [".js", ".mjs", ".cjs", ".css", ".html"];
 // A real reference is a comment (`//# ` or `/*# `). Deliberately not anchored to a
 // line start, so minified same-line comments still fail the build (fail closed): a
 // false positive is loud and fixable, a missed map ships publicly. A bare
