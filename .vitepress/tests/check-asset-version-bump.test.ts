@@ -4,6 +4,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   checkAssetVersionBump,
+  gitRefExists,
   isLockAbsentAtRefError,
   readLockTextAtRef,
   resolveBaseRef,
@@ -257,13 +258,35 @@ describe("resolveBaseRefForMode", () => {
   });
 });
 
+describe("gitRefExists", () => {
+  function failWithStatus(status: number | undefined): () => never {
+    return () => {
+      throw Object.assign(new Error("git failed"), { status });
+    };
+  }
+
+  it("is true when git resolves the ref", () => {
+    expect(gitRefExists("origin/main", () => "sha")).toBe(true);
+  });
+
+  it("is false when git reports the ref is missing (exit 1)", () => {
+    expect(gitRefExists("origin/main", failWithStatus(1))).toBe(false);
+  });
+
+  it("rethrows any other git failure instead of skipping", () => {
+    expect(() => gitRefExists("origin/main", failWithStatus(128))).toThrow(
+      "git failed",
+    );
+  });
+});
+
 describe("pre-push hook", () => {
   it("runs the bump check in local mode", () => {
     const hook = readFileSync(
       join(TEST_FILE_DIRECTORY, "../../.husky/pre-push"),
       "utf8",
     );
-    expect(hook).toContain("check:asset-version-bump -- --local");
+    expect(hook).toMatch(/^npm run check:asset-version-bump -- --local$/m);
   });
 });
 

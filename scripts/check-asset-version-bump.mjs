@@ -95,12 +95,19 @@ export function resolveBaseRef(env = process.env) {
 const LOCAL_BASE_REF = "origin/main";
 const LOCAL_MODE_FLAG = "--local";
 
-// True when `ref` resolves to a commit in this clone. Injectable in resolveLocalBaseRef.
-function gitRefExists(ref) {
+const GIT_REF_NOT_FOUND_STATUS = 1;
+
+// True when `ref` resolves to a commit in this clone, false when it does not exist.
+// Any other git failure (no repo, git missing) is rethrown so it fails loud rather
+// than looking like a fresh clone. `run` is injectable for tests.
+export function gitRefExists(ref, run = runGit) {
   try {
-    runGit(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
     return true;
-  } catch {
+  } catch (error) {
+    if (error?.status !== GIT_REF_NOT_FOUND_STATUS) {
+      throw error;
+    }
     return false;
   }
 }
