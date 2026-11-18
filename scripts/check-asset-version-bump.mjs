@@ -113,7 +113,8 @@ export function gitRefExists(ref, run = runGit) {
 }
 
 // Base ref for the pre-push hook (--local): origin/main when this clone has it, null
-// (skip quietly) for fresh clones or setups without that remote ref.
+// (skip quietly) for fresh clones or setups without that remote ref. Only as fresh
+// as the last fetch; the hook deliberately does not hit the network on every push.
 export function resolveLocalBaseRef(refExists = gitRefExists) {
   return refExists(LOCAL_BASE_REF) ? LOCAL_BASE_REF : null;
 }
@@ -172,6 +173,12 @@ export function resolveBaseRefForMode(
   env = process.env,
   refExists = gitRefExists,
 ) {
+  const unknownArguments = argv.filter(
+    (argument) => argument !== LOCAL_MODE_FLAG,
+  );
+  if (unknownArguments.length > 0) {
+    throw new Error(`Unknown arguments: ${unknownArguments.join(" ")}`);
+  }
   if (argv.includes(LOCAL_MODE_FLAG)) {
     return resolveLocalBaseRef(refExists);
   }

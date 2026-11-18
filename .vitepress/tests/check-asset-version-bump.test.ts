@@ -250,6 +250,12 @@ describe("resolveBaseRefForMode", () => {
     expect(resolveBaseRefForMode(["--local"], {}, () => false)).toBe(null);
   });
 
+  it("rejects unknown arguments so a typo cannot silently disable the check", () => {
+    expect(() => resolveBaseRefForMode(["--locl"], {}, () => true)).toThrow(
+      "Unknown arguments: --locl",
+    );
+  });
+
   it("keeps the CI behavior without the flag", () => {
     expect(
       resolveBaseRefForMode([], { GITHUB_BASE_REF: "main" }, () => false),
