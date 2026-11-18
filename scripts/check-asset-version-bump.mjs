@@ -92,6 +92,25 @@ export function resolveBaseRef(env = process.env) {
   return `origin/${baseBranch}`;
 }
 
+const LOCAL_BASE_REF = "origin/main";
+const LOCAL_MODE_FLAG = "--local";
+
+// True when `ref` resolves to a commit in this clone. Injectable in resolveLocalBaseRef.
+function gitRefExists(ref) {
+  try {
+    runGit(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Base ref for the pre-push hook (--local): origin/main when this clone has it, null
+// (skip quietly) for fresh clones or setups without that remote ref.
+export function resolveLocalBaseRef(refExists = gitRefExists) {
+  return refExists(LOCAL_BASE_REF) ? LOCAL_BASE_REF : null;
+}
+
 // The check itself. Every collaborator (git access, asset fingerprinting, token read)
 // is an injectable seam defaulting to the real implementation, so tests can drive all
 // three required outcomes (bumped, not bumped, unchanged) against canned data without
@@ -113,7 +132,10 @@ export function checkAssetVersionBump({
   readToken = readAssetCacheBustToken,
 } = {}) {
   if (!baseRef) {
-    return { skipped: true, reason: "no base ref (not a pull request)" };
+    return {
+      skipped: true,
+      reason: "no base ref (not a pull request, or no origin/main locally)",
+    };
   }
   const comparedRef = findMergeBase(baseRef);
   if (!comparedRef) {
@@ -138,8 +160,19 @@ function formatResultMessage(result) {
   return `Asset-version token bump check passed against ${result.comparedRef}.`;
 }
 
+export function resolveBaseRefForMode(
+  argv = process.argv.slice(2),
+  env = process.env,
+  refExists = gitRefExists,
+) {
+  if (argv.includes(LOCAL_MODE_FLAG)) {
+    return resolveLocalBaseRef(refExists);
+  }
+  return resolveBaseRef(env);
+}
+
 function main() {
-  const result = checkAssetVersionBump({ baseRef: resolveBaseRef() });
+  const result = checkAssetVersionBump({ baseRef: resolveBaseRefForMode() });
   console.log(formatResultMessage(result));
 }
 

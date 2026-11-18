@@ -7,6 +7,8 @@ import {
   isLockAbsentAtRefError,
   readLockTextAtRef,
   resolveBaseRef,
+  resolveBaseRefForMode,
+  resolveLocalBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
 import { ASSET_VERSION_LOCK_FILE } from "../../asset-version-manifest.mjs";
 
@@ -221,6 +223,47 @@ describe("resolveBaseRef", () => {
 
   it("returns null for an empty GITHUB_BASE_REF", () => {
     expect(resolveBaseRef({ GITHUB_BASE_REF: "" })).toBe(null);
+  });
+});
+
+describe("resolveLocalBaseRef", () => {
+  it("returns origin/main when that ref exists", () => {
+    expect(resolveLocalBaseRef((ref) => ref === "origin/main")).toBe(
+      "origin/main",
+    );
+  });
+
+  it("returns null (skip quietly) when origin/main is absent", () => {
+    expect(resolveLocalBaseRef(() => false)).toBe(null);
+  });
+});
+
+describe("resolveBaseRefForMode", () => {
+  it("uses origin/main in --local mode even without GITHUB_BASE_REF", () => {
+    expect(resolveBaseRefForMode(["--local"], {}, () => true)).toBe(
+      "origin/main",
+    );
+  });
+
+  it("skips in --local mode when origin/main is missing", () => {
+    expect(resolveBaseRefForMode(["--local"], {}, () => false)).toBe(null);
+  });
+
+  it("keeps the CI behavior without the flag", () => {
+    expect(
+      resolveBaseRefForMode([], { GITHUB_BASE_REF: "main" }, () => false),
+    ).toBe("origin/main");
+    expect(resolveBaseRefForMode([], {}, () => true)).toBe(null);
+  });
+});
+
+describe("pre-push hook", () => {
+  it("runs the bump check in local mode", () => {
+    const hook = readFileSync(
+      join(TEST_FILE_DIRECTORY, "../../.husky/pre-push"),
+      "utf8",
+    );
+    expect(hook).toContain("check:asset-version-bump -- --local");
   });
 });
 
