@@ -17,6 +17,9 @@ type InitOptions = {
     name: string;
   }>;
   dataCollection: { userInfo: boolean; cookies: boolean };
+  allowUrls: RegExp[];
+  denyUrls: RegExp[];
+  ignoreErrors: RegExp[];
   tracesSampleRate?: number;
 };
 
@@ -60,5 +63,39 @@ describe("initErrorReporting", () => {
   it("enables no performance tracing", () => {
     const { options } = initOptions();
     expect(options.tracesSampleRate).toBeUndefined();
+  });
+
+  it("allows only first-party script URLs", () => {
+    const { allowUrls } = initOptions().options;
+    const isAllowed = (url: string) => allowUrls.some((rule) => rule.test(url));
+    expect(isAllowed("https://grimicorn.dev/assets/app.abc.js")).toBe(true);
+    expect(isAllowed("https://www.grimicorn.dev/assets/app.js")).toBe(true);
+    expect(isAllowed("http://localhost:4173/assets/app.js")).toBe(true);
+    expect(isAllowed("https://grimicorn.dev.evil.com/app.js")).toBe(false);
+    expect(isAllowed("https://cdn.example.com/inject.js")).toBe(false);
+    expect(isAllowed("chrome-extension://abc/content.js")).toBe(false);
+  });
+
+  it("denies browser-extension script URLs", () => {
+    const { denyUrls } = initOptions().options;
+    const isDenied = (url: string) => denyUrls.some((rule) => rule.test(url));
+    expect(isDenied("chrome-extension://abc/content.js")).toBe(true);
+    expect(isDenied("moz-extension://abc/content.js")).toBe(true);
+    expect(isDenied("safari-web-extension://abc/content.js")).toBe(true);
+    expect(isDenied("https://grimicorn.dev/assets/app.js")).toBe(false);
+  });
+
+  it("ignores known benign browser messages only", () => {
+    const { ignoreErrors } = initOptions().options;
+    const isIgnored = (message: string) =>
+      ignoreErrors.some((rule) => rule.test(message));
+    expect(isIgnored("ResizeObserver loop limit exceeded")).toBe(true);
+    expect(
+      isIgnored(
+        "ResizeObserver loop completed with undelivered notifications.",
+      ),
+    ).toBe(true);
+    expect(isIgnored("Script error.")).toBe(true);
+    expect(isIgnored("TypeError: x is undefined")).toBe(false);
   });
 });
