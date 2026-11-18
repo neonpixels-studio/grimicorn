@@ -14,20 +14,18 @@ const SESSION_INTEGRATION_NAME = "BrowserSession";
 
 // Only script URLs from the live site (and local preview) count as first-party.
 // Extension, injected-script and in-app-browser errors come from other origins.
-export const ALLOWED_URLS = [
+const ALLOWED_URLS = [
   /^https:\/\/(www\.)?grimicorn\.dev(\/|$)/,
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/,
 ];
-export const DENIED_URLS = [
+const DENIED_URLS = [
   /^chrome-extension:\/\//,
   /^moz-extension:\/\//,
   /^safari-(web-)?extension:\/\//,
 ];
 // Known benign browser messages with no actionable cause in site code.
-export const IGNORED_ERRORS = [
+const IGNORED_ERRORS = [
   /ResizeObserver loop (limit exceeded|completed with undelivered notifications)/,
-  /^Script error\.?$/,
-  /Non-Error promise rejection captured/,
 ];
 
 function withoutSessionTracking(integrations: Integration[]) {
