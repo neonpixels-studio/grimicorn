@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   assertBuildOutputHasNoSourceMaps,
@@ -9,23 +9,23 @@ import {
   scanBuildOutputForSourceMaps,
 } from "../scan-source-maps";
 
-const createdDirs: string[] = [];
+const createdDirectories: string[] = [];
 
-function makeDistDir() {
-  const dir = mkdtempSync(join(tmpdir(), "grimicorn-maps-"));
-  createdDirs.push(dir);
-  return dir;
+function makeDistDirectory() {
+  const directory = mkdtempSync(join(tmpdir(), "grimicorn-maps-"));
+  createdDirectories.push(directory);
+  return directory;
 }
 
-function writeFile(dir: string, relativePath: string, contents: string) {
-  const target = join(dir, relativePath);
-  mkdirSync(join(target, ".."), { recursive: true });
+function writeFile(directory: string, relativePath: string, contents: string) {
+  const target = join(directory, relativePath);
+  mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, contents);
 }
 
 afterEach(() => {
-  for (const dir of createdDirs.splice(0)) {
-    rmSync(dir, { recursive: true, force: true });
+  for (const directory of createdDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -45,12 +45,18 @@ describe("hasSourceMappingUrlComment", () => {
     ).toBe(true);
   });
 
-  it("ignores a comment marker built inside a string literal", () => {
+  it("matches a comment on the same line as minified code", () => {
+    expect(
+      hasSourceMappingUrlComment("a{}/*# sourceMappingURL=a.css.map */"),
+    ).toBe(true);
+  });
+
+  it("matches an inline data-URI map", () => {
     expect(
       hasSourceMappingUrlComment(
-        'const tail = "\\n" + "//# sourceMappingURL=" + url;',
+        "a();\n//# sourceMappingURL=data:application/json;base64,e30=",
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("ignores a bare mention inside a bundled string", () => {
@@ -62,25 +68,32 @@ describe("hasSourceMappingUrlComment", () => {
 
 describe("scanBuildOutputForSourceMaps", () => {
   it("finds nothing in a clean build output", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "index.html", "<p>ok</p>");
-    writeFile(dir, "assets/app.js", "console.log('ok')");
-    expect(scanBuildOutputForSourceMaps(dir)).toEqual([]);
+    const directory = makeDistDirectory();
+    writeFile(directory, "index.html", "<p>ok</p>");
+    writeFile(directory, "assets/app.js", "console.log('ok')");
+    expect(scanBuildOutputForSourceMaps(directory)).toEqual([]);
   });
 
   it("flags a leftover .map file in nested output", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "assets/chunks/app.js.map", "{}");
-    expect(scanBuildOutputForSourceMaps(dir)).toEqual([
-      { file: join(dir, "assets/chunks/app.js.map"), reason: "map file" },
+    const directory = makeDistDirectory();
+    writeFile(directory, "assets/chunks/app.js.map", "{}");
+    expect(scanBuildOutputForSourceMaps(directory)).toEqual([
+      { file: join(directory, "assets/chunks/app.js.map"), reason: "map file" },
     ]);
   });
 
   it("flags a sourceMappingURL comment even when the map was deleted", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "assets/app.js", "a();\n//# sourceMappingURL=app.js.map");
-    expect(scanBuildOutputForSourceMaps(dir)).toEqual([
-      { file: join(dir, "assets/app.js"), reason: "sourceMappingURL comment" },
+    const directory = makeDistDirectory();
+    writeFile(
+      directory,
+      "assets/app.js",
+      "a();\n//# sourceMappingURL=app.js.map",
+    );
+    expect(scanBuildOutputForSourceMaps(directory)).toEqual([
+      {
+        file: join(directory, "assets/app.js"),
+        reason: "sourceMappingURL comment",
+      },
     ]);
   });
 });
@@ -89,28 +102,40 @@ describe("scanBuildOutputForSourceMaps file types", () => {
   const COMMENT = "/*# sourceMappingURL=app.css.map */";
 
   it("reads css files", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "assets/app.css", COMMENT);
-    expect(scanBuildOutputForSourceMaps(dir)).toHaveLength(1);
+    const directory = makeDistDirectory();
+    writeFile(directory, "assets/app.css", COMMENT);
+    expect(scanBuildOutputForSourceMaps(directory)).toHaveLength(1);
+  });
+
+  it("reads mjs files", () => {
+    const directory = makeDistDirectory();
+    writeFile(
+      directory,
+      "assets/app.mjs",
+      "a();\n//# sourceMappingURL=app.mjs.map",
+    );
+    expect(scanBuildOutputForSourceMaps(directory)).toHaveLength(1);
   });
 
   it("skips file types that are not scripts or styles", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "index.html", COMMENT);
-    expect(scanBuildOutputForSourceMaps(dir)).toEqual([]);
+    const directory = makeDistDirectory();
+    writeFile(directory, "index.html", COMMENT);
+    expect(scanBuildOutputForSourceMaps(directory)).toEqual([]);
   });
 });
 
 describe("assertBuildOutputHasNoSourceMaps", () => {
   it("passes on a clean build output", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "assets/app.js", "console.log('ok')");
-    expect(() => assertBuildOutputHasNoSourceMaps(dir)).not.toThrow();
+    const directory = makeDistDirectory();
+    writeFile(directory, "assets/app.js", "console.log('ok')");
+    expect(() => assertBuildOutputHasNoSourceMaps(directory)).not.toThrow();
   });
 
   it("fails the build on a leftover map, naming the file", () => {
-    const dir = makeDistDir();
-    writeFile(dir, "assets/app.js.map", "{}");
-    expect(() => assertBuildOutputHasNoSourceMaps(dir)).toThrow(/app\.js\.map/);
+    const directory = makeDistDirectory();
+    writeFile(directory, "assets/app.js.map", "{}");
+    expect(() => assertBuildOutputHasNoSourceMaps(directory)).toThrow(
+      /app\.js\.map/,
+    );
   });
 });

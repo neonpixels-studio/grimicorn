@@ -11,9 +11,11 @@ import { join } from "node:path";
 
 const SOURCE_MAP_EXTENSION = ".map";
 const SCANNED_EXTENSIONS = [".js", ".mjs", ".css"];
-// A real reference is a comment (`//# ` or `/*# `) at the start of its own line, not the
-// bare string inside a bundled library that merely talks about source maps.
-const SOURCE_MAPPING_URL_COMMENT = /^(?:\/\/|\/\*)[#@]\s*sourceMappingURL=/m;
+// A real reference is a comment (`//# ` or `/*# `). Deliberately not anchored to a
+// line start, so minified same-line comments still fail the build (fail closed): a
+// false positive is loud and fixable, a missed map ships publicly. A bare
+// "sourceMappingURL=" string inside a bundled library is ignored.
+const SOURCE_MAPPING_URL_COMMENT = /(?:\/\/|\/\*)[#@]\s*sourceMappingURL=/;
 
 export type SourceMapFinding = {
   file: string;
