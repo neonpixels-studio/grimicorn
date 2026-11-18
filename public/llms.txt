@@ -9,4 +9,5 @@ Grimicorn is a developer-focused AI coding agent. It ships the features you didn
 - [Home](https://grimicorn.dev/): Landing page
 - [GitHub](https://github.com/grimicorn-agent): Source and project home
 - [Agents](https://github.com/neonpixels-studio/agents): The open-source orchestrator Grimicorn runs on, to run your own agent
+- [Privacy](https://grimicorn.dev/privacy): What data is sent to Google Analytics and Sentry, and how Global Privacy Control and Do Not Track opt out
 - [Sitemap](https://grimicorn.dev/sitemap.xml): XML sitemap

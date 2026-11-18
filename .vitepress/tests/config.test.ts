@@ -461,6 +461,16 @@ function extractMarkdownLinkUrl(source: string, label: string) {
   return extractSingleCapture(source, pattern, `"${label}" link`);
 }
 
+// Mirrors srcExclude in config.ts: repo-root markdown other than README.md and
+// gitignored _*.md notes is a page source and therefore lands in the sitemap.
+function isSitemapPageSource(fileName: string) {
+  return (
+    fileName.endsWith(".md") &&
+    fileName !== "README.md" &&
+    !fileName.startsWith("_")
+  );
+}
+
 function decodePathname(pathname: string) {
   try {
     return decodeURIComponent(pathname);
@@ -1162,6 +1172,26 @@ describe("llms.txt", () => {
     expect(extractMarkdownLinkUrl(llms, "Sitemap")).toBe(
       `${siteUrl}${SITEMAP_PATHNAME}`,
     );
+  });
+
+  it("links the privacy page", () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    expect(extractMarkdownLinkUrl(llms, "Privacy")).toBe(
+      `${EXPECTED_SITE_URL}${PRIVACY_PAGE_PATH}`,
+    );
+  });
+
+  it("links every page in the sitemap", async () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    const pageSources = readdirSync(process.cwd()).filter(isSitemapPageSource);
+    expect(pageSources.length).toBeGreaterThan(0);
+    for (const relativePath of pageSources) {
+      const head = await resolveHeadForPage({ relativePath });
+      const pageUrl = new URL(findLinkHref(head, "canonical")).href;
+      expect(llms, `llms.txt must link ${relativePath}`).toContain(
+        `(${pageUrl})`,
+      );
+    }
   });
 });
 
