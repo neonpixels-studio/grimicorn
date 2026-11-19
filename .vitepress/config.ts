@@ -8,6 +8,7 @@ import { buildGaBootstrapScript } from "./analytics";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
+import { assertBuildOutputHasNoSourceMaps } from "./scan-source-maps";
 import {
   buildSentryVitePlugins,
   readSentryIngestOrigin,
@@ -442,5 +443,7 @@ export default defineConfig({
     // Guard the rendered output too: the source-level scan can't see an origin a
     // dependency or plugin injects into the built HTML/CSS/JS (see scan-origins.ts).
     assertBuildOutputHasNoDisallowedOrigins(siteConfig.outDir);
+    // The Sentry plugin deletes uploaded maps; fail if any survive (see scan-source-maps.ts).
+    assertBuildOutputHasNoSourceMaps(siteConfig.outDir);
   },
 });
