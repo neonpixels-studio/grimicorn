@@ -92,6 +92,33 @@ export function resolveBaseRef(env = process.env) {
   return `origin/${baseBranch}`;
 }
 
+const LOCAL_BASE_REF = "origin/main";
+const LOCAL_MODE_FLAG = "--local";
+
+const GIT_REF_NOT_FOUND_STATUS = 1;
+
+// True when `ref` resolves to a commit in this clone, false when it does not exist.
+// Any other git failure (no repo, git missing) is rethrown so it fails loud rather
+// than looking like a fresh clone. `run` is injectable for tests.
+export function gitRefExists(ref, run = runGit) {
+  try {
+    run(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    return true;
+  } catch (error) {
+    if (error?.status !== GIT_REF_NOT_FOUND_STATUS) {
+      throw error;
+    }
+    return false;
+  }
+}
+
+// Base ref for the pre-push hook (--local): origin/main when this clone has it, null
+// (skip quietly) for fresh clones or setups without that remote ref. Only as fresh
+// as the last fetch; the hook deliberately does not hit the network on every push.
+export function resolveLocalBaseRef(refExists = gitRefExists) {
+  return refExists(LOCAL_BASE_REF) ? LOCAL_BASE_REF : null;
+}
+
 // The check itself. Every collaborator (git access, asset fingerprinting, token read)
 // is an injectable seam defaulting to the real implementation, so tests can drive all
 // three required outcomes (bumped, not bumped, unchanged) against canned data without
@@ -113,7 +140,10 @@ export function checkAssetVersionBump({
   readToken = readAssetCacheBustToken,
 } = {}) {
   if (!baseRef) {
-    return { skipped: true, reason: "no base ref (not a pull request)" };
+    return {
+      skipped: true,
+      reason: "no base ref (not a pull request, or no origin/main locally)",
+    };
   }
   const comparedRef = findMergeBase(baseRef);
   if (!comparedRef) {
@@ -138,8 +168,25 @@ function formatResultMessage(result) {
   return `Asset-version token bump check passed against ${result.comparedRef}.`;
 }
 
+export function resolveBaseRefForMode(
+  argv = process.argv.slice(2),
+  env = process.env,
+  refExists = gitRefExists,
+) {
+  const unknownArguments = argv.filter(
+    (argument) => argument !== LOCAL_MODE_FLAG,
+  );
+  if (unknownArguments.length > 0) {
+    throw new Error(`Unknown arguments: ${unknownArguments.join(" ")}`);
+  }
+  if (argv.includes(LOCAL_MODE_FLAG)) {
+    return resolveLocalBaseRef(refExists);
+  }
+  return resolveBaseRef(env);
+}
+
 function main() {
-  const result = checkAssetVersionBump({ baseRef: resolveBaseRef() });
+  const result = checkAssetVersionBump({ baseRef: resolveBaseRefForMode() });
   console.log(formatResultMessage(result));
 }
 

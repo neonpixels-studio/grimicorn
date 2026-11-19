@@ -4,9 +4,12 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   checkAssetVersionBump,
+  gitRefExists,
   isLockAbsentAtRefError,
   readLockTextAtRef,
   resolveBaseRef,
+  resolveBaseRefForMode,
+  resolveLocalBaseRef,
 } from "../../scripts/check-asset-version-bump.mjs";
 import { ASSET_VERSION_LOCK_FILE } from "../../asset-version-manifest.mjs";
 
@@ -221,6 +224,75 @@ describe("resolveBaseRef", () => {
 
   it("returns null for an empty GITHUB_BASE_REF", () => {
     expect(resolveBaseRef({ GITHUB_BASE_REF: "" })).toBe(null);
+  });
+});
+
+describe("resolveLocalBaseRef", () => {
+  it("returns origin/main when that ref exists", () => {
+    expect(resolveLocalBaseRef((ref) => ref === "origin/main")).toBe(
+      "origin/main",
+    );
+  });
+
+  it("returns null (skip quietly) when origin/main is absent", () => {
+    expect(resolveLocalBaseRef(() => false)).toBe(null);
+  });
+});
+
+describe("resolveBaseRefForMode", () => {
+  it("uses origin/main in --local mode even without GITHUB_BASE_REF", () => {
+    expect(resolveBaseRefForMode(["--local"], {}, () => true)).toBe(
+      "origin/main",
+    );
+  });
+
+  it("skips in --local mode when origin/main is missing", () => {
+    expect(resolveBaseRefForMode(["--local"], {}, () => false)).toBe(null);
+  });
+
+  it("rejects unknown arguments so a typo cannot silently disable the check", () => {
+    expect(() => resolveBaseRefForMode(["--locl"], {}, () => true)).toThrow(
+      "Unknown arguments: --locl",
+    );
+  });
+
+  it("keeps the CI behavior without the flag", () => {
+    expect(
+      resolveBaseRefForMode([], { GITHUB_BASE_REF: "main" }, () => false),
+    ).toBe("origin/main");
+    expect(resolveBaseRefForMode([], {}, () => true)).toBe(null);
+  });
+});
+
+describe("gitRefExists", () => {
+  function failWithStatus(status: number | undefined): () => never {
+    return () => {
+      throw Object.assign(new Error("git failed"), { status });
+    };
+  }
+
+  it("is true when git resolves the ref", () => {
+    expect(gitRefExists("origin/main", () => "sha")).toBe(true);
+  });
+
+  it("is false when git reports the ref is missing (exit 1)", () => {
+    expect(gitRefExists("origin/main", failWithStatus(1))).toBe(false);
+  });
+
+  it("rethrows any other git failure instead of skipping", () => {
+    expect(() => gitRefExists("origin/main", failWithStatus(128))).toThrow(
+      "git failed",
+    );
+  });
+});
+
+describe("pre-push hook", () => {
+  it("runs the bump check in local mode", () => {
+    const hook = readFileSync(
+      join(TEST_FILE_DIRECTORY, "../../.husky/pre-push"),
+      "utf8",
+    );
+    expect(hook).toMatch(/^npm run check:asset-version-bump -- --local$/m);
   });
 });
 
