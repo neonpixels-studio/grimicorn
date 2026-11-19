@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, matchesGlob, resolve } from "node:path";
 import sharp from "sharp";
 
 import config from "../config";
@@ -459,6 +459,16 @@ function readManifestColor(manifest: Record<string, unknown>, key: string) {
 function extractMarkdownLinkUrl(source: string, label: string) {
   const pattern = new RegExp(`\\[${label}\\]\\(([^)\\s]+)\\)`, "g");
   return extractSingleCapture(source, pattern, `"${label}" link`);
+}
+
+// Root-level markdown not excluded by config.srcExclude is a page source and lands
+// in the sitemap. Subdirectory pages are not scanned; none exist (no srcDir).
+function isSitemapPageSource(fileName: string) {
+  const excludedPatterns = config.srcExclude ?? [];
+  return (
+    fileName.endsWith(".md") &&
+    !excludedPatterns.some((pattern) => matchesGlob(fileName, pattern))
+  );
 }
 
 function decodePathname(pathname: string) {
@@ -1162,6 +1172,26 @@ describe("llms.txt", () => {
     expect(extractMarkdownLinkUrl(llms, "Sitemap")).toBe(
       `${siteUrl}${SITEMAP_PATHNAME}`,
     );
+  });
+
+  it("links the privacy page", () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    expect(extractMarkdownLinkUrl(llms, "Privacy")).toBe(
+      `${EXPECTED_SITE_URL}${PRIVACY_PAGE_PATH}`,
+    );
+  });
+
+  it("links every root-level page in the sitemap", async () => {
+    const llms = readFileSync(LLMS_TXT, "utf8");
+    const pageSources = readdirSync(process.cwd()).filter(isSitemapPageSource);
+    expect(pageSources.length).toBeGreaterThan(0);
+    for (const relativePath of pageSources) {
+      const head = await resolveHeadForPage({ relativePath });
+      const pageUrl = new URL(findLinkHref(head, "canonical")).href;
+      expect(llms, `llms.txt must link ${relativePath}`).toContain(
+        `(${pageUrl})`,
+      );
+    }
   });
 });
 
