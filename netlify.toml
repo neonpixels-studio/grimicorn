@@ -1,13 +1,11 @@
-# Mirrors the CI gates (.github/workflows/ci.yml) so a push that bypasses CI cannot
-# deploy unlinted, untyped or untested code. check:asset-version-bump is deliberately
-# absent: it only diffs a pull request against its base branch (GITHUB_BASE_REF, which
-# Netlify never sets) and Netlify clones shallowly, so it could never run here.
+# Netlify runs only the build. The lint, typecheck and test gates run in CI
+# (.github/workflows/ci.yml), not in the Netlify build commands.
 [build]
   command = "npm run build"
   publish = ".vitepress/dist"
 
 [context.production]
-  # Same gates as [build], but the build decrypts .env.production with
+  # Same as [build], but the build decrypts .env.production with
   # DOTENV_PRIVATE_KEY_PRODUCTION (Netlify env, Production context only). Deploy
   # Previews and branch deploys keep the plain [build] command, so they never
   # need the key and never ship production secrets. --strict fails the build if
