@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const NETLIFY_CONFIG_PATH = resolve(process.cwd(), "netlify.toml");
-const CI_WORKFLOW_PATH = resolve(process.cwd(), ".github/workflows/ci.yml");
 const PACKAGE_JSON_PATH = resolve(process.cwd(), "package.json");
 
 // Accepts TOML basic ("...") and literal ('...') strings.
@@ -13,19 +12,9 @@ const PRODUCTION_SECTION_HEADER = "[context.production]";
 const COMMAND_SEPARATOR = "&&";
 const NPM_RUN_PREFIX = /^npm run /;
 
-// The `ci` job runs the gates a deploy must share; the separate `e2e` job needs
-// Playwright browsers and is not part of the Netlify build.
-const CI_JOB_PATTERN = /^ {2}ci:\s*$([\s\S]*?)(?=^ {2}[\w-]+:\s*$|(?![\s\S]))/m;
-const CI_ANY_RUN_PATTERN = /^\s*(?:-\s+)?run:\s*(.+?)\s*$/gm;
-const CI_NPM_SCRIPT_STEP = /^npm run \S+$/;
-
 const BUILD_STEP = "npm run build";
 // Production swaps only the final step, to decrypt .env.production via dotenvx.
 const PRODUCTION_BUILD_STEP = "npm run build:production";
-// Not runnable on Netlify: it only diffs a pull request against its base branch
-// (GITHUB_BASE_REF, never set by Netlify) and needs the full git history Netlify
-// does not clone.
-const CI_STEPS_SKIPPED_ON_NETLIFY = ["npm run check:asset-version-bump"];
 
 function sectionPattern(header: string) {
   const escapedHeader = header.replace(/[.[\]]/g, "\\$&");
@@ -55,58 +44,23 @@ function readProductionSteps() {
   return readSectionSteps(PRODUCTION_SECTION_HEADER);
 }
 
-function readCiGateSteps() {
-  const workflow = readFileSync(CI_WORKFLOW_PATH, "utf8");
-  const ciJob = workflow.match(CI_JOB_PATTERN)?.[1];
-  if (!ciJob) {
-    throw new Error("ci.yml has no `ci` job");
-  }
-  const runSteps = [...ciJob.matchAll(CI_ANY_RUN_PATTERN)].map(
-    (match) => match[1],
-  );
-  const unrecognized = runSteps.filter(
-    (step) => !CI_NPM_SCRIPT_STEP.test(step),
-  );
-  if (unrecognized.length > 0) {
-    throw new Error(
-      `ci.yml has run steps this test cannot classify: ${unrecognized.join(", ")}`,
-    );
-  }
-  return runSteps;
-}
-
 function readPackageScripts() {
   return JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")).scripts;
 }
 
 describe("netlify build command", () => {
-  it("runs every CI gate that can run on Netlify, then the build last", () => {
-    const ciSteps = readCiGateSteps();
-    expect(ciSteps).toEqual(
-      expect.arrayContaining([...CI_STEPS_SKIPPED_ON_NETLIFY, BUILD_STEP]),
-    );
-    const expectedGates = ciSteps.filter(
-      (step) =>
-        step !== BUILD_STEP && !CI_STEPS_SKIPPED_ON_NETLIFY.includes(step),
-    );
-    expect(expectedGates.length).toBeGreaterThan(0);
-    expect(readBuildSteps()).toEqual([...expectedGates, BUILD_STEP]);
+  it("runs only the build for previews and branch deploys", () => {
+    expect(readBuildSteps()).toEqual([BUILD_STEP]);
   });
 
-  it("includes lint, typecheck and tests", () => {
-    expect(readBuildSteps()).toEqual(
-      expect.arrayContaining([
-        "npm run lint",
-        "npm run typecheck",
-        "npm run test:ci",
-      ]),
-    );
+  it("runs only the production build in production", () => {
+    expect(readProductionSteps()).toEqual([PRODUCTION_BUILD_STEP]);
   });
 
-  it("runs the same gates in production, swapping only the final build", () => {
-    const productionSteps = readProductionSteps();
-    expect(productionSteps.at(-1)).toBe(PRODUCTION_BUILD_STEP);
-    expect(productionSteps.slice(0, -1)).toEqual(readBuildSteps().slice(0, -1));
+  it("decrypts .env.production strictly in the production build script", () => {
+    const script = readPackageScripts()["build:production"];
+    expect(script).toContain("dotenvx run --strict");
+    expect(script).toContain(".env.production");
   });
 
   it("only runs steps that are defined npm scripts", () => {
