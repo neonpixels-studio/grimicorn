@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, watch } from "vue";
 import { useData } from "vitepress";
+import ConsentBanner from "./components/ConsentBanner.vue";
 import GrimicornPage from "./components/GrimicornPage.vue";
 import NotFound from "./components/NotFound.vue";
 import PrivacyPage from "./components/PrivacyPage.vue";
 import SkipLink from "./components/SkipLink.vue";
 import { PRIVACY_LAYOUT } from "./constants";
+import { initAnalyticsConsent } from "./analytics/consent-controller";
 import { NOT_FOUND_TITLE, NOT_FOUND_DESCRIPTION } from "../not-found-meta";
 
 const { page, frontmatter } = useData();
@@ -54,6 +56,7 @@ function applyNotFoundMeta() {
 // new object is exactly what re-triggers VitePress's own resetting watcher.
 // Watching only the boolean would miss that case, since it never changes.
 onMounted(() => {
+  initAnalyticsConsent();
   watch(
     () => page.value,
     (currentPage) => {
@@ -72,4 +75,5 @@ onMounted(() => {
   <NotFound v-if="page.isNotFound" />
   <PrivacyPage v-else-if="frontmatter.layout === PRIVACY_LAYOUT" />
   <GrimicornPage v-else />
+  <ConsentBanner />
 </template>

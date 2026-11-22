@@ -54,13 +54,26 @@ import { MAIN_CONTENT_ID } from "../constants";
         <section class="mb-10">
           <h2 class="font-display mb-3 text-[20px] font-bold">analytics</h2>
           <p class="text-fg-muted text-sm leading-[1.8]">
-            Pageviews and basic usage data on the live production site are sent
-            to Google Analytics (GA4) &mdash; the only analytics service this
-            site uses. Depending on the analytics property&rsquo;s settings,
-            that may include scrolling, outbound link clicks, file downloads,
-            site searches, video engagement (plays, progress, completions), and
-            form interactions. Links to GitHub are the only other place this
-            site points off-site, and those only load if you click them.
+            Google Analytics (GA4) is the only analytics service this site uses,
+            and it loads only after you accept it. On your first visit to the
+            live production site a banner asks you to accept or decline; until
+            you accept, nothing is requested from Google. Once you accept,
+            pageviews and basic usage data are sent to Google Analytics (GA4).
+            Depending on the analytics property&rsquo;s settings, that may
+            include scrolling, outbound link clicks, file downloads, site
+            searches, video engagement (plays, progress, completions), and form
+            interactions. Links to GitHub are the only other place this site
+            points off-site, and those only load if you click them.
+          </p>
+          <p class="text-fg-muted mt-3 text-sm leading-[1.8]">
+            Your choice is stored in this browser (in local storage, under
+            <code>grimicorn:analytics-consent</code>) for 180 days, after which
+            the banner asks again. To change it, use the &ldquo;analytics
+            choice&rdquo; link in the footer of the home page. Declining after
+            accepting stops further analytics requests and clears the Google
+            Analytics cookies on this domain and its parent domains. If your
+            browser sends Global Privacy Control or Do Not Track, analytics
+            never loads and the banner is not shown.
           </p>
         </section>
 

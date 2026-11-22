@@ -8,6 +8,7 @@ import {
   MAIN_CONTENT_ID,
   PRIVACY_PAGE_PATH,
 } from "../constants";
+import ConsentManageLink from "./ConsentManageLink.vue";
 import { createKonamiMatcher } from "../konami";
 
 interface LogEntry {
@@ -1027,8 +1028,9 @@ onUnmounted(() => {
               :href="PRIVACY_PAGE_PATH"
               class="hover:text-fg underline underline-offset-[3px] transition-colors"
               >privacy</a
-            ></span
-          >
+            >
+            <ConsentManageLink separated
+          /></span>
           <span
             >built dark &middot; shipped
             <button
