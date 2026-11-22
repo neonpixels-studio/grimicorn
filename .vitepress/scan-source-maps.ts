@@ -17,7 +17,7 @@ const SCANNED_EXTENSIONS = [".js", ".mjs", ".cjs", ".css", ".html"];
 // "sourceMappingURL=" string inside a bundled library is ignored.
 const SOURCE_MAPPING_URL_COMMENT = /(?:\/\/|\/\*)[#@]\s*sourceMappingURL=/;
 
-export type SourceMapFinding = {
+type SourceMapFinding = {
   file: string;
   reason: "map file" | "sourceMappingURL comment";
 };
