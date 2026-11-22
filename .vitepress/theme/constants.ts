@@ -17,3 +17,7 @@ export const AGENTS_REPO_URL = "https://github.com/neonpixels-studio/agents";
 // config.ts (which derives the page's canonical URL from the same path).
 export const PRIVACY_PAGE_PATH = "/privacy";
 export const PRIVACY_LAYOUT = "privacy";
+
+// The footer control that reopens the analytics consent banner. Shared with the
+// privacy page so the copy names the control exactly as it is labeled.
+export const MANAGE_CHOICE_LABEL = "analytics choice";

@@ -159,7 +159,7 @@ exports[`GrimicornPage > renders correctly 1`] = `
       <div class="flex justify-between">
         <!-- The privacy page is the site's only disclosure of the GA4 and
              Sentry data flows, so this link must stay visible on every render,
-             not gated behind an interaction. --><span>grimicorn.dev — © 2026 · <a href="/privacy" class="hover:text-fg underline underline-offset-[3px] transition-colors">privacy</a></span><span>built dark · shipped <button class="colorful-btn" aria-pressed="false"> colorful </button></span>
+             not gated behind an interaction. --><span>grimicorn.dev — © 2026 · <a href="/privacy" class="hover:text-fg underline underline-offset-[3px] transition-colors">privacy</a><consent-manage-link-stub separated="true"></consent-manage-link-stub></span><span>built dark · shipped <button class="colorful-btn" aria-pressed="false"> colorful </button></span>
       </div>
     </footer>
   </div><!-- Rave toast: visual only, announced via toastAnnouncement below. -->

@@ -1,7 +1,6 @@
 // The browser privacy signals that opt a visitor out of analytics and error
-// reporting. Single source of truth for both the inline GA bootstrap (which needs
-// the check as a JS expression string, see ./analytics) and the theme, which
-// checks at runtime before loading Sentry.
+// reporting. Single source of truth for the theme, which checks at runtime before
+// offering analytics consent or loading Sentry.
 //
 // navigator.doNotTrack is "1" when set; older Safari exposes it on window and
 // legacy IE/Edge on navigator.msDoNotTrack. GPC is a boolean.
@@ -24,12 +23,6 @@ function currentBrowserGlobals(): BrowserGlobals {
     window: globalThis.window as unknown as Record<string, unknown>,
   };
 }
-
-// e.g. `navigator.globalPrivacyControl===true||navigator.doNotTrack==="1"||...`
-export const OPT_OUT_CHECK_EXPRESSION = OPT_OUT_SIGNALS.map(
-  ({ source, property, value }) =>
-    `${source}.${property}===${JSON.stringify(value)}`,
-).join("||");
 
 export function hasPrivacyOptOut(
   browserGlobals: BrowserGlobals = currentBrowserGlobals(),
