@@ -109,3 +109,34 @@ test("Global Privacy Control suppresses the banner and the footer link", async (
   ).toBeHidden();
   expect(requested).toEqual([]);
 });
+
+test("a mouse click on the footer link opens the banner and returns focus to the link", async ({
+  page,
+}) => {
+  await page.goto("/", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "decline" }).click();
+
+  const footerLink = page.getByRole("button", { name: FOOTER_LINK_NAME });
+  await footerLink.click();
+  const banner = page.getByRole("region", { name: BANNER_NAME });
+  await expect(banner).toBeFocused();
+
+  await banner.getByRole("button", { name: "accept" }).click();
+  await expect(banner).toBeHidden();
+  await expect(footerLink).toBeFocused();
+});
+
+test("deciding on the first-visit banner with the keyboard does not drop focus to the page top", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "keyboard flow is desktop only");
+  await page.goto("/", { waitUntil: "networkidle" });
+  const decline = page.getByRole("button", { name: "decline" });
+  await decline.focus();
+  await decline.press("Enter");
+
+  await expect(page.getByRole("region", { name: BANNER_NAME })).toBeHidden();
+  const focusedTag = await page.evaluate(() => document.activeElement?.id);
+  expect(focusedTag).toBe("main-content");
+});

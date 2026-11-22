@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { MAIN_CONTENT_ID } from "../constants";
+import { MAIN_CONTENT_ID, MANAGE_CHOICE_LABEL } from "../constants";
+import {
+  CONSENT_LIFETIME_DAYS,
+  CONSENT_STORAGE_KEY,
+} from "../analytics/consent";
 import { analyticsAvailable } from "../analytics/consent-controller";
 import ConsentManageLink from "./ConsentManageLink.vue";
 </script>
@@ -69,11 +73,10 @@ import ConsentManageLink from "./ConsentManageLink.vue";
           </p>
           <p class="text-fg-muted mt-3 text-sm leading-[1.8]">
             Your choice is stored in this browser (in local storage, under
-            <code>grimicorn:analytics-consent</code>) for 180 days, after which
-            the banner asks again. To change it, use the &ldquo;analytics
-            choice&rdquo; link in the footer of the home page<template
-              v-if="analyticsAvailable"
-            >
+            <code>{{ CONSENT_STORAGE_KEY }}</code>) for
+            {{ CONSENT_LIFETIME_DAYS }} days, after which the banner asks again.
+            To change it, use the &ldquo;{{ MANAGE_CHOICE_LABEL }}&rdquo; link
+            in the footer of the home page<template v-if="analyticsAvailable">
               or here: <ConsentManageLink /></template
             >. Declining after accepting stops further analytics requests and
             clears the Google Analytics cookies on this domain and its parent

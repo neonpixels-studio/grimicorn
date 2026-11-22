@@ -22,6 +22,11 @@ const MEASUREMENT_ID: string = import.meta.env.VITE_GA_MEASUREMENT_ID ?? "";
 // set once, after mount.
 export const analyticsAvailable = ref(false);
 export const bannerOpen = ref(false);
+// Bumped each time a visitor asks to change their choice, so the banner takes
+// focus even when it is already open.
+export const reopenRequests = ref(0);
+// Live binding: read through the module namespace, never copied.
+export let reopenTrigger: Element | null = null;
 
 let storage: ConsentStorage | null = null;
 
@@ -62,6 +67,14 @@ export function declineAnalytics() {
   bannerOpen.value = false;
 }
 
-export function reopenAnalyticsChoice() {
+// `trigger` is the control that was used; focus returns to it once the banner
+// closes. Passed explicitly because Safari does not focus buttons on click.
+export function reopenAnalyticsChoice(trigger: Element | null) {
+  reopenTrigger = trigger;
   bannerOpen.value = true;
+  reopenRequests.value += 1;
+}
+
+export function clearReopenTrigger() {
+  reopenTrigger = null;
 }

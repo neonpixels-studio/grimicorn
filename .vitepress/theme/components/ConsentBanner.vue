@@ -1,46 +1,54 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from "vue";
-import { PRIVACY_PAGE_PATH } from "../constants";
-import {
-  acceptAnalytics,
-  analyticsAvailable,
-  bannerOpen,
-  declineAnalytics,
-} from "../analytics/consent-controller";
+import { MAIN_CONTENT_ID, PRIVACY_PAGE_PATH } from "../constants";
+import * as consentController from "../analytics/consent-controller";
+
+const { acceptAnalytics, analyticsAvailable, bannerOpen, declineAnalytics } =
+  consentController;
 
 const bannerElement = ref<HTMLElement | null>(null);
-let focusBeforeOpen: Element | null = null;
 
-function restoreFocus() {
-  const returnTarget = focusBeforeOpen;
-  focusBeforeOpen = null;
-  if (returnTarget instanceof HTMLElement && returnTarget.isConnected) {
-    returnTarget.focus();
-  }
-}
-
+// Not a dialog: nothing traps focus and the page stays usable. When the footer
+// link reopens it, focus moves in so keyboard users find it, and goes back to
+// that link when it closes. The automatic first-visit prompt takes no focus.
 async function moveFocusIntoBanner() {
-  const active = document.activeElement;
-  if (!active || active === document.body) {
-    return;
-  }
-  focusBeforeOpen = active;
   await nextTick();
   bannerElement.value?.focus();
 }
 
-// Not a dialog: nothing traps focus and the page stays usable. When the footer
-// link reopens it, focus moves in so keyboard users find it, and goes back to
-// that link when it closes. The automatic first-visit prompt leaves focus alone
-// (nothing is focused yet, so there is nothing to return to).
-function onBannerToggled(isOpen: boolean) {
-  if (isOpen) {
-    return moveFocusIntoBanner();
+function focusAfterClose(focusWasInBanner: boolean) {
+  const returnTarget = consentController.reopenTrigger;
+  if (returnTarget instanceof HTMLElement && returnTarget.isConnected) {
+    returnTarget.focus();
+    return;
   }
-  restoreFocus();
+  // The button that was pressed is about to leave the DOM; without this, focus
+  // would fall back to the top of the page.
+  if (focusWasInBanner) {
+    document.getElementById(MAIN_CONTENT_ID)?.focus();
+  }
 }
 
-watch(bannerOpen, onBannerToggled, { flush: "post" });
+// flush "pre" so the banner is still in the DOM when we check where focus is.
+watch(
+  bannerOpen,
+  async (isOpen) => {
+    if (isOpen) {
+      return;
+    }
+    const focusWasInBanner = Boolean(
+      bannerElement.value?.contains(document.activeElement),
+    );
+    await nextTick();
+    focusAfterClose(focusWasInBanner);
+    consentController.clearReopenTrigger();
+  },
+  { flush: "pre" },
+);
+
+watch(consentController.reopenRequests, moveFocusIntoBanner, {
+  flush: "post",
+});
 
 const BUTTON_CLASSES =
   "text-fg hover:bg-white/10 cursor-pointer border border-white/30 px-4 py-2 text-[12.5px] transition-colors";

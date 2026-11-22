@@ -12,11 +12,15 @@ const MEASUREMENT_ID = "G-TEST123";
 
 type AnalyticsWindow = Record<string, unknown>;
 
+function analyticsWindow() {
+  return window as unknown as AnalyticsWindow;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   document.getElementById(GA_SCRIPT_ELEMENT_ID)?.remove();
-  const target = window as unknown as AnalyticsWindow;
+  const target = analyticsWindow();
   delete target.dataLayer;
   delete target.gtag;
   delete target[`ga-disable-${MEASUREMENT_ID}`];
@@ -25,7 +29,7 @@ afterEach(() => {
 describe("loadGoogleAnalytics", () => {
   it("requests nothing and creates no dataLayer until called", () => {
     expect(document.getElementById(GA_SCRIPT_ELEMENT_ID)).toBeNull();
-    expect((window as unknown as AnalyticsWindow).dataLayer).toBeUndefined();
+    expect(analyticsWindow().dataLayer).toBeUndefined();
   });
 
   it("injects the loader once and queues js and config", () => {
@@ -37,9 +41,9 @@ describe("loadGoogleAnalytics", () => {
     expect((loaders[0] as HTMLScriptElement).src).toBe(
       `https://www.googletagmanager.com/gtag/js?id=${MEASUREMENT_ID}`,
     );
-    const queued = (
-      (window as unknown as AnalyticsWindow).dataLayer as ArrayLike<unknown>[]
-    ).map((entry) => Array.from(entry));
+    const queued = (analyticsWindow().dataLayer as ArrayLike<unknown>[]).map(
+      (entry) => Array.from(entry),
+    );
     expect(queued[0][0]).toBe("js");
     expect(queued.filter((entry) => entry[0] === "config")).toEqual([
       ["config", MEASUREMENT_ID],
@@ -49,7 +53,7 @@ describe("loadGoogleAnalytics", () => {
   it("re-enables hits after a withdrawal", () => {
     loadGoogleAnalytics(MEASUREMENT_ID);
     disableGoogleAnalytics(MEASUREMENT_ID);
-    const target = window as unknown as AnalyticsWindow;
+    const target = analyticsWindow();
     expect(target[`ga-disable-${MEASUREMENT_ID}`]).toBe(true);
 
     loadGoogleAnalytics(MEASUREMENT_ID);

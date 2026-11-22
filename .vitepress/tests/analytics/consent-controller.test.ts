@@ -11,6 +11,10 @@ async function loadController() {
   return import("../../theme/analytics/consent-controller");
 }
 
+function analyticsWindow() {
+  return window as unknown as Record<string, unknown>;
+}
+
 function gaScript() {
   return document.getElementById(GA_SCRIPT_ELEMENT_ID);
 }
@@ -21,8 +25,9 @@ beforeEach(() => {
 
 afterEach(() => {
   gaScript()?.remove();
-  delete (window as unknown as Record<string, unknown>).dataLayer;
-  delete (window as unknown as Record<string, unknown>).gtag;
+  document.cookie = "_ga=; max-age=0; path=/";
+  delete analyticsWindow().dataLayer;
+  delete analyticsWindow().gtag;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -34,9 +39,7 @@ describe("initAnalyticsConsent", () => {
 
     expect(controller.bannerOpen.value).toBe(true);
     expect(gaScript()).toBeNull();
-    expect((window as unknown as Record<string, unknown>).dataLayer).toBe(
-      undefined,
-    );
+    expect(analyticsWindow().dataLayer).toBe(undefined);
   });
 
   it("loads GA without prompting after a stored accept", async () => {
@@ -63,6 +66,7 @@ describe("initAnalyticsConsent", () => {
 
   it("clears leftover GA cookies under a privacy signal", async () => {
     document.cookie = "_ga=1; path=/";
+    expect(document.cookie).toContain("_ga=");
     vi.stubGlobal("navigator", { doNotTrack: "1" });
     const controller = await loadController();
     controller.initAnalyticsConsent();
@@ -70,7 +74,11 @@ describe("initAnalyticsConsent", () => {
     expect(document.cookie).not.toContain("_ga=");
   });
 
-  it("does nothing on builds without a measurement ID", async () => {
+  it("does nothing on builds without a measurement ID, even after a stored accept", async () => {
+    localStorage.setItem(
+      CONSENT_STORAGE_KEY,
+      JSON.stringify({ choice: "accepted", expiresAt: Date.now() + 60_000 }),
+    );
     vi.resetModules();
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");
     const controller = await import("../../theme/analytics/consent-controller");
@@ -78,6 +86,7 @@ describe("initAnalyticsConsent", () => {
 
     expect(controller.analyticsAvailable.value).toBe(false);
     expect(controller.bannerOpen.value).toBe(false);
+    expect(gaScript()).toBeNull();
   });
 });
 
@@ -90,15 +99,11 @@ describe("accept, withdraw, and reopen", () => {
     expect(gaScript()).not.toBeNull();
     expect(controller.bannerOpen.value).toBe(false);
 
-    controller.reopenAnalyticsChoice();
+    controller.reopenAnalyticsChoice(null);
     expect(controller.bannerOpen.value).toBe(true);
 
     controller.declineAnalytics();
-    expect(
-      (window as unknown as Record<string, unknown>)[
-        `ga-disable-${MEASUREMENT_ID}`
-      ],
-    ).toBe(true);
+    expect(analyticsWindow()[`ga-disable-${MEASUREMENT_ID}`]).toBe(true);
     expect(JSON.parse(localStorage.getItem(CONSENT_STORAGE_KEY)!).choice).toBe(
       "declined",
     );
