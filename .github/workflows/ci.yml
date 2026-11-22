@@ -51,7 +51,23 @@ jobs:
         uses: ./.github/actions/setup-node-project
 
       - name: Lint
-        run: npm run lint
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          npm run lint:static
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE="$PR_BASE_SHA"
+          else
+            BASE="$PUSH_BEFORE_SHA"
+          fi
+          if [ -n "$BASE" ] && git cat-file -e "$BASE" 2>/dev/null; then
+            npx fallow audit --base "$BASE"
+          else
+            echo "::warning::fallow audit base unavailable; using auto-detected base"
+            npx fallow audit
+          fi
 
       - name: Type-check
         run: npm run typecheck

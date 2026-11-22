@@ -18,7 +18,7 @@ const CSP_REPORT_ENVIRONMENT = "production";
 const UPLOAD_PROJECT_VARIABLES = ["SENTRY_ORG", "SENTRY_PROJECT"] as const;
 // The client build's output. Hidden source maps are uploaded, then deleted so
 // they never deploy.
-export const SOURCE_MAP_FILES_GLOB = ".vitepress/dist/**/*.map";
+const SOURCE_MAP_FILES_GLOB = ".vitepress/dist/**/*.map";
 
 // The origin the browser SDK posts events to, for the CSP's connect-src. Throws
 // on anything but an https URL, which also catches dotenvx ciphertext

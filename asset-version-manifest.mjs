@@ -244,7 +244,7 @@ export const VERSIONED_ASSET_FILES = [
 ];
 
 export const ASSET_VERSION_LOCK_FILE = ".vitepress/asset-version-lock.json";
-export const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
+const ASSET_CACHE_BUST_SOURCE = ".vitepress/asset-cache-bust.ts";
 // The manifest is the one versioned asset whose ?v= tokens live inside the file's own
 // bytes rather than being appended by withAssetCacheBust() at render time (it is
 // static JSON, not code), so nothing rewrites its icon srcs when the shared token
