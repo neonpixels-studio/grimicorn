@@ -61,7 +61,7 @@ export default defineConfig({
   webServer: {
     // Serve the production build with its per-build CSP headers so the smoke test
     // runs against exactly what Netlify ships. The build itself runs in the
-    // `test:e2e` npm script (not here) so a reused local server can never serve a
+    // `e2e` npm script (not here) so a reused local server can never serve a
     // stale dist — which would defeat the CSP-regression check.
     command: `node .vitepress/e2e/serve-dist.mjs ${PORT}`,
     url: BASE_URL,
