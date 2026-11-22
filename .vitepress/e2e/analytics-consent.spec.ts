@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// `npm run test:e2e` builds with CONTEXT=production, so the consent flow ships.
+// `npm run e2e` builds with CONTEXT=production, so the consent flow ships.
 // Requests to Google are fulfilled with an empty script, never sent for real.
 
 const GTAG_URL_PATTERN = "**/www.googletagmanager.com/**";

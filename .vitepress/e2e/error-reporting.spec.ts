@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-// `npm run test:e2e` builds with CONTEXT=production, which switches on the GA
+// `npm run e2e` builds with CONTEXT=production, which switches on the GA
 // consent flow only. Sentry's DSN lives only in .env.production, so this
 // build must carry neither the SDK chunk nor any traffic to Sentry. A regression
 // here means non-production visitors are being reported to the production
