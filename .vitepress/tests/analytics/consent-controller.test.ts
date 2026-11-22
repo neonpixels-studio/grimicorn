@@ -26,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   gaScript()?.remove();
   document.cookie = "_ga=; max-age=0; path=/";
+  delete analyticsWindow()[`ga-disable-${MEASUREMENT_ID}`];
   delete analyticsWindow().dataLayer;
   delete analyticsWindow().gtag;
   vi.unstubAllEnvs();
@@ -40,6 +41,19 @@ describe("initAnalyticsConsent", () => {
     expect(controller.bannerOpen.value).toBe(true);
     expect(gaScript()).toBeNull();
     expect(analyticsWindow().dataLayer).toBe(undefined);
+  });
+
+  it("clears a lingering GA cookie after a stored decline", async () => {
+    localStorage.setItem(
+      CONSENT_STORAGE_KEY,
+      JSON.stringify({ choice: "declined", expiresAt: Date.now() + 60_000 }),
+    );
+    document.cookie = "_ga=1; path=/";
+    const controller = await loadController();
+    controller.initAnalyticsConsent();
+
+    expect(document.cookie).not.toContain("_ga=");
+    expect(gaScript()).toBeNull();
   });
 
   it("loads GA without prompting after a stored accept", async () => {

@@ -47,6 +47,10 @@ export function initAnalyticsConsent() {
   }
   if (shouldLoadAnalytics(consentStorage(), privacySignalPresent)) {
     loadGoogleAnalytics(MEASUREMENT_ID);
+  } else {
+    // A declined, expired, or malformed choice: a cookie another tab wrote after
+    // the withdrawal must not linger.
+    clearGoogleAnalyticsCookies();
   }
   bannerOpen.value = shouldPromptForConsent(
     consentStorage(),
@@ -55,6 +59,9 @@ export function initAnalyticsConsent() {
 }
 
 export function acceptAnalytics() {
+  if (!analyticsAvailable.value) {
+    return;
+  }
   writeConsentChoice(consentStorage(), CONSENT_CHOICES.accepted);
   loadGoogleAnalytics(MEASUREMENT_ID);
   bannerOpen.value = false;

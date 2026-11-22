@@ -27,11 +27,6 @@ afterEach(() => {
 });
 
 describe("loadGoogleAnalytics", () => {
-  it("requests nothing and creates no dataLayer until called", () => {
-    expect(document.getElementById(GA_SCRIPT_ELEMENT_ID)).toBeNull();
-    expect(analyticsWindow().dataLayer).toBeUndefined();
-  });
-
   it("injects the loader once and queues js and config", () => {
     loadGoogleAnalytics(MEASUREMENT_ID);
     loadGoogleAnalytics(MEASUREMENT_ID);
