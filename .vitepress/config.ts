@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { OG_WIDTH, OG_HEIGHT, OG_IMAGE_FILENAME } from "../og-banner-spec.mjs";
 import { HERO_AVIF_HREF } from "../hero-image-spec.mjs";
 import { GITHUB_PROFILE_URL, PRIVACY_PAGE_PATH } from "./theme/constants";
-import { buildGaBootstrapScript } from "./analytics";
 import { writeCspHeaders } from "./write-headers";
 import { withAssetCacheBust } from "./asset-cache-bust";
 import { assertBuildOutputHasNoDisallowedOrigins } from "./scan-origins";
@@ -50,14 +49,6 @@ const UPLOAD_SOURCE_MAPS = shouldUploadSourceMaps(process.env);
 // and the plugin deletes them afterwards, so they never deploy.
 const UPLOADED_SOURCE_MAP_MODE = "hidden";
 
-// The inline bootstrap (see ./analytics) skips the gtag loader entirely for
-// visitors whose browser sends Global Privacy Control or Do Not Track, and carries
-// no hash here because collectScriptHashes hashes it out of the built HTML at build
-// time, exactly like VitePress's own inline bootstrap scripts. Empty when analytics
-// is disabled so no GA tag reaches dev/preview/branch output.
-const GA_HEAD_ENTRIES: HeadConfig[] = ANALYTICS_ENABLED
-  ? [["script", {}, buildGaBootstrapScript(GA_MEASUREMENT_ID)]]
-  : [];
 const DESCRIPTION =
   "A chaotic AI coding sidekick — builds what you don't have time for, then unleashes gremlins to break it before production does.";
 // Shared by og:title and twitter:title, which must stay identical — extracted so
@@ -310,11 +301,6 @@ export default defineConfig({
       "link",
       { rel: "manifest", href: withAssetCacheBust("/images/site.webmanifest") },
     ],
-    // Google Analytics (GA4), production-only (see ANALYTICS_ENABLED / GA_HEAD_ENTRIES
-    // above). Spread here so it lands in the static `head` — rendered on every page
-    // including the 404, which we want to measure — rather than transformHead, which
-    // is scoped per page.
-    ...GA_HEAD_ENTRIES,
   ],
   // Scope INDEXABLE_HEAD_ENTRIES and HERO_PRELOAD_HEAD_ENTRY (see rationale
   // above) to the homepage, and give every other content page only its own
@@ -422,6 +408,15 @@ export default defineConfig({
     // process.env, which Vite still reads for VITE_* keys. VitePress bundles
     // Vite 5, which treats `envDir: false` as the root, so it can't be used here.
     envDir: VITE_ENV_DIR,
+    // The measurement ID reaches the client only on the production deploy. GA
+    // itself is never in the page head: the theme injects gtag.js after the
+    // visitor accepts the consent banner (see theme/analytics), so no inline
+    // script is involved and the CSP needs no extra script hash for it.
+    define: {
+      "import.meta.env.VITE_GA_MEASUREMENT_ID": JSON.stringify(
+        ANALYTICS_ENABLED ? GA_MEASUREMENT_ID : "",
+      ),
+    },
     // tailwindcss() is typed against the top-level `vite` package, which npm
     // hoists to v8 to satisfy vitest 5's peer range. vitepress bundles its own
     // vite@5 internally and types `vite.plugins` against that copy, so the two

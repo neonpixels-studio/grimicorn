@@ -17,7 +17,7 @@
     "check:asset-version-bump": "node scripts/check-asset-version-bump.mjs",
     "test": "vitest",
     "test:ci": "vitest run",
-    "test:e2e": "vitepress build && playwright test",
+    "test:e2e": "CONTEXT=production vitepress build && playwright test",
     "typecheck": "vue-tsc --noEmit",
     "audit": "npm audit --omit=dev --audit-level=high",
     "lint": "prettier --check . && eslint .",

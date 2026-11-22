@@ -9,4 +9,6 @@ declare module "*.css" {}
 // eslint-disable-next-line no-unused-vars
 interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN?: string;
+  // Injected by config.ts on the production deploy only; never read from a file.
+  readonly VITE_GA_MEASUREMENT_ID?: string;
 }

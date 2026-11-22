@@ -1,10 +1,6 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 
-import {
-  OPT_OUT_CHECK_EXPRESSION,
-  hasPrivacyOptOut,
-  type BrowserGlobals,
-} from "../privacy-opt-out";
+import { hasPrivacyOptOut, type BrowserGlobals } from "../privacy-opt-out";
 
 const OPTED_OUT_CASES: Array<[string, BrowserGlobals]> = [
   ["Global Privacy Control", { navigator: { globalPrivacyControl: true } }],
@@ -21,15 +17,6 @@ const NOT_OPTED_OUT_CASES: Array<[string, BrowserGlobals]> = [
   ],
   ["DNT unspecified", { navigator: { doNotTrack: "unspecified" }, window: {} }],
 ];
-
-// Evaluates the inline-script expression the GA bootstrap embeds.
-function evaluateExpression({ navigator = {}, window = {} }: BrowserGlobals) {
-  return new Function(
-    "navigator",
-    "window",
-    `return ${OPT_OUT_CHECK_EXPRESSION};`,
-  )(navigator, window) as boolean;
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -52,13 +39,4 @@ describe("hasPrivacyOptOut", () => {
     vi.stubGlobal("navigator", { globalPrivacyControl: true });
     expect(hasPrivacyOptOut()).toBe(true);
   });
-});
-
-describe("OPT_OUT_CHECK_EXPRESSION", () => {
-  it.each([...OPTED_OUT_CASES, ...NOT_OPTED_OUT_CASES])(
-    "agrees with hasPrivacyOptOut for %s",
-    (_label, globals) => {
-      expect(evaluateExpression(globals)).toBe(hasPrivacyOptOut(globals));
-    },
-  );
 });
