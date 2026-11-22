@@ -13,6 +13,8 @@ const MEASUREMENT_ID = "G-TEST123";
 type AnalyticsWindow = Record<string, unknown>;
 
 afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   document.getElementById(GA_SCRIPT_ELEMENT_ID)?.remove();
   const target = window as unknown as AnalyticsWindow;
   delete target.dataLayer;
@@ -40,7 +42,6 @@ describe("loadGoogleAnalytics", () => {
     ).map((entry) => Array.from(entry));
     expect(queued[0][0]).toBe("js");
     expect(queued.filter((entry) => entry[0] === "config")).toEqual([
-      ["config", MEASUREMENT_ID],
       ["config", MEASUREMENT_ID],
     ]);
   });
@@ -102,7 +103,5 @@ describe("clearGoogleAnalyticsCookies", () => {
     expect(
       writes.some((write) => write.endsWith("domain=.grimicorn.dev")),
     ).toBe(true);
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
   });
 });

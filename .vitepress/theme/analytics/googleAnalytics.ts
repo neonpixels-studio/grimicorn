@@ -45,11 +45,12 @@ function bootstrapGtag(measurementId: string) {
   target.gtag("config", measurementId);
 }
 
-// Idempotent: a repeat grant never adds a second script or `config` call.
+// Idempotent: a repeat grant never adds a second script or `config` call (each
+// `config` would send another page_view); clearing the disable flag is enough
+// for hits from an already loaded script to flow again.
 export function loadGoogleAnalytics(measurementId: string) {
   setDisableFlag(measurementId, false);
   if (document.getElementById(GA_SCRIPT_ELEMENT_ID)) {
-    analyticsWindow().gtag?.("config", measurementId);
     return;
   }
   injectGtagScript(measurementId);

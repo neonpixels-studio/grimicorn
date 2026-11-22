@@ -11,18 +11,15 @@ import {
 const bannerElement = ref<HTMLElement | null>(null);
 let focusBeforeOpen: Element | null = null;
 
-// Not a dialog: nothing traps focus and the page stays usable. When the footer
-// link reopens it, focus moves in so keyboard users find it, and goes back to
-// that link when it closes. The automatic first-visit prompt leaves focus alone.
-async function onBannerToggled(isOpen: boolean) {
-  if (!isOpen) {
-    const returnTarget = focusBeforeOpen;
-    focusBeforeOpen = null;
-    if (returnTarget instanceof HTMLElement && returnTarget.isConnected) {
-      returnTarget.focus();
-    }
-    return;
+function restoreFocus() {
+  const returnTarget = focusBeforeOpen;
+  focusBeforeOpen = null;
+  if (returnTarget instanceof HTMLElement && returnTarget.isConnected) {
+    returnTarget.focus();
   }
+}
+
+async function moveFocusIntoBanner() {
   const active = document.activeElement;
   if (!active || active === document.body) {
     return;
@@ -30,6 +27,17 @@ async function onBannerToggled(isOpen: boolean) {
   focusBeforeOpen = active;
   await nextTick();
   bannerElement.value?.focus();
+}
+
+// Not a dialog: nothing traps focus and the page stays usable. When the footer
+// link reopens it, focus moves in so keyboard users find it, and goes back to
+// that link when it closes. The automatic first-visit prompt leaves focus alone
+// (nothing is focused yet, so there is nothing to return to).
+function onBannerToggled(isOpen: boolean) {
+  if (isOpen) {
+    return moveFocusIntoBanner();
+  }
+  restoreFocus();
 }
 
 watch(bannerOpen, onBannerToggled, { flush: "post" });

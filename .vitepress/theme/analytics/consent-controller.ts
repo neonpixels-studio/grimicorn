@@ -34,6 +34,9 @@ function consentStorage() {
 export function initAnalyticsConsent() {
   const privacySignalPresent = hasPrivacyOptOut();
   analyticsAvailable.value = Boolean(MEASUREMENT_ID) && !privacySignalPresent;
+  if (privacySignalPresent) {
+    clearGoogleAnalyticsCookies();
+  }
   if (!analyticsAvailable.value) {
     return;
   }

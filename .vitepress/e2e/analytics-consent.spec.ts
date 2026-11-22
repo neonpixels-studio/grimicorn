@@ -42,6 +42,14 @@ test("no request to Google before consent, one after accepting", async ({
   await expect(banner).toBeHidden();
 });
 
+// The footer link only renders once the theme has mounted and found analytics
+// available, so it doubles as the "hydration finished" signal.
+async function waitForConsentUi(page: Page) {
+  await expect(
+    page.getByRole("button", { name: FOOTER_LINK_NAME }),
+  ).toBeVisible();
+}
+
 test("the stored choice survives a reload and declining loads nothing", async ({
   page,
 }) => {
@@ -57,6 +65,7 @@ test("the stored choice survives a reload and declining loads nothing", async ({
   expect(stored.expiresAt).toBeGreaterThan(Date.now());
 
   await page.reload({ waitUntil: "networkidle" });
+  await waitForConsentUi(page);
   await expect(page.getByRole("region", { name: BANNER_NAME })).toBeHidden();
   expect(requested).toEqual([]);
 });
@@ -89,6 +98,10 @@ test("Global Privacy Control suppresses the banner and the footer link", async (
     });
   });
   await page.goto("/", { waitUntil: "networkidle" });
+  // Hydration is done once the pause toggle responds; only then is "hidden" proof.
+  const pauseToggle = page.getByRole("button", { name: "pause live updates" });
+  await pauseToggle.click();
+  await expect(pauseToggle).toHaveAttribute("aria-pressed", "true");
 
   await expect(page.getByRole("region", { name: BANNER_NAME })).toBeHidden();
   await expect(

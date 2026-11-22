@@ -61,6 +61,15 @@ describe("initAnalyticsConsent", () => {
     expect(gaScript()).toBeNull();
   });
 
+  it("clears leftover GA cookies under a privacy signal", async () => {
+    document.cookie = "_ga=1; path=/";
+    vi.stubGlobal("navigator", { doNotTrack: "1" });
+    const controller = await loadController();
+    controller.initAnalyticsConsent();
+
+    expect(document.cookie).not.toContain("_ga=");
+  });
+
   it("does nothing on builds without a measurement ID", async () => {
     vi.resetModules();
     vi.stubEnv("VITE_GA_MEASUREMENT_ID", "");

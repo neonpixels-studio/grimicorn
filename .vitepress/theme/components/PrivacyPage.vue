@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { MAIN_CONTENT_ID } from "../constants";
+import { analyticsAvailable } from "../analytics/consent-controller";
+import ConsentManageLink from "./ConsentManageLink.vue";
 </script>
 
 <template>
@@ -69,11 +71,14 @@ import { MAIN_CONTENT_ID } from "../constants";
             Your choice is stored in this browser (in local storage, under
             <code>grimicorn:analytics-consent</code>) for 180 days, after which
             the banner asks again. To change it, use the &ldquo;analytics
-            choice&rdquo; link in the footer of the home page. Declining after
-            accepting stops further analytics requests and clears the Google
-            Analytics cookies on this domain and its parent domains. If your
-            browser sends Global Privacy Control or Do Not Track, analytics
-            never loads and the banner is not shown.
+            choice&rdquo; link in the footer of the home page<template
+              v-if="analyticsAvailable"
+            >
+              or here: <ConsentManageLink /></template
+            >. Declining after accepting stops further analytics requests and
+            clears the Google Analytics cookies on this domain and its parent
+            domains. If your browser sends Global Privacy Control or Do Not
+            Track, analytics never loads and the banner is not shown.
           </p>
         </section>
 

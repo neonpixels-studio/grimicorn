@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import {
   CONSENT_CHOICES,
   CONSENT_LIFETIME_DAYS,
   CONSENT_STORAGE_KEY,
+  getConsentStorage,
   readConsentChoice,
   shouldLoadAnalytics,
   shouldPromptForConsent,
@@ -105,5 +106,38 @@ describe("privacy signal", () => {
 
     expect(shouldLoadAnalytics(storage, true, NOW)).toBe(false);
     expect(shouldPromptForConsent(memoryStorage(), true, NOW)).toBe(false);
+  });
+});
+
+describe("unavailable storage", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to a store that reads back null, so nothing loads and the banner prompts", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    const storage = getConsentStorage();
+
+    writeConsentChoice(storage, CONSENT_CHOICES.accepted, NOW);
+    expect(storage.getItem(CONSENT_STORAGE_KEY)).toBeNull();
+    expect(shouldLoadAnalytics(storage, false, NOW)).toBe(false);
+    expect(shouldPromptForConsent(storage, false, NOW)).toBe(true);
+  });
+
+  it("does not throw when saving a choice fails", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const failing: ConsentStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    };
+
+    expect(() =>
+      writeConsentChoice(failing, CONSENT_CHOICES.declined, NOW),
+    ).not.toThrow();
   });
 });
